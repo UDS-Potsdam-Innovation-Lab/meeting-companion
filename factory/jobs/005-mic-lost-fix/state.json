@@ -7,8 +7,8 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "spec",
-  "round": 0,
+  "stage": "build",
+  "round": 1,
   "max_round": 3,
   "reviews": {
     "security": "pending",
@@ -19,6 +19,6 @@
   "history": [],
   "decision": null,
   "waiting": null,
-  "note": "Writing spec (bugfix)",
-  "updated": "2026-10-30T20:19:49Z"
+  "note": "Building (small bugfix)",
+  "updated": "2026-10-30T20:20:49Z"
 }
