@@ -17,7 +17,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use super::{Segment, TEXT_MAX};
+use super::{Segment, Voice, TEXT_MAX};
 use crate::crypto::{self, DataKey, SEAL_OVERHEAD};
 use crate::model::is_valid_id;
 
@@ -69,6 +69,34 @@ pub trait TranscriptWriter: Send {
     fn append(&mut self, segment: &Segment) -> Result<(), TranscriptError>;
     /// End offset of the last stored segment (0 if none): where a resumed recording continues.
     fn last_end_ms(&self) -> u64;
+    /// Sequence number the next appended segment gets (= the number of stored segments).
+    fn next_seq(&self) -> u64;
+    /// The highest voice label stored so far: a restarted recording labels new voices after it.
+    fn highest_voice(&self) -> Option<Voice>;
+}
+
+/// What a writer remembers about the stored segments: never their text.
+#[derive(Debug, Clone, Copy, Default)]
+struct Tail {
+    seq: u64,
+    last_end_ms: u64,
+    highest_voice: Option<Voice>,
+}
+
+impl Tail {
+    fn of(segments: &[Segment]) -> Self {
+        Self {
+            seq: segments.len() as u64,
+            last_end_ms: segments.last().map_or(0, |s| s.end_ms),
+            highest_voice: segments.iter().filter_map(|s| s.voice).max(),
+        }
+    }
+
+    fn appended(&mut self, segment: &Segment) {
+        self.seq += 1;
+        self.last_end_ms = segment.end_ms;
+        self.highest_voice = self.highest_voice.max(segment.voice);
+    }
 }
 
 fn record_aad(id: &str, seq: u64) -> Vec<u8> {
@@ -219,8 +247,7 @@ impl TranscriptStore for FileTranscriptStore {
             file,
             key: self.key.clone(),
             id: id.to_owned(),
-            seq: found.segments.len() as u64,
-            last_end_ms: found.segments.last().map_or(0, |s| s.end_ms),
+            tail: Tail::of(&found.segments),
         }))
     }
 }
@@ -229,22 +256,28 @@ struct FileTranscriptWriter {
     file: File,
     key: DataKey,
     id: String,
-    seq: u64,
-    last_end_ms: u64,
+    tail: Tail,
 }
 
 impl TranscriptWriter for FileTranscriptWriter {
     fn append(&mut self, segment: &Segment) -> Result<(), TranscriptError> {
-        let record = seal_record(&self.key, &self.id, self.seq, segment);
+        let record = seal_record(&self.key, &self.id, self.tail.seq, segment);
         self.file.write_all(&record)?;
         self.file.sync_data()?;
-        self.seq += 1;
-        self.last_end_ms = segment.end_ms;
+        self.tail.appended(segment);
         Ok(())
     }
 
     fn last_end_ms(&self) -> u64 {
-        self.last_end_ms
+        self.tail.last_end_ms
+    }
+
+    fn next_seq(&self) -> u64 {
+        self.tail.seq
+    }
+
+    fn highest_voice(&self) -> Option<Voice> {
+        self.tail.highest_voice
     }
 }
 
@@ -281,11 +314,11 @@ impl TranscriptStore for MemoryTranscriptStore {
     }
 
     fn writer(&self, id: &str) -> Result<Box<dyn TranscriptWriter>, TranscriptError> {
-        let last_end_ms = self.load(id)?.last().map_or(0, |s| s.end_ms);
+        let tail = Tail::of(&self.load(id)?);
         Ok(Box::new(MemoryWriter {
             all: self.all.clone(),
             id: id.to_owned(),
-            last_end_ms,
+            tail,
         }))
     }
 }
@@ -293,7 +326,7 @@ impl TranscriptStore for MemoryTranscriptStore {
 struct MemoryWriter {
     all: Arc<Mutex<HashMap<String, Vec<Segment>>>>,
     id: String,
-    last_end_ms: u64,
+    tail: Tail,
 }
 
 impl TranscriptWriter for MemoryWriter {
@@ -304,12 +337,20 @@ impl TranscriptWriter for MemoryWriter {
             .entry(self.id.clone())
             .or_default()
             .push(segment.clone());
-        self.last_end_ms = segment.end_ms;
+        self.tail.appended(segment);
         Ok(())
     }
 
     fn last_end_ms(&self) -> u64 {
-        self.last_end_ms
+        self.tail.last_end_ms
+    }
+
+    fn next_seq(&self) -> u64 {
+        self.tail.seq
+    }
+
+    fn highest_voice(&self) -> Option<Voice> {
+        self.tail.highest_voice
     }
 }
 
@@ -344,6 +385,7 @@ mod tests {
                 Lang::En
             },
             is_final: true,
+            voice: None,
         }
     }
 
@@ -518,5 +560,35 @@ mod tests {
         let foreign = s.path_for("m-9");
         fs::write(&foreign, b"not a transcript").unwrap();
         assert!(matches!(s.load("m-9"), Err(TranscriptError::Corrupt)));
+    }
+
+    #[test]
+    fn job_003_records_without_a_voice_load_unchanged_and_voices_round_trip() {
+        let (_d, s) = store();
+        // A record exactly as job 003 wrote it: no `voice` key.
+        let old = r#"{"startMs":0,"endMs":2500,"at":1700000000000,"text":"Guten Morgen","lang":"de","final":true}"#;
+        let segment: Segment = serde_json::from_str(old).unwrap();
+        assert_eq!(segment.voice, None);
+        assert_eq!(serde_json::to_string(&segment).unwrap(), old);
+        let mut w = s.writer("m-1").unwrap();
+        w.append(&segment).unwrap();
+        assert_eq!(w.highest_voice(), None);
+        let mut b = seg(1, "with a voice");
+        b.voice = Voice::parse("B");
+        w.append(&b).unwrap();
+        let mut a = seg(2, "another");
+        a.voice = Voice::parse("A");
+        w.append(&a).unwrap();
+        assert_eq!(w.next_seq(), 3);
+        assert_eq!(w.highest_voice(), Voice::parse("B"));
+        drop(w);
+        let loaded = s.load("m-1").unwrap();
+        assert_eq!(loaded, vec![segment, b, a]);
+        // A new session knows where it left off.
+        let w = s.writer("m-1").unwrap();
+        assert_eq!((w.next_seq(), w.highest_voice()), (3, Voice::parse("B")));
+        // A record with a malformed voice is not ours.
+        let bad: Result<Segment, _> = serde_json::from_str(&old.replace("}", r#","voice":"AA"}"#));
+        assert!(bad.is_err());
     }
 }

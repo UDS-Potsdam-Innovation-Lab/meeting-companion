@@ -9,7 +9,7 @@
 
 pub mod store;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub use crate::engines::stt::Lang;
 use crate::engines::stt::{SpeechToText, SttError, MAX_WINDOW_MS};
@@ -28,6 +28,55 @@ pub const PARTIAL_EVERY_MS: u64 = 1_000;
 /// Most characters of one segment's text that are kept.
 pub const TEXT_MAX: usize = 2_000;
 
+/// A voice label, `A` to `Z`, in the order voices were first heard in a meeting. It names a voice, not
+/// a person: who it is comes from a person's choice in the speakers view. Serialised as the letter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Voice(u8);
+
+impl Voice {
+    /// `A`–`Z`: at most this many voices per meeting.
+    pub const COUNT: usize = 26;
+
+    pub fn from_index(i: usize) -> Option<Self> {
+        (i < Self::COUNT).then_some(Self(i as u8))
+    }
+
+    pub fn index(self) -> usize {
+        usize::from(self.0)
+    }
+
+    /// Exactly one letter `A`–`Z`; anything else is not a voice label.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.as_bytes() {
+            [b @ b'A'..=b'Z'] => Some(Self(b - b'A')),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> char {
+        char::from(b'A' + self.0)
+    }
+}
+
+impl std::fmt::Display for Voice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.label())
+    }
+}
+
+impl Serialize for Voice {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_char(self.label())
+    }
+}
+
+impl<'de> Deserialize<'de> for Voice {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Voice::parse(&s).ok_or_else(|| serde::de::Error::custom("not a voice label"))
+    }
+}
+
 /// One transcript line. Offsets are milliseconds of recorded audio since the meeting's recording
 /// began (pauses do not count); `at` is the wall-clock time the segment started (ms since epoch).
 /// The text is untrusted: the UI renders it as text only.
@@ -42,6 +91,10 @@ pub struct Segment {
     /// False for the running preview of the current utterance, which a final segment replaces.
     #[serde(rename = "final")]
     pub is_final: bool,
+    /// The voice the diarizer heard, for a final segment. Optional and left out while unknown, so
+    /// records from before speaker detection load unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<Voice>,
 }
 
 fn ms(samples: u64) -> u64 {
@@ -71,6 +124,10 @@ pub struct Transcriber {
     silence: u64,
     since_partial: u64,
     level: f32,
+    /// With [`Self::keeping_clips`]: the audio of each final segment produced since the last
+    /// [`Self::take_clips`], in order, for the diarizer. The recorder takes them after every push, so
+    /// this holds at most one window (3 s).
+    clips: Option<Vec<Vec<f32>>>,
 }
 
 impl Transcriber {
@@ -88,7 +145,20 @@ impl Transcriber {
             silence: 0,
             since_partial: 0,
             level: 0.0,
+            clips: None,
         }
+    }
+
+    /// Keeps the audio of each final segment for [`Self::take_clips`] (speaker detection).
+    pub fn keeping_clips(mut self) -> Self {
+        self.clips = Some(Vec::new());
+        self
+    }
+
+    /// The audio of every final segment returned since the last call, one clip per final segment
+    /// and in the same order. Empty unless [`Self::keeping_clips`].
+    pub fn take_clips(&mut self) -> Vec<Vec<f32>> {
+        self.clips.as_mut().map(std::mem::take).unwrap_or_default()
     }
 
     /// Recorded time including earlier sessions.
@@ -103,7 +173,8 @@ impl Transcriber {
 
     /// Audio this pipeline holds right now (pending frame + utterance window).
     pub fn held_samples(&self) -> usize {
-        self.pending.len() + self.window.len()
+        let clips: usize = self.clips.iter().flatten().map(Vec::len).sum();
+        self.pending.len() + self.window.len() + clips
     }
 
     /// Gives the engine back, e.g. to reuse a loaded model in the next session.
@@ -193,6 +264,7 @@ impl Transcriber {
                 text: clip(&text),
                 lang: first.lang,
                 is_final: false,
+                voice: None,
             });
         }
         Ok(())
@@ -210,6 +282,10 @@ impl Transcriber {
             }
             let start = r.start_ms.min(len_ms);
             let end = r.end_ms.clamp(start, len_ms);
+            if let Some(clips) = self.clips.as_mut() {
+                let at = |ms: u64| ((ms * SAMPLES_PER_MS) as usize).min(window.len());
+                clips.push(window[at(start)..at(end)].to_vec());
+            }
             out.push(Segment {
                 start_ms: base + start,
                 end_ms: base + end,
@@ -217,6 +293,7 @@ impl Transcriber {
                 text: clip(text),
                 lang: r.lang,
                 is_final: true,
+                voice: None,
             });
         }
         self.silence = 0;

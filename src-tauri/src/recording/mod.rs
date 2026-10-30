@@ -5,11 +5,20 @@
 //!   `recording_consent_at`; otherwise it fails with [`RecordError::NoConsent`] and no source starts.
 //!   It never starts on its own: only the UI's "Start recording" / "Resume" calls it.
 //! - Audio goes into a bounded in-memory sink (at most 30 s) and through the [`Transcriber`] on a
-//!   worker thread. Final segments are appended to the encrypted transcript before they are sent to
-//!   the UI. Audio is never written anywhere.
+//!   worker thread. Audio is never written anywhere.
+//! - Speaker detection runs beside it on its own thread, so it never delays a transcript line: a final
+//!   segment is sent to the UI at once (with its sequence number); its audio clip goes to the
+//!   [`Diarizer`] through a bounded queue, and the voice follows as a separate `transcript-voice`
+//!   event. Each final segment is appended to the encrypted transcript, in order, as soon as its voice
+//!   is known or after [`VOICE_WAIT`] without one. Without a speaker model, segments are stored at once
+//!   and have no voice. Embeddings and centroids stay in memory, are kept across Pause/Resume, and are
+//!   dropped when recording stops.
 //! - A failing or silent device (no audio for [`STALL`]) ends the session with an error state within
 //!   2 s, and the source is closed.
 
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -17,15 +26,24 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use crate::engines::audio::{AudioError, AudioSink, AudioSource};
+use crate::engines::diarize::{Diarizer, VoiceTracker};
+use crate::engines::models::SpeakerModelList;
 use crate::engines::stt::{SpeechToText, SttError};
-use crate::engines::{AudioFactory, SttProvider};
+use crate::engines::{AudioFactory, DiarizerProvider, NoSpeakerModelProvider, SttProvider};
 use crate::store::{MeetingStore, StoreError};
-use crate::transcript::{Segment, Transcriber, TranscriptError, TranscriptStore, TranscriptWriter};
+use crate::transcript::{
+    Segment, Transcriber, TranscriptError, TranscriptStore, TranscriptWriter, Voice,
+};
 
 /// No audio for this long while recording counts as a lost device.
 pub const STALL: Duration = Duration::from_millis(1_500);
 /// How often the capture state (elapsed time, level) is sent while recording.
 pub const TICK: Duration = Duration::from_millis(200);
+/// Longest a final segment waits for its voice before it is stored without one.
+pub const VOICE_WAIT: Duration = Duration::from_secs(5);
+/// Most segment clips waiting for the diarizer (each at most 3 s of audio). A segment that finds the
+/// queue full gets no voice.
+pub const DIARIZE_QUEUE: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,8 +127,21 @@ impl CaptureState {
 #[serde(rename_all = "camelCase")]
 pub struct SegmentEvent {
     pub meeting_id: String,
+    /// The final segment's sequence number in the meeting's transcript (its record number); line
+    /// choices in the speakers view refer to it. None for a partial.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
     #[serde(flatten)]
     pub segment: Segment,
+}
+
+/// The voice of a final segment, once it is known and stored (`transcript-voice` event).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceEvent {
+    pub meeting_id: String,
+    pub seq: u64,
+    pub voice: Voice,
 }
 
 /// Why a recording command was refused.
@@ -132,6 +163,7 @@ pub enum RecordError {
 pub trait EventSink: Send + Sync {
     fn capture(&self, state: &CaptureState);
     fn segment(&self, event: &SegmentEvent);
+    fn voice(&self, event: &VoiceEvent);
 }
 
 struct Shared {
@@ -173,14 +205,29 @@ impl Shared {
     }
 }
 
-/// The running worker's sink, thread and the model id its engine was loaded for.
-type Worker = (AudioSink, JoinHandle<Box<dyn SpeechToText>>, Option<String>);
+/// What a session's worker hands back when it ends: the engines, to reuse, and the meeting's voices.
+struct Returned {
+    stt: Box<dyn SpeechToText>,
+    speakers: Option<(Box<dyn Diarizer>, VoiceTracker)>,
+}
+
+/// The running worker's sink and thread, the model id its engine was loaded for, and its meeting.
+struct Worker {
+    sink: AudioSink,
+    handle: JoinHandle<Returned>,
+    model: Option<String>,
+    meeting_id: String,
+}
 
 #[derive(Default)]
 struct Inner {
     worker: Option<Worker>,
     /// A loaded engine kept between sessions, with the model id it was asked for.
     engine: Option<(Option<String>, Box<dyn SpeechToText>)>,
+    /// A loaded speaker engine kept between sessions.
+    diarizer: Option<Box<dyn Diarizer>>,
+    /// The voices of the meeting recorded last, kept across Pause/Resume (memory only).
+    voices: Option<(String, VoiceTracker)>,
     /// Recorded time per meeting in this app session.
     recorded: Option<(String, u64)>,
 }
@@ -188,6 +235,7 @@ struct Inner {
 pub struct Recorder {
     audio: AudioFactory,
     stt: Box<dyn SttProvider>,
+    diarize: Box<dyn DiarizerProvider>,
     transcripts: Arc<dyn TranscriptStore>,
     now_ms: fn() -> u64,
     shared: Arc<Shared>,
@@ -205,6 +253,9 @@ impl Recorder {
         Self {
             audio,
             stt,
+            diarize: Box::new(NoSpeakerModelProvider {
+                searched: Vec::new(),
+            }),
             transcripts,
             now_ms,
             shared: Arc::new(Shared {
@@ -216,8 +267,26 @@ impl Recorder {
         }
     }
 
+    /// Uses `provider` for speaker detection (by default there is none).
+    pub fn with_diarizer(mut self, provider: Box<dyn DiarizerProvider>) -> Self {
+        self.diarize = provider;
+        self
+    }
+
     pub fn models(&self) -> crate::engines::models::ModelList {
         self.stt.models()
+    }
+
+    pub fn speaker_models(&self) -> SpeakerModelList {
+        self.diarize.models()
+    }
+
+    /// Whether voice centroids of a stopped or paused session are held in memory.
+    pub fn holds_voices(&self) -> bool {
+        self.inner()
+            .voices
+            .as_ref()
+            .is_some_and(|(_, t)| t.voices() > 0)
     }
 
     pub fn transcripts(&self) -> &dyn TranscriptStore {
@@ -278,10 +347,28 @@ impl Recorder {
             },
         };
 
+        // Speaker detection is optional: without a model, recording runs without voices.
+        let diarizer = inner
+            .diarizer
+            .take()
+            .or_else(|| match self.diarize.load(None) {
+                Ok(d) => Some(d),
+                Err(e) => {
+                    crate::log!("speaker detection is off: {e}");
+                    None
+                }
+            });
+        let tracker = match inner.voices.take() {
+            Some((id, t)) if id == meeting_id => t,
+            _ => VoiceTracker::new(writer.highest_voice().map_or(0, |v| v.index() + 1)),
+        };
+
         let sink = AudioSink::new();
         let mut source = (self.audio)();
         if let Err(e) = source.start(sink.clone()) {
             inner.engine = Some((wanted, engine));
+            inner.diarizer = diarizer;
+            inner.voices = Some((meeting_id.to_owned(), tracker));
             return Err(self.refuse(meeting_id, e.into()));
         }
         *self.shared.source.lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
@@ -299,15 +386,24 @@ impl Recorder {
                 reason: None,
             }
         });
-        let transcriber = Transcriber::new(engine, base, (self.now_ms)());
+        let mut transcriber = Transcriber::new(engine, base, (self.now_ms)());
+        if diarizer.is_some() {
+            transcriber = transcriber.keeping_clips();
+        }
+        let speakers = diarizer.map(|d| (d, tracker));
         let shared = self.shared.clone();
         let worker_sink = sink.clone();
         let id = meeting_id.to_owned();
         let handle = std::thread::Builder::new()
             .name("transcript".into())
-            .spawn(move || run(shared, worker_sink, transcriber, writer, id))
+            .spawn(move || run(shared, worker_sink, transcriber, writer, id, speakers))
             .map_err(|_| self.refuse(meeting_id, Reason::EngineFailed))?;
-        inner.worker = Some((sink, handle, wanted));
+        inner.worker = Some(Worker {
+            sink,
+            handle,
+            model: wanted,
+            meeting_id: meeting_id.to_owned(),
+        });
         Ok(state)
     }
 
@@ -330,10 +426,13 @@ impl Recorder {
         self.halt(&mut inner, Capture::Paused, true)
     }
 
-    /// Stops recording (End meeting, another meeting). The state becomes `off`.
+    /// Stops recording (End meeting, another meeting). The state becomes `off`, and the meeting's
+    /// voice embeddings and centroids are dropped.
     pub fn stop(&self) -> CaptureState {
         let mut inner = self.inner();
-        self.halt(&mut inner, Capture::Off, true)
+        let state = self.halt(&mut inner, Capture::Off, true);
+        inner.voices = None;
+        state
     }
 
     /// Stops recording if it belongs to `meeting_id` (the meeting ended).
@@ -345,10 +444,16 @@ impl Recorder {
 
     fn halt(&self, inner: &mut Inner, next: Capture, emit: bool) -> CaptureState {
         self.shared.close_source();
-        if let Some((sink, handle, model)) = inner.worker.take() {
-            sink.end();
-            match handle.join() {
-                Ok(engine) => inner.engine = Some((model, engine)),
+        if let Some(w) = inner.worker.take() {
+            w.sink.end();
+            match w.handle.join() {
+                Ok(returned) => {
+                    inner.engine = Some((w.model, returned.stt));
+                    if let Some((diarizer, tracker)) = returned.speakers {
+                        inner.diarizer = Some(diarizer);
+                        inner.voices = Some((w.meeting_id, tracker));
+                    }
+                }
                 Err(_) => crate::log!("the transcript worker stopped unexpectedly"),
             }
         }
@@ -384,7 +489,187 @@ impl Drop for Recorder {
     fn drop(&mut self) {
         let mut inner = self.inner();
         let _ = self.halt(&mut inner, Capture::Off, false);
+        inner.voices = None;
     }
+}
+
+/// One segment's audio for the diarizer.
+struct Job {
+    seq: u64,
+    start_ms: u64,
+    end_ms: u64,
+    audio: Vec<f32>,
+}
+
+/// A final segment sent to the UI and not yet stored.
+struct Waiting {
+    seq: u64,
+    segment: Segment,
+    deadline: Instant,
+    /// `None` while the diarizer works on it; `Some(voice)` once that is known (or will never be).
+    voice: Option<Option<Voice>>,
+}
+
+/// The diarizer's thread and the channels to it.
+struct Speakers {
+    jobs: Option<SyncSender<Job>>,
+    results: Receiver<(u64, Option<Voice>)>,
+    cancel: Arc<AtomicBool>,
+    thread: JoinHandle<(Box<dyn Diarizer>, VoiceTracker)>,
+}
+
+/// Sends segments and voices to the UI and stores final segments in order.
+struct Delivery {
+    shared: Arc<Shared>,
+    meeting_id: String,
+    writer: Box<dyn TranscriptWriter>,
+    next_seq: u64,
+    waiting: VecDeque<Waiting>,
+    speakers: Option<Speakers>,
+}
+
+impl Delivery {
+    fn send(&self, seq: Option<u64>, segment: Segment) {
+        self.shared.events.segment(&SegmentEvent {
+            meeting_id: self.meeting_id.clone(),
+            seq,
+            segment,
+        });
+    }
+
+    /// Sends each segment at once; queues each final one's clip for the diarizer.
+    fn segments(&mut self, segments: Vec<Segment>, clips: Vec<Vec<f32>>) -> Result<(), Reason> {
+        let mut clips = clips.into_iter();
+        for segment in segments {
+            if !segment.is_final {
+                self.send(None, segment);
+                continue;
+            }
+            let seq = self.next_seq;
+            self.next_seq += 1;
+            let clip = clips.next();
+            self.send(Some(seq), segment.clone());
+            let queued = match (self.speakers.as_ref().and_then(|s| s.jobs.as_ref()), clip) {
+                (Some(jobs), Some(audio)) => jobs
+                    .try_send(Job {
+                        seq,
+                        start_ms: segment.start_ms,
+                        end_ms: segment.end_ms,
+                        audio,
+                    })
+                    .is_ok(),
+                _ => false,
+            };
+            self.waiting.push_back(Waiting {
+                seq,
+                segment,
+                deadline: Instant::now() + VOICE_WAIT,
+                voice: if queued { None } else { Some(None) },
+            });
+        }
+        self.settle()
+    }
+
+    fn resolve(&mut self, seq: u64, voice: Option<Voice>) {
+        // A voice that comes after its segment was stored without one is dropped.
+        if let Some(w) = self.waiting.iter_mut().find(|w| w.seq == seq) {
+            w.voice.get_or_insert(voice);
+        }
+    }
+
+    /// Takes in the voices that arrived and stores every segment that is ready, in order.
+    fn settle(&mut self) -> Result<(), Reason> {
+        let arrived: Vec<_> = self
+            .speakers
+            .as_ref()
+            .map(|s| s.results.try_iter().collect())
+            .unwrap_or_default();
+        for (seq, voice) in arrived {
+            self.resolve(seq, voice);
+        }
+        while let Some(front) = self.waiting.front() {
+            if front.voice.is_none() && Instant::now() < front.deadline {
+                break;
+            }
+            let Some(w) = self.waiting.pop_front() else {
+                break;
+            };
+            let mut segment = w.segment;
+            segment.voice = w.voice.flatten();
+            self.writer.append(&segment).map_err(|e| {
+                crate::log!("could not store a transcript segment: {e}");
+                Reason::StorageFailed
+            })?;
+            if let Some(voice) = segment.voice {
+                self.shared.events.voice(&VoiceEvent {
+                    meeting_id: self.meeting_id.clone(),
+                    seq: w.seq,
+                    voice,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// At the end of a session: waits for the voices still being worked out (each at most until
+    /// its deadline) and stores everything.
+    fn finish(&mut self) -> Result<(), Reason> {
+        loop {
+            self.settle()?;
+            let Some(front) = self.waiting.front() else {
+                return Ok(());
+            };
+            let wait = front.deadline.saturating_duration_since(Instant::now());
+            let got = match &self.speakers {
+                Some(s) => s.results.recv_timeout(wait),
+                None => Err(RecvTimeoutError::Disconnected),
+            };
+            match got {
+                Ok((seq, voice)) => self.resolve(seq, voice),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    for w in &mut self.waiting {
+                        w.voice.get_or_insert(None);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Stops the diarizer's thread and hands back its engine and the meeting's voices.
+    fn close(&mut self) -> Option<(Box<dyn Diarizer>, VoiceTracker)> {
+        let mut s = self.speakers.take()?;
+        s.cancel.store(true, Ordering::SeqCst);
+        s.jobs = None;
+        match s.thread.join() {
+            Ok(back) => Some(back),
+            Err(_) => {
+                crate::log!("speaker detection stopped unexpectedly");
+                None
+            }
+        }
+    }
+}
+
+/// The diarizer's thread: works out the voice of each queued clip, in order. Clips are dropped right
+/// after; once the session ends, the rest of the queue is skipped.
+fn diarize(
+    mut diarizer: Box<dyn Diarizer>,
+    mut tracker: VoiceTracker,
+    jobs: Receiver<Job>,
+    results: Sender<(u64, Option<Voice>)>,
+    cancel: Arc<AtomicBool>,
+) -> (Box<dyn Diarizer>, VoiceTracker) {
+    while let Ok(job) = jobs.recv() {
+        if cancel.load(Ordering::SeqCst) {
+            continue;
+        }
+        let voice = tracker.voice_for(diarizer.as_mut(), job.start_ms, job.end_ms, &job.audio);
+        let seq = job.seq;
+        drop(job);
+        let _ = results.send((seq, voice));
+    }
+    (diarizer, tracker)
 }
 
 /// How long the monitor lets the speech-to-text thread finish the cut-off utterance before it
@@ -393,15 +678,43 @@ const FLUSH_GRACE: Duration = Duration::from_millis(250);
 
 /// The worker. Two threads: one drains the sink and runs the pipeline (a slow engine only makes the
 /// transcript lag; the sink keeps the audio, bounded), the other watches the device and sends
-/// ticks, so a busy engine neither looks like a lost microphone nor freezes the state.
+/// ticks, so a busy engine neither looks like a lost microphone nor freezes the state. Speaker
+/// detection hangs off the speech side: the speech thread hands clips to the diarizer's own thread
+/// and stores lines as their voices arrive, so neither capture nor loss detection ever waits for it.
 fn run(
     shared: Arc<Shared>,
     sink: AudioSink,
     mut transcriber: Transcriber,
-    mut writer: Box<dyn TranscriptWriter>,
+    writer: Box<dyn TranscriptWriter>,
     meeting_id: String,
-) -> Box<dyn SpeechToText> {
-    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::SeqCst};
+    speakers: Option<(Box<dyn Diarizer>, VoiceTracker)>,
+) -> Returned {
+    use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::SeqCst};
+    let speakers = speakers.and_then(|(diarizer, tracker)| {
+        let (jobs, job_rx) = mpsc::sync_channel(DIARIZE_QUEUE);
+        let (result_tx, results) = mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let c = cancel.clone();
+        std::thread::Builder::new()
+            .name("speakers".into())
+            .spawn(move || diarize(diarizer, tracker, job_rx, result_tx, c))
+            .map_err(|_| crate::log!("speaker detection could not start"))
+            .ok()
+            .map(|thread| Speakers {
+                jobs: Some(jobs),
+                results,
+                cancel,
+                thread,
+            })
+    });
+    let mut delivery = Delivery {
+        shared: shared.clone(),
+        meeting_id,
+        next_seq: writer.next_seq(),
+        writer,
+        waiting: VecDeque::new(),
+        speakers,
+    };
     let elapsed_ms = AtomicU64::new(transcriber.recorded_ms());
     let level_bits = AtomicU32::new(0f32.to_bits());
     let done = AtomicBool::new(false);
@@ -418,31 +731,15 @@ fn run(
             s.level = (level * 4.0).min(1.0);
         });
     };
-    let engine = std::thread::scope(|scope| {
+    std::thread::scope(|scope| {
         let stt = scope.spawn(|| {
-            let deliver = |segments: Vec<Segment>,
-                           writer: &mut Box<dyn TranscriptWriter>|
-             -> Result<(), Reason> {
-                for segment in segments {
-                    if segment.is_final {
-                        writer.append(&segment).map_err(|e| {
-                            crate::log!("could not store a transcript segment: {e}");
-                            Reason::StorageFailed
-                        })?;
-                    }
-                    shared.events.segment(&SegmentEvent {
-                        meeting_id: meeting_id.clone(),
-                        segment,
-                    });
-                }
-                Ok(())
-            };
             let outcome: Result<(), Reason> = loop {
                 let taken = sink.take(Duration::from_millis(100));
                 if !taken.samples.is_empty() {
                     match transcriber.push(&taken.samples) {
                         Ok(segments) => {
-                            if let Err(r) = deliver(segments, &mut writer) {
+                            let clips = transcriber.take_clips();
+                            if let Err(r) = delivery.segments(segments, clips) {
                                 break Err(r);
                             }
                         }
@@ -450,6 +747,8 @@ fn run(
                     }
                     elapsed_ms.store(transcriber.recorded_ms(), SeqCst);
                     level_bits.store(transcriber.level().to_bits(), SeqCst);
+                } else if let Err(r) = delivery.settle() {
+                    break Err(r);
                 }
                 let gone = lost.lock().unwrap_or_else(|e| e.into_inner()).take();
                 let lost_now = taken.failed.map(Reason::from).or(gone);
@@ -457,7 +756,11 @@ fn run(
                     let flushed = transcriber
                         .flush()
                         .map_err(Reason::from)
-                        .and_then(|segments| deliver(segments, &mut writer));
+                        .and_then(|segments| {
+                            let clips = transcriber.take_clips();
+                            delivery.segments(segments, clips)
+                        })
+                        .and_then(|()| delivery.finish());
                     break match (lost_now, flushed) {
                         (Some(r), _) => Err(r),
                         (None, result) => result,
@@ -470,7 +773,6 @@ fn run(
                 report(reason);
             }
             done.store(true, SeqCst);
-            transcriber.into_engine()
         });
         let mut last_tick = Instant::now();
         let mut lost_since: Option<Instant> = None;
@@ -497,9 +799,13 @@ fn run(
                 );
             }
         }
-        stt.join().expect("speech-to-text thread panicked")
+        stt.join().expect("speech-to-text thread panicked");
     });
-    engine
+    let speakers = delivery.close();
+    Returned {
+        stt: transcriber.into_engine(),
+        speakers,
+    }
 }
 
 #[cfg(test)]

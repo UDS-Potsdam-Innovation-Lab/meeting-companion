@@ -20,10 +20,13 @@ use tauri::{Emitter, Manager, State};
 use crypto::KeychainKeyProvider;
 use engines::audio::{AudioSource, FakeAudioSource};
 use engines::cpal_source::CpalAudioSource;
-use engines::models::{self, ModelList};
-use engines::{FakeSttProvider, SttProvider, WhisperProvider};
+use engines::models::{self, ModelKind, ModelList, SpeakerModelList};
+use engines::{
+    DiarizerProvider, FakeDiarizerProvider, FakeSttProvider, SherpaProvider, SttProvider,
+    WhisperProvider,
+};
 use model::{FieldError, Meeting};
-use recording::{CaptureState, EventSink, Reason, RecordError, Recorder, SegmentEvent};
+use recording::{CaptureState, EventSink, Reason, RecordError, Recorder, SegmentEvent, VoiceEvent};
 use store::{FileMeetingStore, LockedMeetingStore, MeetingStore, MemoryMeetingStore, StoreError};
 use transcript::{
     LockedTranscriptStore, MemoryTranscriptStore, Segment, TranscriptError, TranscriptStore,
@@ -44,6 +47,10 @@ pub const ENV_STT: &str = "MEETING_COMPANION_STT";
 pub const EVENT_CAPTURE: &str = "capture-state";
 /// Event with one transcript segment ([`SegmentEvent`]).
 pub const EVENT_SEGMENT: &str = "transcript-segment";
+/// Event with the voice of a stored final segment ([`VoiceEvent`]).
+pub const EVENT_VOICE: &str = "transcript-voice";
+/// `MEETING_COMPANION_DIARIZE=fake` replaces the speaker model with the scripted fake (no model needed).
+pub const ENV_DIARIZE: &str = "MEETING_COMPANION_DIARIZE";
 const SMOKE_TIMEOUT: Duration = Duration::from_secs(90);
 const SMOKE_VIEW: &str = "agenda-setup";
 
@@ -241,6 +248,12 @@ fn list_speech_models(state: State<'_, AppState>) -> ModelList {
     state.recorder.models()
 }
 
+/// The speaker models found on this device (the preferred one is used) and the folders searched.
+#[tauri::command(async)]
+fn list_speaker_models(state: State<'_, AppState>) -> SpeakerModelList {
+    state.recorder.speaker_models()
+}
+
 /// Sends the core's events to the window.
 struct TauriEvents(tauri::AppHandle);
 
@@ -250,6 +263,9 @@ impl EventSink for TauriEvents {
     }
     fn segment(&self, event: &SegmentEvent) {
         let _ = self.0.emit(EVENT_SEGMENT, event);
+    }
+    fn voice(&self, event: &VoiceEvent) {
+        let _ = self.0.emit(EVENT_VOICE, event);
     }
 }
 
@@ -311,12 +327,27 @@ pub fn run() {
             } else {
                 Box::new(|| Box::new(CpalAudioSource::new()) as Box<dyn AudioSource>)
             };
+            let env = models::Env::from_process(app_data);
             let stt: Box<dyn SttProvider> = if smoke || env_is(ENV_STT, "fake") {
                 Box::new(FakeSttProvider::demo())
             } else {
-                let env = models::Env::from_process(app_data);
                 Box::new(WhisperProvider {
-                    locations: models::locations_for(models::Os::current(), &env),
+                    locations: models::locations_of(
+                        ModelKind::Whisper,
+                        models::Os::current(),
+                        &env,
+                    ),
+                })
+            };
+            let diarize: Box<dyn DiarizerProvider> = if smoke || env_is(ENV_DIARIZE, "fake") {
+                Box::new(FakeDiarizerProvider::demo())
+            } else {
+                Box::new(SherpaProvider {
+                    locations: models::locations_of(
+                        ModelKind::Speaker,
+                        models::Os::current(),
+                        &env,
+                    ),
                 })
             };
             let recorder = Recorder::new(
@@ -325,7 +356,8 @@ pub fn run() {
                 transcripts,
                 Arc::new(TauriEvents(app.handle().clone())),
                 now_ms,
-            );
+            )
+            .with_diarizer(diarize);
             app.manage(AppState {
                 store,
                 recorder,
@@ -352,7 +384,8 @@ pub fn run() {
             stop_recording,
             recording_status,
             load_transcript,
-            list_speech_models
+            list_speech_models,
+            list_speaker_models
         ])
         .run(tauri::generate_context!())
         .expect("error while running Meeting Companion");
