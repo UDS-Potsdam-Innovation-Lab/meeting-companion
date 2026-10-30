@@ -50,7 +50,7 @@ export const PencilIcon = () => (
 
 export const LogoMark = () => (
   <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden focusable={false}>
-    <path d="M7 1l6 6-6 6-6-6z" fill="#FFFFFF" />
+    <path d="M7 1l6 6-6 6-6-6z" fill="currentColor" />
   </svg>
 );
 
@@ -71,5 +71,39 @@ export const MicIcon = () => (
   <svg {...base}>
     <rect x="5.5" y="1.8" width="5" height="8" rx="2.5" />
     <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" />
+  </svg>
+);
+
+export const GearIcon = () => (
+  <svg {...base}>
+    <circle cx="8" cy="8" r="2.2" />
+    <path d="M8 1.5v1.8M8 12.7v1.8M14.5 8h-1.8M3.3 8H1.5M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7 3.4 3.4" />
+  </svg>
+);
+
+export const BackIcon = () => (
+  <svg {...base}>
+    <path d="M10 3.5 5.5 8l4.5 4.5" />
+  </svg>
+);
+
+export const StopIcon = () => (
+  <svg {...base} fill="currentColor" stroke="none">
+    <rect x="3.5" y="3.5" width="9" height="9" rx="1.2" />
+  </svg>
+);
+
+export const MonitorIcon = () => (
+  <svg {...base}>
+    <rect x="1.8" y="2.5" width="12.4" height="8.5" rx="1.5" />
+    <path d="M5.5 14h5M8 11v3" />
+  </svg>
+);
+
+export const SlidersIcon = () => (
+  <svg {...base}>
+    <path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6" />
+    <circle cx="10" cy="4.5" r="1.5" />
+    <circle cx="6" cy="11.5" r="1.5" />
   </svg>
 );

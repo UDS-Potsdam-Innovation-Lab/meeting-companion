@@ -1,13 +1,26 @@
-import { useI18n } from "../../i18n";
+import { useI18n, type MessageKey } from "../../i18n";
+import { useSettings } from "../settings/useSettings";
 import type { CaptureState } from "../../lib/ipc";
 import { PauseIcon, PlayIcon } from "../../ui/icons";
 import { formatElapsed } from "./format";
 
 interface Props {
   capture: CaptureState;
-  busy: boolean;
-  onPause: () => void;
-  onResume: () => void;
+  busy?: boolean;
+  /** Without these, only the chips are shown (settings view). */
+  onPause?: () => void;
+  onResume?: () => void;
+}
+
+/** "On-device · DE/EN", "· DE" or "· EN": the default meeting language from the settings. */
+export function DeviceChip() {
+  const { t } = useI18n();
+  const { settings } = useSettings();
+  return (
+    <span className="device-chip" data-testid="device-chip">
+      {t(`recording.onDevice.${settings.meetingLanguage}` as MessageKey)}
+    </span>
+  );
 }
 
 /**
@@ -15,7 +28,7 @@ interface Props {
  * colour alone), the "On-device · DE/EN" chip, and "Pause" / "Resume". The chip follows the core's
  * capture state: shown while recording or paused, gone when recording is off or failed.
  */
-export function RecordingControls({ capture, busy, onPause, onResume }: Props) {
+export function RecordingControls({ capture, busy = false, onPause, onResume }: Props) {
   const { t } = useI18n();
   const recording = capture.state === "recording";
   const paused = capture.state === "paused";
@@ -29,8 +42,8 @@ export function RecordingControls({ capture, busy, onPause, onResume }: Props) {
           <span className="rec-chip__time">{time}</span>
         </span>
       ) : null}
-      <span className="device-chip">{t("recording.onDevice")}</span>
-      {recording || paused ? (
+      <DeviceChip />
+      {(recording || paused) && onPause && onResume ? (
         // One button that changes its label, so focus stays on it across Pause and Resume.
         <button
           type="button"

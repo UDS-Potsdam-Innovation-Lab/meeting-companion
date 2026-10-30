@@ -111,7 +111,7 @@ describe("AC7 (job 003) no literal strings in the transcript column and recordin
       } satisfies CaptureState),
     );
 
-  it("consent, recording, paused, error and no-model states come from keys", async () => {
+  it("consent, recording, paused and error states come from keys", async () => {
     const meeting = liveMeeting();
     const clock = new FakeClock(LIVE_TIMES.running);
     const texts = LIVE_TRANSCRIPT.map((l) => l.text);
@@ -124,8 +124,7 @@ describe("AC7 (job 003) no literal strings in the transcript column and recordin
         recording: { transcript: { segments: LIVE_TRANSCRIPT, error: null } },
       },
     );
-    await screen.findByRole("combobox", { name: "⟦model.label⟧" });
-    expect(screen.getByRole("button", { name: "⟦consent.start⟧" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "⟦consent.start⟧" })).toBeInTheDocument();
     expect(literalOffenders(container, meeting, texts)).toEqual([]);
     await sendState({});
     await act(() =>
@@ -138,18 +137,71 @@ describe("AC7 (job 003) no literal strings in the transcript column and recordin
     await sendState({ state: "error", reason: "noMicrophone" });
     expect(literalOffenders(container, meeting, texts)).toEqual([]);
     unmount();
+  });
+});
 
-    const none = await renderApp(
+describe("AC7 (job 006) no literal strings in the settings view and its frame 02 additions", () => {
+  const STORAGE = "/home/u/.local/share/de.udspotsdam.meetingcompanion/meetings";
+  const DEVICES = ["Built-in Audio Analog Stereo", "Jabra Speak 510"];
+  const MODELS = ["ggml-base.bin", "ggml-base.en.bin", "/m"];
+  const sendState = (s: Partial<CaptureState>) =>
+    act(() =>
+      emit(EVENT_CAPTURE, {
+        state: "recording",
+        meetingId: "fixture-live",
+        elapsedMs: 1_000,
+        level: 0.5,
+        reason: null,
+        ...s,
+      } satisfies CaptureState),
+    );
+
+  it("every section, the device-missing, test and recording states come from keys", async () => {
+    const user = userEvent.setup();
+    const meeting = liveMeeting();
+    const clock = new FakeClock(LIVE_TIMES.running);
+    const { container, unmount } = await renderApp(
       { meeting, error: null },
+      { keyMode: true, clock, view: "live", recording: { settings: { inputDevice: "Gone Mic" } } },
+    );
+    await user.click(screen.getByRole("button", { name: "⟦settings.open⟧" }));
+    // Audio, with the chosen device missing.
+    await screen.findByText("⟦settings.audio.missing.title⟧");
+    const data = [...DEVICES, ...MODELS, STORAGE, "Gone Mic"];
+    expect(literalOffenders(container, meeting, data)).toEqual([]);
+    // Recording: the meter shows the meeting.
+    await sendState({});
+    await screen.findByText("⟦settings.test.disabledRecording⟧");
+    expect(literalOffenders(container, meeting, data)).toEqual([]);
+    await sendState({ state: "off", meetingId: null });
+    for (const s of ["device", "general"]) {
+      await user.click(screen.getByRole("tab", { name: new RegExp(`settings.section.${s}⟧`) }));
+      if (s === "device") await screen.findByText("ggml-base.en.bin");
+      expect(literalOffenders(container, meeting, data)).toEqual([]);
+    }
+    unmount();
+
+    // No model found; the start failure of frame 02.
+    const r = await renderApp(
+      { meeting: { ...meeting, recordingConsentAt: 1 }, error: null },
       {
         keyMode: true,
         clock,
         view: "live",
-        recording: { models: { models: [], searched: ["/x/models"] } },
+        recording: {
+          models: { models: [], searched: ["/x/models"] },
+          settings: { inputDevice: "Gone Mic" },
+          startError: { kind: "failed", reason: "chosenMicrophoneMissing" },
+        },
       },
     );
+    await user.click(screen.getByRole("button", { name: "⟦recording.resumeRecording⟧" }));
+    await screen.findByText("⟦recording.missing.title⟧");
+    expect(literalOffenders(r.container, meeting, data)).toEqual([]);
+    await user.click(screen.getAllByRole("button", { name: "⟦settings.open⟧" })[1]!);
+    await user.click(screen.getByRole("tab", { name: /settings.section.device⟧/ }));
     await screen.findByText("⟦model.none.title⟧");
-    expect(literalOffenders(none.container, meeting, ["/x/models"])).toEqual([]);
+    expect(literalOffenders(r.container, meeting, [...data, "/x/models"])).toEqual([]);
   });
 });
 

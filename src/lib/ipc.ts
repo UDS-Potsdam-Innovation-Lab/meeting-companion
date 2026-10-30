@@ -55,6 +55,7 @@ export type CaptureKind = "off" | "recording" | "paused" | "error";
 
 export type RecordReason =
   | "noMicrophone"
+  | "chosenMicrophoneMissing"
   | "microphoneBlocked"
   | "microphoneLost"
   | "noModel"
@@ -136,6 +137,129 @@ export interface ModelList {
 
 export const EVENT_CAPTURE = "capture-state";
 export const EVENT_SEGMENT = "transcript-segment";
+export const EVENT_SETTINGS = "settings-changed";
+export const EVENT_MIC_TEST = "mic-test";
+
+// ---- settings ------------------------------------------------------------------------------------
+// Stored by the core, encrypted, in one file. The UI caches only locale and theme (first paint).
+
+export type DeviceLost = "stop" | "switchToDefault";
+export type MeetingLanguage = "auto" | "de" | "en";
+export type ThemeSetting = "light" | "dark" | "system";
+export type LocaleSetting = "de" | "en";
+
+export interface Settings {
+  /** `null`: the system default. */
+  inputDevice: string | null;
+  deviceLost: DeviceLost;
+  /** `null`: the preferred model of the core's scan. */
+  speechModel: string | null;
+  meetingLanguage: MeetingLanguage;
+  locale: LocaleSetting;
+  theme: ThemeSetting;
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  inputDevice: null,
+  deviceLost: "stop",
+  speechModel: null,
+  meetingLanguage: "auto",
+  locale: "de",
+  theme: "system",
+};
+
+export type SettingChange =
+  | { key: "inputDevice"; value: string | null }
+  | { key: "deviceLost"; value: DeviceLost }
+  | { key: "speechModel"; value: string | null }
+  | { key: "meetingLanguage"; value: MeetingLanguage }
+  | { key: "locale"; value: LocaleSetting }
+  | { key: "theme"; value: ThemeSetting };
+
+/** `stored`: read from the file. Otherwise the defaults (plus the UI's cached locale and theme). */
+export type SettingsStatus = "stored" | "missing" | "corrupt" | "unreadable" | "locked";
+
+export interface SettingsLoad {
+  settings: Settings;
+  status: SettingsStatus;
+  /** Where meetings and transcripts are stored (read-only). */
+  storageFolder: string;
+}
+
+/** Values the UI cached before the store existed, taken over once when no settings file is readable. */
+export interface CachedSettings {
+  locale?: string | null;
+  theme?: string | null;
+  speechModel?: string | null;
+}
+
+export interface SettingsUpdate {
+  settings: Settings;
+  /** False: the change holds for this session only (no data key, disk error). */
+  saved: boolean;
+}
+
+export type MicTestKind = "off" | "running" | "error";
+
+export interface MicTestState {
+  state: MicTestKind;
+  remainingMs: number;
+  level: number;
+  reason: RecordReason | null;
+}
+
+export const MIC_TEST_OFF: MicTestState = { state: "off", remainingMs: 0, level: 0, reason: null };
+
+export type MicTestError = { kind: "busy" } | { kind: "failed"; reason: RecordReason };
+
+export async function loadSettings(cached: CachedSettings): Promise<SettingsLoad | null> {
+  try {
+    return await invoke<SettingsLoad>("load_settings", { cached });
+  } catch {
+    return null;
+  }
+}
+
+/** Sends one change to the core. Rejects if the core refused it. */
+export async function updateSetting(change: SettingChange): Promise<SettingsUpdate> {
+  return invoke<SettingsUpdate>("update_setting", { change });
+}
+
+export async function listInputDevices(): Promise<string[]> {
+  try {
+    return await invoke<string[]>("list_input_devices");
+  } catch {
+    return [];
+  }
+}
+
+/** Opens the chosen microphone for at most 10 s; rejects with a {@link MicTestError}. */
+export async function startMicTest(): Promise<MicTestState> {
+  try {
+    return await invoke<MicTestState>("start_mic_test");
+  } catch (e) {
+    const err = e as Partial<MicTestError> | undefined;
+    if (err?.kind === "busy") throw { kind: "busy" } satisfies MicTestError;
+    const reason = (err as { reason?: RecordReason } | undefined)?.reason;
+    throw { kind: "failed", reason: reason ?? "microphoneBlocked" } satisfies MicTestError;
+  }
+}
+
+export async function stopMicTest(): Promise<void> {
+  try {
+    await invoke("stop_mic_test");
+  } catch {
+    // Nothing to stop.
+  }
+}
+
+export function onSettingsChanged(handler: (s: Settings) => void): () => void {
+  return subscribe<Settings>(EVENT_SETTINGS, handler);
+}
+
+export function onMicTest(handler: (s: MicTestState) => void): () => void {
+  return subscribe<MicTestState>(EVENT_MIC_TEST, handler);
+}
 
 function recordError(e: unknown): RecordError {
   const err = e as Partial<RecordError> | undefined;
@@ -157,10 +281,13 @@ export async function confirmRecordingConsent(meetingId: string): Promise<number
   }
 }
 
-/** Starts or resumes recording. Rejects with a {@link RecordError}, e.g. without stored consent. */
-export async function startRecording(meetingId: string, modelId: string | null): Promise<CaptureState> {
+/**
+ * Starts or resumes recording with the microphone, speech model and language from the settings (the
+ * core reads them itself). Rejects with a {@link RecordError}, e.g. without stored consent.
+ */
+export async function startRecording(meetingId: string): Promise<CaptureState> {
   try {
-    return await invoke<CaptureState>("start_recording", { meetingId, modelId });
+    return await invoke<CaptureState>("start_recording", { meetingId });
   } catch (e) {
     throw recordError(e);
   }
