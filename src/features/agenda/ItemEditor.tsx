@@ -20,10 +20,12 @@ interface Props {
   /** Called with every valid version of the item. */
   onCommit: (item: AgendaItem) => void;
   onDone: () => void;
+  /** Told whether the form holds invalid input; false again when the editor closes. */
+  onValidity?: (invalid: boolean) => void;
 }
 
 /** Inline editor for one agenda item. Invalid input stays in the form with a message; nothing is saved. */
-export function ItemEditor({ id, item, participants, onCommit, onDone }: Props) {
+export function ItemEditor({ id, item, participants, onCommit, onDone, onValidity }: Props) {
   const { t } = useI18n();
   const uid = useId();
   const ids = {
@@ -40,6 +42,12 @@ export function ItemEditor({ id, item, participants, onCommit, onDone }: Props) 
   useEffect(() => {
     titleRef.current?.focus();
   }, []);
+
+  const invalid = hasErrors(errors);
+  useEffect(() => {
+    onValidity?.(invalid);
+    return () => onValidity?.(false);
+  }, [invalid, onValidity]);
 
   // A lead who was removed from the meeting no longer counts.
   const lead = draft.lead && participants.some((p) => p.id === draft.lead) ? draft.lead : null;
