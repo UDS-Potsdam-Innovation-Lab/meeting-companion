@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "build",
+  "stage": "review",
   "round": 1,
   "max_round": 3,
   "reviews": {
@@ -19,6 +19,6 @@
   "history": [],
   "decision": null,
   "waiting": null,
-  "note": "Building on human request before 004/005 merge; design approved in FigCraft",
-  "updated": "2026-10-30T20:40:26Z"
+  "note": "Round 1 reviews and CI running (speaker-model row moved to follow-up)",
+  "updated": "2026-10-30T21:46:32Z"
 }
