@@ -60,5 +60,74 @@
   "screen": 3542,
   "end": 3556,
   "toagenda": 3609
+ },
+ "s14_settings": {
+  "screen": 4043,
+  "back": 4065
+ },
+ "s14b_test": {
+  "screen": 4163,
+  "back": 4182
+ },
+ "s14c_missing": {
+  "screen": 4281,
+  "back": 4300
+ },
+ "s14d_device": {
+  "screen": 4796,
+  "back": 4815
+ },
+ "s14e_nomodel": {
+  "screen": 4935,
+  "back": 4954
+ },
+ "s14f_general": {
+  "screen": 4683,
+  "back": 4702
+ },
+ "s14g_board": {
+  "screen": 5077,
+  "back": 5096
+ },
+ "s14h_768": {
+  "screen": 5211,
+  "back": 5228
+ },
+ "s14i_375": {
+  "screen": 5305,
+  "back": 5316
+ },
+ "s14j_dark": {
+  "screen": 5404,
+  "back": 5426
+ },
+ "s14k_dark_general": {
+  "screen": 5524,
+  "back": 5546
+ },
+ "s14l_entry": {
+  "screen": 5640,
+  "settings_setup": 5659,
+  "settings_live": 5684
+ },
+ "s14m_02_switched": {
+  "screen": 5752
+ },
+ "s14n_02_startfail": {
+  "screen": 5832,
+  "use_default": 5867
+ },
+ "s14o_dark01": {
+  "screen": 5874,
+  "mode_With agenda": 5895,
+  "mode_Agenda-free": 5897,
+  "start": 6057
+ },
+ "s14p_dark02": {
+  "screen": 6061,
+  "end": 6078,
+  "tab_Transcript": 6142,
+  "tab_Mind map": 6144,
+  "tab_Notes": 6146
  }
 }

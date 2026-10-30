@@ -26,6 +26,52 @@ C = {
     "darkMuted": "#9A9CA5",
 }
 
+# Dark theme (job 006): same keys as C, WCAG AA for text on bg/surface/sunken and on its soft tint.
+# Primary buttons and the logo mark use onAccent, the "dark" button onInk (both white in light).
+DARK = {
+    "bg": "#121317",
+    "surface": "#1B1D22",
+    "sunken": "#25272E",
+    "ink": "#EDECE7",
+    "ink2": "#BCBEC6",
+    "muted": "#9396A0",
+    "line": "#33363F",
+    "accent": "#8F88FF",
+    "onAccent": "#14113A",
+    "onInk": "#15161A",
+    "accentSoft": "#2A2858",
+    "accentInk": "#CBC7FF",
+    "green": "#4CC98A",
+    "greenSoft": "#16301F",
+    "amber": "#F2B04A",
+    "amberSoft": "#3A2B10",
+    "red": "#FF8086",
+    "redSoft": "#3D1C1F",
+    "teal": "#4FC9CC",
+    "tealSoft": "#12302F",
+    "dark": "#0C0D10",
+    "dark2": "#1B1D22",
+    "dark3": "#2A2C33",
+    "darkInk": "#F2F1EC",
+    "darkMuted": "#A3A5AE",
+}
+
+
+class themed:
+    """`with themed(DARK):` builds with the given tokens; C is restored afterwards."""
+
+    def __init__(self, tokens):
+        self.tokens = tokens
+
+    def __enter__(self):
+        self.saved = dict(C)
+        C.update(self.tokens)
+
+    def __exit__(self, *a):
+        C.clear()
+        C.update(self.saved)
+
+
 PEOPLE = {
     "MK": ("Mara Klein", "#4338CA"),
     "TB": ("Tobias Brandt", "#0F7C80"),
@@ -143,8 +189,8 @@ class B:
 
     def button(self, parent, label, kind="primary", size=14, pad=(10, 18, 10, 18), icon=None, name=None, key=None, fillW=False):
         styles = {
-            "primary": (C["accent"], "#FFFFFF", None),
-            "dark": (C["ink"], "#FFFFFF", None),
+            "primary": (C["accent"], C.get("onAccent", "#FFFFFF"), None),
+            "dark": (C["ink"], C.get("onInk", "#FFFFFF"), None),
             "ghost": (C["surface"], C["ink"], C["line"]),
             "soft": (C["accentSoft"], C["accentInk"], None),
             "green": (C["green"], "#FFFFFF", None),
@@ -175,7 +221,7 @@ class B:
                      sides=[0, 0, 1, 0], stroke=C["line"])
         logo = self.row(t, "Logo", gap=10)
         mark = self.row(logo, "Mark", w=30, h=30, radius=9, fill=C["accent"], main="center", cross="center")
-        self.txt(mark, "◆", size=14, style="Bold", color="#FFFFFF")
+        self.txt(mark, "◆", size=14, style="Bold", color=C.get("onAccent", "#FFFFFF"))
         self.txt(logo, "Companion", size=16, style="Bold")
         self.rect(t, 1, 22, C["line"], name="Divider")
         self.txt(t, title, size=15, style="SemiBold", color=C["ink2"])
