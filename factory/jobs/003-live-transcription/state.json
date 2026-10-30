@@ -19,6 +19,6 @@
   "history": [],
   "decision": null,
   "waiting": null,
-  "note": "Building (002 merged)",
-  "updated": "2026-10-30T19:16:36Z"
+  "note": "Building; human added local model detection (stack-decision.md)",
+  "updated": "2026-10-30T19:18:27Z"
 }
