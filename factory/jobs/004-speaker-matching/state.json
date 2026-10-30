@@ -7,8 +7,8 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "spec",
-  "round": 0,
+  "stage": "build",
+  "round": 1,
   "max_round": 3,
   "reviews": {
     "security": "pending",
@@ -18,7 +18,7 @@
   },
   "history": [],
   "decision": null,
-  "waiting": "spec review (human)",
-  "note": "Spec revised after review 1: real local diarizer in scope",
-  "updated": "2026-10-30T20:14:30Z"
+  "waiting": null,
+  "note": "Stack confirmed; building",
+  "updated": "2026-10-30T20:19:05Z"
 }
