@@ -56,24 +56,22 @@ test.describe("AC7 live view accessibility at 1280×800", () => {
   }) => {
     await openLiveAt(page, LIVE_TIMES.nudge);
     await expect(nudge(page)).toBeVisible();
-    let sawWrapUp = false;
-    const order = await tabOrder(page, (n) => {
-      if (n === "Wrap up") sawWrapUp = true;
-      return sawWrapUp && n === "+5 min";
-    });
-    // Reading order: top bar (language, End meeting), the timer card, the parking lot, then the nudge.
+    const order = await tabOrder(page, (n) => n === "End meeting");
+    // Reading order: language switch, the timer card, the parking lot, the nudge, and "End meeting" last
+    // (bottom right), as AC7 lists it.
     expectInOrder(order, [
       "Deutsch",
       "English",
-      "End meeting",
       "+5 min",
       "Park it",
       "Next ›",
       /^Parking lot/,
       "Wrap up",
+      "End meeting",
     ]);
     expect(order.filter((n) => n === "+5 min")).toHaveLength(2);
     expect(order.lastIndexOf("+5 min")).toBeGreaterThan(order.indexOf("Wrap up"));
+    expect(order.at(-1)).toBe("End meeting");
   });
 
   test("each action works by keyboard", async ({ page }) => {

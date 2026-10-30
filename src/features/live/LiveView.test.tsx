@@ -184,7 +184,8 @@ describe("AC3 agenda states and the overall line", () => {
   it("shows the scheduled end in the active locale and on track or behind", async () => {
     const { clock } = await openLive(liveMeeting(), LIVE_TIMES.running);
     expect(overall()).toHaveTextContent("Meeting ends 11:00 AM");
-    expect(overall()).toHaveTextContent("on track (+4 min)");
+    // Item 01 ran 1 min over; the buffer absorbs it.
+    expect(overall()).toHaveTextContent("On track · 1 min of buffer used");
     expect(overall().querySelector(".overall__status--ok")).not.toBeNull();
     // 10:30: 0 left, then 35 min of upcoming items → 11:05.
     tick(clock, new Date(2026, 9, 30, 10, 30).getTime());
@@ -193,6 +194,32 @@ describe("AC3 agenda states and the overall line", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Deutsch" }));
     expect(overall()).toHaveTextContent("Meeting endet 11:00");
     expect(overall()).toHaveTextContent("5 Min. im Verzug");
+  });
+
+  it("agrees with an item timer that runs over: it shows how much buffer is used", async () => {
+    const user = userEvent.setup();
+    const { clock } = await openLive(liveMeeting(), LIVE_TIMES.over);
+    expect(timer()).toHaveTextContent("2:10over · planned 15:00");
+    // 10:23:10 + 35 min of upcoming items = 10:58:10: 1 of the 5 buffer minutes is left.
+    expect(overall()).toHaveTextContent("On track · 4 min of buffer used");
+    expect(overall()).not.toHaveTextContent("+");
+    // The longer the item runs over, the more buffer is used, until the meeting is behind.
+    tick(clock, LIVE_TIMES.over + MINUTE);
+    expect(overall()).toHaveTextContent("On track · 5 min of buffer used");
+    tick(clock, LIVE_TIMES.over + 2 * MINUTE);
+    expect(overall()).toHaveTextContent("1 min behind");
+    tick(clock, LIVE_TIMES.over);
+    await user.click(screen.getByRole("button", { name: "Deutsch" }));
+    expect(overall()).toHaveTextContent("Im Plan · 4 Min. Puffer verbraucht");
+  });
+
+  it("shows the buffer that is left while nothing has used it", async () => {
+    const m = liveMeeting();
+    m.run = { ...m.run!, items: [{ ...m.run!.items[0]!, endedAt: null }] };
+    const { clock } = await openLive(m, LIVE_TIMES.start);
+    expect(overall()).toHaveTextContent("On track · 5 min buffer");
+    tick(clock, LIVE_TIMES.start + 3 * MINUTE);
+    expect(overall()).toHaveTextContent("On track · 5 min buffer");
   });
 });
 
@@ -214,7 +241,7 @@ describe("AC4 +5 min", () => {
     const user = userEvent.setup();
     const { core } = await openLive(liveMeeting(), LIVE_TIMES.item2Start);
     // Item 01 ran 1 min over, so 4 of the 5 buffer minutes are left: 10:06 + 15 + 35 = 10:56.
-    expect(overall()).toHaveTextContent("on track (+4 min)");
+    expect(overall()).toHaveTextContent("On track · 1 min of buffer used");
     const plus = screen.getByRole("button", { name: "+5 min" });
     await user.click(plus);
     // The planned buffer is used up.

@@ -5,7 +5,7 @@ import { useI18n } from "../../i18n";
 export const CONFIRM_MS = 6000;
 
 /**
- * "End meeting" in the top bar. The first click arms it inline (the same button now says "Click
+ * "End meeting", the last control of the live view. The first click arms it inline (the same button now says "Click
  * again to end", with "Keep going" next to it); the second click ends the meeting. No dialog. It
  * disarms after a few seconds, on "Keep going" or on Escape.
  */

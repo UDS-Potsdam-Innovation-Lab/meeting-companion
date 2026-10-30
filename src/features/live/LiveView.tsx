@@ -19,8 +19,8 @@ interface Props {
 }
 
 /**
- * Frame 02 "Live meeting": top bar, the left column (timer, agenda, parking lot, overall line) and the
- * time nudge. The centre and right columns come with later jobs; their space stays empty.
+ * Frame 02 "Live meeting": top bar, the left column (timer, agenda, parking lot, overall line), the
+ * time nudge and "End meeting" at the bottom right. The centre and right columns come with later jobs; their space stays empty.
  */
 export function LiveView({ meeting, state }: Props) {
   const i18n = useI18n();
@@ -86,7 +86,7 @@ export function LiveView({ meeting, state }: Props) {
 
   return (
     <>
-      <TopBar meetingTitle={meeting.title} actions={<EndMeeting onEnd={onEnd} />} />
+      <TopBar meetingTitle={meeting.title} />
       <main className="live" id="main" data-view={LIVE_VIEW}>
         <h1 className="visually-hidden">{t("live.heading")}</h1>
         <div className="live__left" ref={leftRef}>
@@ -116,6 +116,10 @@ export function LiveView({ meeting, state }: Props) {
               onExtend={onExtend}
             />
           ) : null}
+        </div>
+        {/* Last in the view, visually and in tab order. */}
+        <div className="live__footer">
+          <EndMeeting onEnd={onEnd} />
         </div>
         <div className="visually-hidden" aria-live="polite" data-testid="nudge-announcement">
           {announced.text}

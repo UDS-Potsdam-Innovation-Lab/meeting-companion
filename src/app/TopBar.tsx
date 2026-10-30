@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { LOCALES, useI18n, type Locale, type MessageKey } from "../i18n";
 import { LogoMark, PlusIcon } from "../ui/icons";
 
@@ -7,11 +6,9 @@ interface Props {
   onNewMeeting?: () => void;
   /** Live meeting: the meeting title next to the brand. */
   meetingTitle?: string;
-  /** Controls at the right end, after the language switch (live meeting: "End meeting"). */
-  actions?: ReactNode;
 }
 
-export function TopBar({ onNewMeeting, meetingTitle, actions }: Props) {
+export function TopBar({ onNewMeeting, meetingTitle }: Props) {
   const { t, locale, setLocale } = useI18n();
   return (
     <header className="top-bar">
@@ -44,7 +41,6 @@ export function TopBar({ onNewMeeting, meetingTitle, actions }: Props) {
           </button>
         ))}
       </div>
-      {actions}
     </header>
   );
 }
