@@ -50,6 +50,8 @@ struct BufferState {
     failed: Option<AudioError>,
     ended: bool,
     high_water: usize,
+    /// When samples last arrived from the device (set at creation, so a dead start is caught too).
+    last_push: Option<std::time::Instant>,
 }
 
 /// What [`AudioSink::take`] returns: the samples that arrived, and whether capture failed or ended.
@@ -80,7 +82,13 @@ impl AudioSink {
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            inner: Arc::new((Mutex::new(BufferState::default()), Condvar::new())),
+            inner: Arc::new((
+                Mutex::new(BufferState {
+                    last_push: Some(std::time::Instant::now()),
+                    ..BufferState::default()
+                }),
+                Condvar::new(),
+            )),
             capacity,
         }
     }
@@ -94,6 +102,9 @@ impl AudioSink {
         let mut s = self.lock();
         if s.ended {
             return;
+        }
+        if !samples.is_empty() {
+            s.last_push = Some(std::time::Instant::now());
         }
         s.samples.extend(samples.iter().copied());
         let over = s.samples.len().saturating_sub(self.capacity);
@@ -134,6 +145,20 @@ impl AudioSink {
             failed: s.failed,
             ended: s.ended,
         }
+    }
+
+    /// How long the device has delivered nothing. Unlike the time since the consumer last took
+    /// samples, a slow consumer does not make this grow.
+    pub fn since_last_push(&self) -> Duration {
+        self.lock()
+            .last_push
+            .map_or(Duration::ZERO, |t| t.elapsed())
+    }
+
+    /// The failure or end flag, without taking anything.
+    pub fn peek(&self) -> (Option<AudioError>, bool) {
+        let s = self.lock();
+        (s.failed, s.ended)
     }
 
     pub fn len(&self) -> usize {

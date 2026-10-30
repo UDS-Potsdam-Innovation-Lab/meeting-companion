@@ -3,7 +3,8 @@ use std::sync::Mutex;
 use super::*;
 use crate::crypto::{DataKey, MemoryKeyProvider};
 use crate::engines::audio::{FakeAudioSource, FakeCounters, Pace, Tone};
-use crate::engines::stt::{Lang, ScriptedSpeechToText};
+use crate::engines::stt::{Lang, ScriptedSpeechToText, SpeechToText, SttError};
+use crate::engines::SttProvider;
 use crate::engines::{FakeSttProvider, NoModelProvider};
 use crate::model::tests::running;
 use crate::model::Meeting;
@@ -484,4 +485,169 @@ fn walk(root: &std::path::Path) -> Vec<String> {
         }
     }
     out
+}
+
+/// An engine that is slower than the 1.5 s stall limit on every window (whisper in a debug build).
+struct SlowStt {
+    inner: ScriptedSpeechToText,
+    delay: Duration,
+    /// Set to let the engine catch up (so a test can stop without waiting out the backlog).
+    quick: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl SpeechToText for SlowStt {
+    fn transcribe(
+        &mut self,
+        window: &[f32],
+        final_pass: bool,
+    ) -> Result<Vec<crate::engines::stt::Recognized>, SttError> {
+        if !self.quick.load(std::sync::atomic::Ordering::SeqCst) {
+            std::thread::sleep(self.delay);
+        }
+        self.inner.transcribe(window, final_pass)
+    }
+}
+
+struct SlowProvider(Duration, Arc<std::sync::atomic::AtomicBool>);
+
+impl SttProvider for SlowProvider {
+    fn models(&self) -> crate::engines::models::ModelList {
+        FakeSttProvider {
+            make: Box::new(script),
+        }
+        .models()
+    }
+    fn load(&self, _id: Option<&str>) -> Result<Box<dyn SpeechToText>, SttError> {
+        Ok(Box::new(SlowStt {
+            inner: script(),
+            delay: self.0,
+            quick: self.1.clone(),
+        }))
+    }
+}
+
+fn slow_stt() -> Box<SlowProvider> {
+    Box::new(SlowProvider(Duration::from_millis(2_500), Arc::default()))
+}
+
+fn errors_seen(rig: &Rig) -> Vec<(Instant, CaptureState)> {
+    let states = rig.events.states.lock().unwrap();
+    states
+        .iter()
+        .filter(|(_, s)| s.state == Capture::Error)
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn a_slow_engine_does_not_stop_recording() {
+    let rig = rig_with(|| talking().repeating(), slow_stt());
+    rig.meetings.save(&consented()).unwrap();
+    rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+    // At least 3 windows of 3 s (8+ s), the engine blocking 2.5 s on each call.
+    std::thread::sleep(Duration::from_millis(8_500));
+    let status = rig.recorder.status();
+    assert_eq!(status.state, Capture::Recording);
+    assert_eq!(status.reason, None);
+    assert!(errors_seen(&rig).is_empty());
+    assert_eq!(rig.counters.starts(), 1);
+    assert_eq!(rig.counters.stops(), 0);
+    assert!(wait_until(Duration::from_secs(8), || !rig
+        .events
+        .finals()
+        .is_empty()));
+    assert_eq!(rig.recorder.status().state, Capture::Recording);
+    rig.recorder.stop();
+    assert!(errors_seen(&rig).is_empty());
+}
+
+#[test]
+fn a_dead_device_is_detected_within_2_s_while_the_engine_is_busy() {
+    let rig = rig_with(
+        || FakeAudioSource::new(vec![Tone::speech(1_000)], Pace::Fast),
+        slow_stt(),
+    );
+    rig.meetings.save(&consented()).unwrap();
+    let started = Instant::now();
+    rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(6), || rig
+        .recorder
+        .status()
+        .state
+        == Capture::Error));
+    let (at, state) = errors_seen(&rig).remove(0);
+    assert_eq!(state.reason, Some(Reason::MicrophoneLost));
+    assert!(at.duration_since(started) < Duration::from_secs(2));
+    rig.recorder.stop();
+}
+
+#[test]
+fn a_device_error_is_reported_within_2_s_while_the_engine_is_busy() {
+    let rig = rig_with(|| talking().repeating().failing_after(700), slow_stt());
+    rig.meetings.save(&consented()).unwrap();
+    let started = Instant::now();
+    rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(6), || rig
+        .recorder
+        .status()
+        .state
+        == Capture::Error));
+    let (at, state) = errors_seen(&rig).remove(0);
+    assert_eq!(state.reason, Some(Reason::MicrophoneLost));
+    assert!(at.duration_since(started) < Duration::from_millis(700 + 2_000));
+    rig.recorder.stop();
+}
+
+#[test]
+fn a_lagging_engine_keeps_the_buffer_bounded_and_the_ticks_coming() {
+    // The fake delivers far faster than real time, so the slow engine is always behind.
+    let quick = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let provider = SlowProvider(Duration::from_millis(2_500), quick.clone());
+    let rig = rig_with(
+        || FakeAudioSource::new(vec![Tone::speech(60_000)], Pace::Fast).repeating(),
+        Box::new(provider),
+    );
+    rig.meetings.save(&consented()).unwrap();
+    rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+    std::thread::sleep(Duration::from_millis(5_500));
+    let sink = rig.recorder.inner().worker.as_ref().unwrap().0.clone();
+    assert!(sink.dropped() > 0);
+    assert!(sink.high_water() <= sink.capacity());
+    assert_eq!(rig.recorder.status().state, Capture::Recording);
+    let times_so_far = rig.events.states.lock().unwrap().len();
+    assert!(times_so_far >= 5);
+    quick.store(true, std::sync::atomic::Ordering::SeqCst);
+    rig.recorder.stop();
+    // Ticks arrived at least once per second, also while the engine was inside a window.
+    let times: Vec<Instant> = rig
+        .events
+        .states
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, s)| s.state == Capture::Recording)
+        .map(|(t, _)| *t)
+        .collect();
+    assert!(times.len() >= 5);
+    for pair in times.windows(2) {
+        assert!(pair[1].duration_since(pair[0]) < Duration::from_secs(1));
+    }
+    assert!(errors_seen(&rig).is_empty());
+}
+
+#[test]
+fn dev_builds_optimise_whisper_cpp() {
+    let toml = include_str!("../../Cargo.toml");
+    let section = toml
+        .split("[profile.dev.package.\"*\"]")
+        .nth(1)
+        .expect("a [profile.dev.package.\"*\"] section");
+    let line = section
+        .lines()
+        .find(|l| l.trim_start().starts_with("opt-level"))
+        .expect("an opt-level");
+    let level: u8 = line.split('=').nth(1).unwrap().trim().parse().unwrap();
+    assert!(level >= 2);
+    let config = include_str!("../../.cargo/config.toml");
+    assert!(config.contains("CMAKE_BUILD_TYPE") && config.contains("Release"));
 }
