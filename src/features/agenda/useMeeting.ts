@@ -69,11 +69,12 @@ export function useMeeting(defaultTitle: () => string): MeetingState {
     const m = createMeeting(titleRef.current());
     current.current = m;
     setMeeting(m);
-    setLoadError(null);
+    // A missing key is not solved by a new meeting; that message stays.
+    setLoadError((e) => (e === "keyUnavailable" ? e : null));
     persist(m);
   }, [persist]);
 
-  const dismissLoadError = useCallback(() => setLoadError(null), []);
+  const dismissLoadError = useCallback(() => setLoadError((e) => (e === "keyUnavailable" ? e : null)), []);
 
   return { meeting, loadError, saveFailed, update, startNew, dismissLoadError };
 }

@@ -2,7 +2,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Meeting } from "../features/agenda/model";
 
-export type LoadError = "corrupt" | "unreadable";
+/** `keyUnavailable`: the data key is not in the OS keychain; nothing can be read or saved. */
+export type LoadError = "corrupt" | "unreadable" | "keyUnavailable";
 
 export interface LoadResult {
   meeting: Meeting | null;
@@ -10,7 +11,10 @@ export interface LoadResult {
 }
 
 export type SaveError =
-  { kind: "invalid"; fields: { field: string; code: string }[] } | { kind: "io" } | { kind: "unknown" };
+  | { kind: "invalid"; fields: { field: string; code: string }[] }
+  | { kind: "io" }
+  | { kind: "locked" }
+  | { kind: "unknown" };
 
 /** The most recently edited meeting, or why it could not be read. */
 export async function loadLatestMeeting(): Promise<LoadResult> {
@@ -27,7 +31,9 @@ export async function saveMeeting(meeting: Meeting): Promise<number> {
     return await invoke<number>("save_meeting", { meeting });
   } catch (e) {
     const err = e as Partial<SaveError> | undefined;
-    throw err && (err.kind === "invalid" || err.kind === "io") ? err : { kind: "unknown" };
+    throw err && (err.kind === "invalid" || err.kind === "io" || err.kind === "locked")
+      ? err
+      : { kind: "unknown" };
   }
 }
 

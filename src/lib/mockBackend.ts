@@ -7,15 +7,18 @@ import type { LoadResult } from "./ipc";
 
 const KEY = "mock-backend.meetings";
 const CORRUPT_KEY = "mock-backend.corrupt";
+const LOCKED_KEY = "mock-backend.locked";
 
-type Fixture = "empty" | "filled" | "over" | "corrupt";
+type Fixture = "empty" | "filled" | "over" | "corrupt" | "locked";
 
 function seed(fixture: Fixture) {
   localStorage.removeItem(CORRUPT_KEY);
+  localStorage.removeItem(LOCKED_KEY);
   const meetings: Meeting[] =
     fixture === "filled" ? [filledMeeting()] : fixture === "over" ? [overBudgetMeeting()] : [];
   localStorage.setItem(KEY, JSON.stringify(meetings));
   if (fixture === "corrupt") localStorage.setItem(CORRUPT_KEY, "1");
+  if (fixture === "locked") localStorage.setItem(LOCKED_KEY, "1");
 }
 
 function all(): Meeting[] {
@@ -38,6 +41,9 @@ export function installMockBackend() {
   mockIPC((cmd, args) => {
     switch (cmd) {
       case "load_latest_meeting": {
+        if (localStorage.getItem(LOCKED_KEY)) {
+          return { meeting: null, error: "keyUnavailable" } satisfies LoadResult;
+        }
         if (localStorage.getItem(CORRUPT_KEY)) {
           localStorage.removeItem(CORRUPT_KEY);
           return { meeting: null, error: "corrupt" } satisfies LoadResult;
@@ -46,6 +52,7 @@ export function installMockBackend() {
         return { meeting: list[list.length - 1] ?? null, error: null } satisfies LoadResult;
       }
       case "save_meeting": {
+        if (localStorage.getItem(LOCKED_KEY)) throw { kind: "locked" };
         const meeting = (args as { meeting: Meeting }).meeting;
         if (!isMeetingValid(meeting)) throw { kind: "invalid", fields: [] };
         const now = Date.now();

@@ -28,7 +28,7 @@ export function AgendaSetup({ state }: { state: MeetingState }) {
         </div>
 
         {loadError ? <LoadErrorBanner error={loadError} onDismiss={dismissLoadError} /> : null}
-        {saveFailed ? (
+        {saveFailed && loadError !== "keyUnavailable" ? (
           <div className="banner banner--error" role="alert">
             {t("store.saveFailed")}
           </div>
@@ -46,6 +46,17 @@ export function AgendaSetup({ state }: { state: MeetingState }) {
 
 function LoadErrorBanner({ error, onDismiss }: { error: LoadError; onDismiss: () => void }) {
   const { t } = useI18n();
+  if (error === "keyUnavailable") {
+    // Not dismissable: nothing is saved while the key is missing.
+    return (
+      <div className="banner banner--error" role="alert">
+        <div className="banner__text">
+          <p className="banner__title">{t("store.keyUnavailable.title")}</p>
+          <p>{t("store.keyUnavailable.body")}</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="banner banner--error" role="alert">
       <div className="banner__text">

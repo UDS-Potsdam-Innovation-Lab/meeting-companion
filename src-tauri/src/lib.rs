@@ -3,6 +3,7 @@
 //! The app opens no network port and makes no network request. The UI is served from the app's
 //! own assets through Tauri's custom protocol, and every command below reads or writes local files.
 
+pub mod crypto;
 pub mod engines;
 pub mod model;
 pub mod store;
@@ -12,14 +13,17 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{Manager, State};
 
+use crypto::KeychainKeyProvider;
 use model::{FieldError, Meeting};
-use store::{FileMeetingStore, MeetingStore, MemoryMeetingStore, StoreError};
+use store::{FileMeetingStore, LockedMeetingStore, MeetingStore, MemoryMeetingStore, StoreError};
 
 /// `MEETING_COMPANION_STORE=memory` keeps meetings in memory only (tests, demos).
 pub const ENV_STORE: &str = "MEETING_COMPANION_STORE";
 /// `MEETING_COMPANION_SMOKE=1` starts the app with the in-memory store, waits until the UI reports
 /// that the agenda setup view rendered, prints `SMOKE OK` and exits 0 (or exits 1 after a timeout).
 pub const ENV_SMOKE: &str = "MEETING_COMPANION_SMOKE";
+/// Keychain entry (service = app identifier) that holds the meeting data key.
+const KEYCHAIN_ACCOUNT: &str = "meeting-data-key";
 const SMOKE_TIMEOUT: Duration = Duration::from_secs(90);
 const SMOKE_VIEW: &str = "agenda-setup";
 
@@ -33,15 +37,20 @@ pub struct AppState {
 #[serde(rename_all = "camelCase")]
 pub struct LoadResult {
     pub meeting: Option<Meeting>,
-    /// `corrupt` (the file is not a valid meeting) or `unreadable` (the OS refused the read).
+    /// `corrupt` (the file is not a valid meeting, or was changed), `unreadable` (the OS refused the
+    /// read) or `keyUnavailable` (the data key is not in the OS keychain; nothing can be read or saved).
     pub error: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum SaveError {
-    Invalid { fields: Vec<FieldError> },
+    Invalid {
+        fields: Vec<FieldError>,
+    },
     Io,
+    /// The data key is not available; nothing was written.
+    Locked,
 }
 
 pub fn load_latest(store: &dyn MeetingStore) -> LoadResult {
@@ -57,6 +66,7 @@ pub fn load_latest(store: &dyn MeetingStore) -> LoadResult {
                 meeting: None,
                 error: Some(match e {
                     StoreError::Io(_) => "unreadable",
+                    StoreError::KeyUnavailable => "keyUnavailable",
                     _ => "corrupt",
                 }),
             }
@@ -70,6 +80,7 @@ pub fn save(store: &dyn MeetingStore, mut meeting: Meeting, now_ms: u64) -> Resu
     match store.save(&meeting) {
         Ok(()) => Ok(now_ms),
         Err(StoreError::Invalid(fields)) => Err(SaveError::Invalid { fields }),
+        Err(StoreError::KeyUnavailable) => Err(SaveError::Locked),
         Err(e) => {
             eprintln!("meeting-companion: could not save the meeting: {e}");
             Err(SaveError::Io)
@@ -123,7 +134,14 @@ pub fn run() {
                 Box::new(MemoryMeetingStore::new())
             } else {
                 let dir = app.path().app_data_dir()?.join("meetings");
-                Box::new(FileMeetingStore::open(dir)?)
+                let keys =
+                    KeychainKeyProvider::new(app.config().identifier.clone(), KEYCHAIN_ACCOUNT);
+                match FileMeetingStore::open(dir, &keys) {
+                    Ok(store) => Box::new(store),
+                    // No key: the UI explains it; stored files stay untouched.
+                    Err(StoreError::KeyUnavailable) => Box::new(LockedMeetingStore),
+                    Err(e) => return Err(Box::new(e)),
+                }
             };
             app.manage(AppState { store, smoke });
             if smoke {
@@ -154,8 +172,9 @@ mod tests {
     #[test]
     fn load_latest_reports_corrupt_file_and_returns_no_meeting() {
         let dir = tempfile::tempdir().unwrap();
-        let store = FileMeetingStore::open(dir.path()).unwrap();
-        std::fs::write(dir.path().join("m-1.json"), b"not json").unwrap();
+        let keys = crypto::MemoryKeyProvider::new();
+        let store = FileMeetingStore::open(dir.path(), &keys).unwrap();
+        std::fs::write(dir.path().join("m-1.meeting"), b"not json").unwrap();
         assert_eq!(
             load_latest(&store),
             LoadResult {
@@ -164,7 +183,7 @@ mod tests {
             }
         );
         assert_eq!(
-            std::fs::read(dir.path().join("m-1.json")).unwrap(),
+            std::fs::read(dir.path().join("m-1.meeting")).unwrap(),
             b"not json"
         );
     }
@@ -188,6 +207,23 @@ mod tests {
             other => panic!("expected Invalid, got {other:?}"),
         }
         assert!(load_latest(&store).meeting.is_none());
+    }
+
+    #[test]
+    fn missing_key_is_reported_and_nothing_is_saved() {
+        let store = LockedMeetingStore;
+        assert_eq!(
+            load_latest(&store),
+            LoadResult {
+                meeting: None,
+                error: Some("keyUnavailable")
+            }
+        );
+        assert_eq!(save(&store, sample(), 1), Err(SaveError::Locked));
+        assert_eq!(
+            serde_json::to_value(SaveError::Locked).unwrap(),
+            serde_json::json!({ "kind": "locked" })
+        );
     }
 
     #[test]

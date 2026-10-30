@@ -70,5 +70,7 @@
   "error.itemTitle.empty": "Bitte gib ein Thema ein.",
   "error.itemTitle.tooLong": "Das Thema darf höchstens {max} Zeichen lang sein.",
   "error.outcome.tooLong": "Das Ergebnis darf höchstens {max} Zeichen lang sein.",
-  "error.minutes.outOfRange": "Bitte gib ganze Minuten zwischen {min} und {maxMinutes} ein."
+  "error.minutes.outOfRange": "Bitte gib ganze Minuten zwischen {min} und {maxMinutes} ein.",
+  "store.keyUnavailable.title": "Die gespeicherten Meetings können gerade nicht entschlüsselt werden.",
+  "store.keyUnavailable.body": "Der Schlüssel im Schlüsselbund des Systems ist nicht erreichbar. Die Dateien bleiben unverändert, und bis der Schlüsselbund wieder verfügbar ist, wird nichts gespeichert. Entsperre den Schlüsselbund und starte die App neu."
 }

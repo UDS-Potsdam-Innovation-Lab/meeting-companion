@@ -18,6 +18,12 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Authenticated encryption of meeting files (RustCrypto, audited); key material is zeroed on drop.
+chacha20poly1305 = "0.10"
+zeroize = "1"
+# Data key in the OS keychain: Secret Service on Linux (pure Rust D-Bus), Keychain on macOS,
+# Credential Manager on Windows.
+keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
 
 [dev-dependencies]
 tempfile = "3"

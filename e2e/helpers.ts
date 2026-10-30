@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 
-export type Fixture = "empty" | "filled" | "over" | "corrupt";
+export type Fixture = "empty" | "filled" | "over" | "corrupt" | "locked";
 
 /** Opens the app with a seeded fake store and a chosen language; waits until the view is ready. */
 export async function openApp(page: Page, fixture: Fixture, locale: "de" | "en" = "en") {

@@ -70,5 +70,7 @@
   "error.itemTitle.empty": "Please enter a topic.",
   "error.itemTitle.tooLong": "The topic can be at most {max} characters long.",
   "error.outcome.tooLong": "The outcome can be at most {max} characters long.",
-  "error.minutes.outOfRange": "Please enter whole minutes between {min} and {maxMinutes}."
+  "error.minutes.outOfRange": "Please enter whole minutes between {min} and {maxMinutes}.",
+  "store.keyUnavailable.title": "Your saved meetings cannot be decrypted right now.",
+  "store.keyUnavailable.body": "The key in the system keychain is not available. The files stay unchanged, and nothing is saved until the keychain is available again. Unlock the keychain and restart the app."
 }

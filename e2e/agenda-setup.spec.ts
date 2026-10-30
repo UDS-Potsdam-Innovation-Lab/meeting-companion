@@ -60,6 +60,9 @@ test.describe("AC7 accessibility at 1280×800", () => {
     await expect(page.getByRole("alert")).toBeVisible();
     await expectNoAxeViolations(page);
     await expectNoHorizontalScroll(page);
+    await openApp(page, "locked", "de");
+    await expect(page.getByRole("alert")).toContainText("Schlüsselbund");
+    await expectNoAxeViolations(page);
   });
 
   test("every control is reachable by Tab in a logical order, with a visible focus indicator", async ({

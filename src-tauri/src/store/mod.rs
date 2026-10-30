@@ -2,9 +2,11 @@
 //! implementation and [`MemoryMeetingStore`] the fake for tests and the smoke run.
 
 mod file;
+mod locked;
 mod memory;
 
 pub use file::FileMeetingStore;
+pub use locked::LockedMeetingStore;
 pub use memory::MemoryMeetingStore;
 
 use crate::model::{self, FieldError, Meeting};
@@ -13,8 +15,11 @@ use crate::model::{self, FieldError, Meeting};
 pub enum StoreError {
     /// The meeting failed validation and was not written.
     Invalid(Vec<FieldError>),
-    /// A stored meeting could not be parsed or failed validation. The file is left as it is.
+    /// A stored meeting could not be decrypted (changed, or sealed with another key), parsed or
+    /// validated. The file is left as it is.
     Corrupt { file: String },
+    /// The data key is not available from the OS keychain. Nothing is read or written.
+    KeyUnavailable,
     /// The file system refused a read or a write.
     Io(std::io::Error),
 }
@@ -24,6 +29,7 @@ impl std::fmt::Display for StoreError {
         match self {
             StoreError::Invalid(errs) => write!(f, "meeting is invalid ({} errors)", errs.len()),
             StoreError::Corrupt { file } => write!(f, "stored meeting {file} is unreadable"),
+            StoreError::KeyUnavailable => write!(f, "the data key is not available"),
             StoreError::Io(e) => write!(f, "storage error: {e}"),
         }
     }

@@ -29,6 +29,25 @@ describe("AC5 start-up and storage", () => {
     expect(core.saved).toHaveLength(0);
   });
 
+  it("a missing keychain key shows a lasting error and nothing claims to be saved", async () => {
+    localStorage.setItem("meeting-companion.locale", "en");
+    const user = userEvent.setup();
+    const { mockIPC } = await import("@tauri-apps/api/mocks");
+    await renderApp({ meeting: null, error: "keyUnavailable" });
+    expect(screen.getByRole("alert")).toHaveTextContent("Your saved meetings cannot be decrypted right now.");
+    expect(screen.getByRole("alert")).toHaveTextContent("The files stay unchanged");
+    expect(screen.queryByRole("button", { name: "Dismiss message" })).toBeNull();
+    mockIPC((cmd) => {
+      if (cmd === "save_meeting") throw { kind: "locked" };
+      return null;
+    });
+    await user.type(screen.getByLabelText("Title"), "!");
+    await user.click(screen.getByRole("button", { name: "New meeting" }));
+    // Still exactly one message, the key message.
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("cannot be decrypted");
+  });
+
   it("New meeting starts an empty meeting and saves it", async () => {
     localStorage.setItem("meeting-companion.locale", "en");
     const user = userEvent.setup();
