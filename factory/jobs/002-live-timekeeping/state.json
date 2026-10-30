@@ -1,0 +1,19 @@
+{
+  "id": "002-live-timekeeping",
+  "issue": 2,
+  "title": "Timekeeping in the live meeting",
+  "branch": "factory/002-live-timekeeping",
+  "builder": "builder-002-live-timekeeping",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "spec",
+  "round": 0,
+  "max_round": 3,
+  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
+  "history": [],
+  "decision": null,
+  "waiting": null,
+  "note": "Writing spec",
+  "updated": "2026-10-30T18:31:47Z"
+}
