@@ -201,7 +201,7 @@ fn sync_dir(dir: &Path) {
 mod tests {
     use super::*;
     use crate::crypto::MemoryKeyProvider;
-    use crate::model::tests::sample;
+    use crate::model::tests::{running, sample};
     use std::time::Duration;
 
     fn store() -> (tempfile::TempDir, MemoryKeyProvider, FileMeetingStore) {
@@ -276,6 +276,20 @@ mod tests {
         let reopened = FileMeetingStore::open(d.path().join("meetings"), &keys).unwrap();
         assert_eq!(reopened.latest().unwrap(), Some(m));
         assert_eq!(reopened.load("m-old").unwrap(), Some(older));
+    }
+
+    #[test]
+    fn running_meeting_survives_a_restart_and_an_invalid_run_is_never_written() {
+        let (d, keys, store) = store();
+        let m = running();
+        store.save(&m).unwrap();
+        let mut bad = m.clone();
+        bad.run.as_mut().unwrap().items[0].ended_at = None;
+        assert!(matches!(store.save(&bad), Err(StoreError::Invalid(_))));
+        drop(store);
+
+        let reopened = FileMeetingStore::open(d.path().join("meetings"), &keys).unwrap();
+        assert_eq!(reopened.latest().unwrap(), Some(m));
     }
 
     #[test]
