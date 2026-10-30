@@ -1,10 +1,19 @@
 import { test, type Page } from "@playwright/test";
+import { LIVE_TIMES } from "../../src/features/agenda/fixtures";
 import { openApp, type Fixture } from "../helpers";
 
 // One PNG per state and width: screenshots/<view>-<width>.png.
 const WIDTHS = [375, 1280, 1920];
 
-const VIEWS: { name: string; fixture: Fixture; act?: (page: Page) => Promise<void> }[] = [
+interface View {
+  name: string;
+  fixture: Fixture;
+  /** Fixed clock time (Playwright's clock API) for the live views. */
+  time?: number;
+  act?: (page: Page) => Promise<void>;
+}
+
+const VIEWS: View[] = [
   { name: "agenda-empty", fixture: "empty" },
   { name: "agenda-filled", fixture: "filled" },
   {
@@ -31,12 +40,41 @@ const VIEWS: { name: string; fixture: Fixture; act?: (page: Page) => Promise<voi
   { name: "agenda-store-error", fixture: "corrupt" },
   { name: "agenda-key-unavailable", fixture: "locked" },
   { name: "agenda-filled-de", fixture: "filled" },
+  {
+    name: "agenda-start-blocked",
+    fixture: "filled",
+    act: async (page) => {
+      await page.getByLabel("Title", { exact: true }).fill("");
+    },
+  },
+  // Frame 02, left column: 79 % (3:12 left), the 80 % nudge, 2:10 over, and the agenda done.
+  { name: "live", fixture: "live", time: LIVE_TIMES.running },
+  { name: "live-nudge", fixture: "live", time: LIVE_TIMES.nudge },
+  { name: "live-over", fixture: "live", time: LIVE_TIMES.over },
+  {
+    name: "live-done",
+    fixture: "live-done",
+    time: LIVE_TIMES.done,
+    act: async (page) => {
+      await page.getByRole("button", { name: /^Parking lot/ }).click();
+    },
+  },
+  {
+    name: "live-end-confirm",
+    fixture: "live",
+    time: LIVE_TIMES.running,
+    act: async (page) => {
+      await page.getByRole("button", { name: "End meeting" }).click();
+    },
+  },
+  { name: "live-nudge-de", fixture: "live", time: LIVE_TIMES.nudge },
 ];
 
 for (const width of WIDTHS) {
   for (const view of VIEWS) {
     test(`${view.name}-${width}`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 1920 ? 1080 : width === 375 ? 812 : 800 });
+      if (view.time !== undefined) await page.clock.setFixedTime(view.time);
       await openApp(page, view.fixture, view.name.endsWith("-de") ? "de" : "en");
       await view.act?.(page);
       await page.screenshot({ path: `screenshots/${view.name}-${width}.png`, fullPage: true });

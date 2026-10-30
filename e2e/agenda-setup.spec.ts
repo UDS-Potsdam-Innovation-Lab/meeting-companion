@@ -1,36 +1,6 @@
-import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { expectNoAxeViolations, expectNoHorizontalScroll, expectTargetsAtLeast24px } from "./a11y";
 import { openApp } from "./helpers";
-
-const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
-
-async function expectNoAxeViolations(page: Page) {
-  const results = await new AxeBuilder({ page }).withTags(WCAG).analyze();
-  expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(", ")}`)).toEqual([]);
-}
-
-async function expectNoHorizontalScroll(page: Page) {
-  const { scroll, client } = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    client: document.documentElement.clientWidth,
-  }));
-  expect(scroll).toBeLessThanOrEqual(client);
-}
-
-async function expectTargetsAtLeast24px(page: Page) {
-  const small = await page.evaluate(() =>
-    Array.from(document.querySelectorAll<HTMLElement>("button, input, select, a[href]"))
-      .filter((el) => el.offsetParent !== null)
-      .map((el) => {
-        // A visually hidden radio is operated through its label, which is the target.
-        const target = el.matches('input[type="radio"]') ? el.closest("label")! : el;
-        const r = target.getBoundingClientRect();
-        return { what: target.outerHTML.slice(0, 80), w: r.width, h: r.height };
-      })
-      .filter((t) => t.w < 24 || t.h < 24),
-  );
-  expect(small).toEqual([]);
-}
 
 test.describe("AC7 accessibility at 1280×800", () => {
   test("filled agenda: no axe violations, no horizontal scroll, targets ≥ 24 px", async ({ page }) => {
