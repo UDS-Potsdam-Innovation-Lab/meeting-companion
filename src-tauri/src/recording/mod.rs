@@ -387,7 +387,13 @@ impl Drop for Recorder {
     }
 }
 
-/// The worker: drains the sink, runs the pipeline, stores finals, sends segments and ticks.
+/// How long the monitor lets the speech-to-text thread finish the cut-off utterance before it
+/// reports a lost device itself (the engine may be inside a long window).
+const FLUSH_GRACE: Duration = Duration::from_millis(250);
+
+/// The worker. Two threads: one drains the sink and runs the pipeline (a slow engine only makes the
+/// transcript lag; the sink keeps the audio, bounded), the other watches the device and sends
+/// ticks, so a busy engine neither looks like a lost microphone nor freezes the state.
 fn run(
     shared: Arc<Shared>,
     sink: AudioSink,
@@ -395,69 +401,105 @@ fn run(
     mut writer: Box<dyn TranscriptWriter>,
     meeting_id: String,
 ) -> Box<dyn SpeechToText> {
-    let mut last_audio = Instant::now();
-    let mut last_tick = Instant::now();
-    let deliver =
-        |segments: Vec<Segment>, writer: &mut Box<dyn TranscriptWriter>| -> Result<(), Reason> {
-            for segment in segments {
-                if segment.is_final {
-                    writer.append(&segment).map_err(|e| {
-                        crate::log!("could not store a transcript segment: {e}");
-                        Reason::StorageFailed
-                    })?;
-                }
-                shared.events.segment(&SegmentEvent {
-                    meeting_id: meeting_id.clone(),
-                    segment,
-                });
-            }
-            Ok(())
-        };
-    let outcome: Result<(), Reason> = loop {
-        let taken = sink.take(Duration::from_millis(100));
-        if !taken.samples.is_empty() {
-            last_audio = Instant::now();
-            match transcriber.push(&taken.samples) {
-                Ok(segments) => {
-                    if let Err(r) = deliver(segments, &mut writer) {
-                        break Err(r);
-                    }
-                }
-                Err(e) => break Err(e.into()),
-            }
-        }
-        let lost = if let Some(e) = taken.failed {
-            Some(Reason::from(e))
-        } else if !taken.ended && last_audio.elapsed() >= STALL {
-            Some(Reason::MicrophoneLost)
-        } else {
-            None
-        };
-        if taken.ended || lost.is_some() {
-            let flushed = transcriber
-                .flush()
-                .map_err(Reason::from)
-                .and_then(|segments| deliver(segments, &mut writer));
-            break match (lost, flushed) {
-                (Some(r), _) => Err(r),
-                (None, result) => result,
-            };
-        }
-        if last_tick.elapsed() >= TICK {
-            last_tick = Instant::now();
-            let (elapsed, level) = (transcriber.recorded_ms(), transcriber.level());
-            shared.set(|s| {
-                s.elapsed_ms = elapsed;
-                s.level = (level * 4.0).min(1.0);
-            });
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::SeqCst};
+    let elapsed_ms = AtomicU64::new(transcriber.recorded_ms());
+    let level_bits = AtomicU32::new(0f32.to_bits());
+    let done = AtomicBool::new(false);
+    let reported = AtomicBool::new(false);
+    let lost: Mutex<Option<Reason>> = Mutex::new(None);
+    let report = |reason: Reason| {
+        if !reported.swap(true, SeqCst) {
+            shared.fail(reason);
         }
     };
-    let elapsed = transcriber.recorded_ms();
-    shared.status().elapsed_ms = elapsed;
-    if let Err(reason) = outcome {
-        shared.fail(reason);
-    }
-    transcriber.into_engine()
+    let tick = |elapsed: u64, level: f32| {
+        shared.set(|s| {
+            s.elapsed_ms = elapsed;
+            s.level = (level * 4.0).min(1.0);
+        });
+    };
+    let engine = std::thread::scope(|scope| {
+        let stt = scope.spawn(|| {
+            let deliver = |segments: Vec<Segment>,
+                           writer: &mut Box<dyn TranscriptWriter>|
+             -> Result<(), Reason> {
+                for segment in segments {
+                    if segment.is_final {
+                        writer.append(&segment).map_err(|e| {
+                            crate::log!("could not store a transcript segment: {e}");
+                            Reason::StorageFailed
+                        })?;
+                    }
+                    shared.events.segment(&SegmentEvent {
+                        meeting_id: meeting_id.clone(),
+                        segment,
+                    });
+                }
+                Ok(())
+            };
+            let outcome: Result<(), Reason> = loop {
+                let taken = sink.take(Duration::from_millis(100));
+                if !taken.samples.is_empty() {
+                    match transcriber.push(&taken.samples) {
+                        Ok(segments) => {
+                            if let Err(r) = deliver(segments, &mut writer) {
+                                break Err(r);
+                            }
+                        }
+                        Err(e) => break Err(e.into()),
+                    }
+                    elapsed_ms.store(transcriber.recorded_ms(), SeqCst);
+                    level_bits.store(transcriber.level().to_bits(), SeqCst);
+                }
+                let gone = lost.lock().unwrap_or_else(|e| e.into_inner()).take();
+                let lost_now = taken.failed.map(Reason::from).or(gone);
+                if taken.ended || lost_now.is_some() {
+                    let flushed = transcriber
+                        .flush()
+                        .map_err(Reason::from)
+                        .and_then(|segments| deliver(segments, &mut writer));
+                    break match (lost_now, flushed) {
+                        (Some(r), _) => Err(r),
+                        (None, result) => result,
+                    };
+                }
+            };
+            elapsed_ms.store(transcriber.recorded_ms(), SeqCst);
+            shared.status().elapsed_ms = transcriber.recorded_ms();
+            if let Err(reason) = outcome {
+                report(reason);
+            }
+            done.store(true, SeqCst);
+            transcriber.into_engine()
+        });
+        let mut last_tick = Instant::now();
+        let mut lost_since: Option<Instant> = None;
+        while !done.load(SeqCst) {
+            std::thread::sleep(Duration::from_millis(25));
+            let (failed, ended) = sink.peek();
+            let reason = failed.map(Reason::from).or_else(|| {
+                (!ended && sink.since_last_push() >= STALL).then_some(Reason::MicrophoneLost)
+            });
+            if let Some(reason) = reason {
+                lost.lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get_or_insert(reason);
+                let since = *lost_since.get_or_insert_with(Instant::now);
+                if since.elapsed() >= FLUSH_GRACE {
+                    report(reason);
+                }
+            }
+            if last_tick.elapsed() >= TICK && !reported.load(SeqCst) {
+                last_tick = Instant::now();
+                tick(
+                    elapsed_ms.load(SeqCst),
+                    f32::from_bits(level_bits.load(SeqCst)),
+                );
+            }
+        }
+        stt.join().expect("speech-to-text thread panicked")
+    });
+    engine
 }
 
 #[cfg(test)]
