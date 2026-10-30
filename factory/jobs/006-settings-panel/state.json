@@ -18,7 +18,7 @@
   },
   "history": [],
   "decision": null,
-  "waiting": null,
-  "note": "Writing spec",
-  "updated": "2026-10-30T20:28:58Z"
+  "waiting": "design",
+  "note": "Spec written; FigCraft frame 14 Settings being drawn",
+  "updated": "2026-10-30T20:32:05Z"
 }
