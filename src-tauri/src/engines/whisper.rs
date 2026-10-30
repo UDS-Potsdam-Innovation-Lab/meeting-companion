@@ -1,6 +1,7 @@
 //! [`SpeechToText`] with whisper.cpp (`whisper-rs`), on the CPU, fully on the device. The model file
-//! comes from [`super::models`]; the app ships and downloads none. Each window's language is detected
-//! on its own and limited to German or English, so a mixed meeting gets per-segment languages.
+//! comes from [`super::models`]; the app ships and downloads none. Each final window's language is
+//! detected on its own and limited to German or English, so a mixed meeting gets per-segment
+//! languages; previews reuse the last detected language.
 
 use std::path::Path;
 
@@ -16,6 +17,8 @@ pub struct WhisperSpeechToText {
     state: WhisperState,
     multilingual: bool,
     threads: usize,
+    /// Language of the last final window; previews reuse it instead of running detection again.
+    last_lang: Lang,
 }
 
 impl WhisperSpeechToText {
@@ -36,6 +39,7 @@ impl WhisperSpeechToText {
             state,
             multilingual,
             threads,
+            last_lang: Lang::De,
         })
     }
 
@@ -73,7 +77,14 @@ impl SpeechToText for WhisperSpeechToText {
         if window.is_empty() {
             return Ok(Vec::new());
         }
-        let lang = self.detect(window)?;
+        // Detection runs the encoder once more; a preview reuses the language of the last final window.
+        let lang = if final_pass {
+            let lang = self.detect(window)?;
+            self.last_lang = lang;
+            lang
+        } else {
+            self.last_lang
+        };
         let code = match lang {
             Lang::De => "de",
             Lang::En => "en",
@@ -147,7 +158,8 @@ mod tests {
         let started = std::time::Instant::now();
         let out = stt.transcribe(&window, true).expect("transcribes");
         eprintln!(
-            "whisper: {} segment(s) in {:?}",
+            "whisper: {} with {} segment(s) in {:?}",
+            path.display(),
             out.len(),
             started.elapsed()
         );
