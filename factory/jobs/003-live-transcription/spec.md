@@ -1,0 +1,76 @@
+# Local live transcription
+
+## Problem
+During a meeting the team needs a running transcript, so that later features can match speakers, suggest captures, draw the mind map and write the wrap-up. Nobody should have to type it. The audio is personal data of everyone in the room. So the transcript must be made on the device, in German and English (mixed in one meeting). Recording may only start after the facilitator confirms that everyone was informed, and everyone must be able to see that recording is on. Job 002 built the left column and top bar of frame 02. This job adds the centre column (transcript) and the recording controls in the top bar.
+
+## Scope
+- in:
+  - Consent gate. When the live view opens, the centre column shows an inline prompt and no microphone is opened. The facilitator confirms "Everyone was informed that this meeting is transcribed" and starts recording. The confirmation (timestamp) is stored in the meeting.
+  - Microphone capture in the Rust core, behind an `AudioSource` trait. The real implementation uses the default input device; a fake replays fixture audio or generated silence/tones.
+  - Speech-to-text behind a `SpeechToText` trait. Output is segments: start and end offset, text, language `de|en`, partial or final. A fake engine emits scripted segments. The real engine is whisper.cpp (`whisper-rs`) with per-segment language detection, loading a model file from `<app_data>/models/`. No model is downloaded or bundled by this job (see Open questions).
+  - The transcript pipeline runs off the UI thread. It sends segments to the UI over a Tauri event, and the event shape contains no engine types.
+  - Frame 02 top bar: REC chip with elapsed recording time, "On-device · DE/EN" chip, "Pause" / "Resume".
+  - Frame 02 centre column, "Transcript" tab only: final lines with time, the live partial line ("speaking…", muted), and the footer with the level meter, "Listening" status.
+  - Continuous, encrypted storage of the transcript next to the meeting file (`<app_data>/meetings/<id>.transcript`), append-only, using the existing data key.
+  - Built-app env flags for tests and smoke: `MEETING_COMPANION_AUDIO=fake`, `MEETING_COMPANION_STT=fake`.
+  - Mock backend support (`src/lib/mockBackend.ts`) that emits scripted segments, plus e2e fixtures and screenshots.
+  - New de/en keys. The microphone usage description for macOS (`NSMicrophoneUsageDescription`) in de and en.
+- out:
+  - Speaker names, avatars and "N speakers" (diarization, job "Speakers matched to attendees", frame 06). Lines show no speaker in this job, and the footer says "Listening" without a speaker count.
+  - The "Mind map" and "Notes" tabs, "Search", "Mark moment", and the "Decision detected" / "To-do detected" chips. These are left out entirely, not shown as dead controls.
+  - Storing audio on disk, and the audio retention period. Audio is held only in a bounded in-memory buffer for the engine.
+  - Downloading, bundling or choosing a speech model; a settings screen; picking the input device.
+  - Editing or deleting transcript lines; deleting a meeting with its transcript.
+  - Smart board layout (frame 05), Teams audio, the voice cue "Companion, …".
+  - Pausing the agenda timer. "Pause" pauses recording only; the timer from job 002 keeps running.
+
+## Stack
+Status: EXISTING
+Tauri 2 + Rust core, React 19 + Vite 6 UI, as listed in AGENTS.md "Application stack". `npm test`, `npm run lint`, `npm run screenshot`. New Rust dependencies are expected: `cpal` (microphone; needs `libasound2-dev` on the Linux CI runner) and `whisper-rs` (whisper.cpp; needs CMake and a C++ compiler on CI). Both are added to `ci.yml`; no change to the stack itself.
+
+## Acceptance criteria
+- [ ] AC1: Consent before recording. The live view opens with the consent prompt in the centre column. The prompt is inline and not modal, and the left column stays usable. Until the facilitator ticks "Everyone was informed that this meeting is transcribed" and presses "Start recording", the core opens no audio source. A Rust test counts `AudioSource::start` calls on the fake: 0 before the confirmation, 1 after. A core command that starts recording without a stored confirmation is rejected with an error, so the UI cannot skip the gate. The confirmation timestamp is stored in the meeting as an optional field; meetings without it load unchanged. After an app restart, a running meeting reopens with recording stopped and shows "Resume recording" (one tap, no second consent prompt). Recording never starts on its own. If no microphone is available or permission is denied, or no speech model is installed, the centre column shows that reason and the REC chip does not appear. (NFR Privacy "Recording starts only after the facilitator confirms")
+- [ ] AC2: Recording indicator and pause. While the core captures audio, the top bar shows the REC chip with a red dot, the text "REC" and the elapsed recording time (`hh:mm:ss`), so the state is not shown by colour alone. The chip is driven by capture-state events from the core, not by the UI's own state. "Pause" stops capture (`AudioSource::stop`), the chip changes to "Paused" with the time frozen, and the button becomes "Resume". Paused time is not counted. "End meeting" stops capture before the meeting ends. If capture fails mid-meeting (device unplugged), the chip leaves the REC state within 2 s and the centre column shows the error with "Resume recording". The agenda timer is unaffected by pause. Component tests cover recording, paused, error and stopped; a Rust test covers the error path with a fake source that fails. (NFR Privacy "a recording indicator is always visible")
+- [ ] AC3: Engine interface. `AudioSource` and `SpeechToText` are Rust traits in `src-tauri/src/engines/`, each with a fake. The pipeline is tested with the fakes only, with no model, microphone or network: scripted audio produces partial segments followed by final segments in order; a meeting that switches between German and English yields segments tagged `de` and `en`; the audio buffer stays bounded (at most 30 s of samples) over a simulated 2-hour run. The engine is fed in windows of at most 3 s, and with the fake engine the first partial segment reaches the UI event within 3 s of the scripted speech start. `WhisperSpeechToText` compiles in CI and has one `#[ignore]` test that a person runs with a local model (`cargo test ... -- --ignored whisper`). The UI imports no engine type; `src/lib/ipc.ts` exposes only the segment and capture-state events. (NFR Architecture, Performance; profile: engines behind an interface with a fake)
+- [ ] AC4: Transcript column. Final lines show the time (`HH:MM`, active locale) and the text; the current partial line is shown muted with "speaking…" and is replaced when its final segment arrives. The list scrolls to the newest line unless the user has scrolled up, and then shows a "Jump to latest" button. New final lines are announced through a polite live region at most once every 10 s, not line by line. Transcript text is rendered as text only: a segment containing `<img src=x onerror=alert(1)>` appears literally and creates no element. The footer shows the level meter and "Listening" while recording, "Paused" while paused. The header shows the "Transcript" label without the other tabs. (NFR Security "text from transcripts is untrusted input")
+- [ ] AC5: Continuous, encrypted storage. Every final segment is appended to `<app_data>/meetings/<id>.transcript` within 10 s of being finalised, as its own sealed record. Each record is encrypted with the existing data key, and its associated data binds the meeting id and a sequence number. Rust tests cover:
+  - a round trip of many records
+  - a file truncated in the middle of the last record loads every complete record before it (crash or power loss)
+  - a tampered, reordered or swapped-in record from another meeting is rejected
+  - the file never contains transcript text in plain form
+
+  After an app restart (e2e: page reload with the mock backend), the transcript of a running meeting is shown again in full. The core does not keep the whole transcript in memory for writing: it appends and does not rewrite the file. (NFR Privacy "encrypted at rest", Reliability "loses at most the last 10 s", Performance "written to disk continuously")
+- [ ] AC6: Nothing else leaves the core. A Rust test runs a recording session with the fakes and then lists the app data directory: there are only `.meeting` and `.transcript` files and no audio file. Transcript text and audio never appear in logs or error messages (a test captures the log output of a session with a known marker phrase). No network access, listening port, HTTP client crate or Tauri plugin is added. `src/config.test.ts` still passes, and the Tauri capability file grants no new permissions beyond the new commands and events. The macOS bundle declares `NSMicrophoneUsageDescription`. (NFR Privacy "Nothing leaves the device", Security "No listening network ports"; profile reviewer-security)
+- [ ] AC7: All new strings come from keys in `de.json` and `en.json`, and the key-parity and no-literal tests pass. Playwright + axe report no WCAG 2.2 AA violations at 1280×800 in the consent, recording, paused and error states. There is no horizontal scroll at 1280×800. The keyboard reaches the consent checkbox, "Start recording", "Pause"/"Resume", "Jump to latest" and the existing left-column controls in a logical order, with a visible focus ring; targets are at least 24×24 px. `npm run screenshot` adds the fixtures `live-consent`, `live-transcript`, `live-paused` and `live-mic-error`, with segments from the mock backend at a fixed clock. The smoke test runs with the fake audio and fake engine. (NFR Clients and usability, Internationalisation)
+
+## Design
+Source: figcraft design/meeting-companion.figcraft, frame "02 Live meeting" (PNG `design/screens/s2_live.png`, generator `design/build/s2_live.py`)
+Status: EXISTS
+- "02 Live meeting" › top bar: "REC 00:23:41" chip (red dot, red-soft fill), "On-device · DE/EN" chip, "Pause" ghost button with "❚❚", left of "End meeting". States: recording (as in the frame), paused (chip "Paused", neutral style, button "Resume"), not recording (no REC chip, no Pause; on-device chip stays).
+- "02 Live meeting" › centre card "Transcript": the header row shows only the "Transcript" label (no segmented control, no Search). Feed rows as in the frame but without avatar and coloured name: time in muted 12 px, text 15 px ink with 150 % line height. Live line: "speaking…" in muted 12 px and the partial text in muted 15 px. No "detected" chips and no highlighted row.
+- "02 Live meeting" › centre footer "Listening": 12-bar level meter in the accent colour driven by the input level, "Listening" in muted 12 px. "Mark moment" is omitted. States: listening, paused (bars flat, "Paused"), off (no meter).
+- Consent and error states are not drawn in the frame. The builder places them inside the centre card body, in the frame's style: one white area with the checkbox sentence, a primary accent "Start recording" button, and below it the line from frame 01 ("Audio stays on this device."). The error state uses the same area with the reason and "Resume recording". The builder must not use a modal dialog.
+
+The right column (captures) stays empty, as in job 002. Style per the profile: warm neutral background, white cards, accent `#4338CA`, Inter, red for REC.
+
+## Surfaces
+- User-facing UI: yes. Frame 02 top bar (REC, on-device chip, Pause) and centre column, in the desktop app.
+- Security-relevant: yes. Microphone access, personal data (speech) processed and stored, a new encrypted file format, transcript text as untrusted input to the UI, a new IPC command that must enforce the consent gate in the core. Rules touched: NFR Privacy (consent before recording, recording indicator, stored only on device, encrypted at rest, nothing leaves the device); NFR Security (no listening ports; transcript text is untrusted); NFR Architecture (engines behind interfaces). No secure-coding guideline is configured.
+- Human gate: yes. The app starts recording speech and storing transcripts, which is new personal data (profile: anything that records or stores audio or transcripts; approver: escalate changes to what is stored). It also adds a microphone permission.
+- Audio/transcript data: yes. Audio is held only in memory (at most 30 s, bounded buffer) and never written to disk. Transcript segments (time offsets, text, language) are stored encrypted in `<app_data>/meetings/<id>.transcript` on the device, until meeting deletion exists. The meeting file gains the consent timestamp.
+- Leaves the device: no.
+- Board (touch) layout: no. Laptop layout at 1280 px and up; all controls are standard buttons, so touch works.
+- AI speaks or contributes unasked: no. Transcription is passive; the app produces no speech and no suggestions.
+
+Size: normal
+
+## Open questions
+- Speech model provisioning is not solved here. This job loads a whisper model from `<app_data>/models/` and otherwise shows "No speech model installed". End users need either a model bundled in the installer (multilingual `base` is about 150 MB, `small` about 470 MB) or a download that a person starts from a setting that names the source. A download adds network access and needs its own job with a human gate. Assumption: a follow-up job "Speech model setup" picks one. Which model size meets "lines within 3 s on a 2022 laptop CPU" is to be measured there.
+- Audio is not stored. The NFRs mention an audio retention period (default 30 days), and "names applied backwards" in the diarization job may want stored audio. Assumption: storing encrypted audio, and deleting it after the retention period, belongs to the diarization job. The Reliability NFR "loses at most the last 10 s of audio" is read here as "at most the last 10 s of transcript".
+- Consent is a single confirmation by the facilitator, stored with a timestamp. Pausing and resuming within the same meeting does not ask again. Restarting after a crash does not ask again either, but recording never resumes without a tap.
+- "Pause" pauses recording only, not the agenda timer (the open question from job 002). The vision lists no use for pausing the clock.
+- The consent and error states are not in the FigCraft frame. The spec describes them in the frame's style and does not ask for a prototype. If the orchestrator wants them designed first, add them to `design/build/s2_live.py` as extra states.
+- Mixed German and English: language is detected per segment (whisper), not per word. A sentence that switches language mid-way is tagged with one language.
+- Building whisper.cpp from source adds CMake and a C++ toolchain to CI and lengthens the build. GPU acceleration (Metal, CUDA) is off in this job.
+- If the job has to shrink, split it into (a) consent gate, recording indicator, engine traits with fakes, transcript column and encrypted storage (AC1–AC2, AC4–AC7, with the fake engine only) and (b) the real `cpal` capture and `WhisperSpeechToText` adapters plus the CI toolchain (the real-engine part of AC3), done together with model provisioning.
+- This job builds on job 002's live view, which is still in review and not yet merged. The builder should branch after 002 merges, or rebase onto it.

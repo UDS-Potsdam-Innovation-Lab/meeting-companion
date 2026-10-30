@@ -10,10 +10,15 @@
   "stage": "spec",
   "round": 0,
   "max_round": 3,
-  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
+  "reviews": {
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
+  },
   "history": [],
   "decision": null,
-  "waiting": null,
-  "note": "Writing spec",
-  "updated": "2026-10-30T18:54:47Z"
+  "waiting": "002 merge",
+  "note": "Spec written (7 AC, human gate); build waits for 002-live-timekeeping to merge",
+  "updated": "2026-10-30T18:58:07Z"
 }
