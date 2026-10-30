@@ -7,8 +7,8 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "spec",
-  "round": 0,
+  "stage": "build",
+  "round": 1,
   "max_round": 3,
   "reviews": {
     "security": "pending",
@@ -18,7 +18,7 @@
   },
   "history": [],
   "decision": null,
-  "waiting": "design",
-  "note": "Spec written; FigCraft frame 14 Settings being drawn",
-  "updated": "2026-10-30T20:32:05Z"
+  "waiting": null,
+  "note": "Building on human request before 004/005 merge; design approved in FigCraft",
+  "updated": "2026-10-30T20:40:26Z"
 }
