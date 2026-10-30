@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadLatestMeeting, saveMeeting, type LoadError } from "../../lib/ipc";
+import { isEnded } from "../live/run";
 import { createMeeting, isMeetingValid, type Meeting } from "./model";
 
 export type MeetingEdit = (current: Meeting) => Meeting;
@@ -16,7 +17,8 @@ export interface MeetingState {
 
 /**
  * Loads the most recently edited meeting on start (or starts an empty one) and saves every valid
- * change through the store, one save at a time and in order.
+ * change through the store, one save at a time and in order. Timekeeping actions are changes like any
+ * other, so each one is saved at once.
  */
 export function useMeeting(defaultTitle: () => string): MeetingState {
   const [meeting, setMeeting] = useState<Meeting | null>(null);
@@ -33,7 +35,9 @@ export function useMeeting(defaultTitle: () => string): MeetingState {
     let cancelled = false;
     void loadLatestMeeting().then((result) => {
       if (cancelled) return;
-      const m = result.meeting ?? createMeeting(titleRef.current());
+      // An ended meeting is never reopened; it stays stored for the wrap-up.
+      const loaded = result.meeting && !isEnded(result.meeting) ? result.meeting : null;
+      const m = loaded ?? createMeeting(titleRef.current());
       current.current = m;
       setMeeting(m);
       setLoadError(result.error);

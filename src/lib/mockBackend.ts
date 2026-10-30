@@ -1,7 +1,7 @@
 // A stand-in for the Tauri core, used only by the browser build for Playwright and screenshots
 // (`vite build --mode e2e`). It keeps meetings in localStorage so a page reload acts like a restart.
 import { mockIPC } from "@tauri-apps/api/mocks";
-import { filledMeeting, overBudgetMeeting } from "../features/agenda/fixtures";
+import { filledMeeting, liveDoneMeeting, liveMeeting, overBudgetMeeting } from "../features/agenda/fixtures";
 import { isMeetingValid, type Meeting } from "../features/agenda/model";
 import type { LoadResult } from "./ipc";
 
@@ -9,13 +9,20 @@ const KEY = "mock-backend.meetings";
 const CORRUPT_KEY = "mock-backend.corrupt";
 const LOCKED_KEY = "mock-backend.locked";
 
-type Fixture = "empty" | "filled" | "over" | "corrupt" | "locked";
+type Fixture = "empty" | "filled" | "over" | "corrupt" | "locked" | "live" | "live-done";
+
+const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
+  filled: filledMeeting,
+  over: overBudgetMeeting,
+  live: liveMeeting,
+  "live-done": liveDoneMeeting,
+};
 
 function seed(fixture: Fixture) {
   localStorage.removeItem(CORRUPT_KEY);
   localStorage.removeItem(LOCKED_KEY);
-  const meetings: Meeting[] =
-    fixture === "filled" ? [filledMeeting()] : fixture === "over" ? [overBudgetMeeting()] : [];
+  const make = SEEDS[fixture];
+  const meetings: Meeting[] = make ? [make()] : [];
   localStorage.setItem(KEY, JSON.stringify(meetings));
   if (fixture === "corrupt") localStorage.setItem(CORRUPT_KEY, "1");
   if (fixture === "locked") localStorage.setItem(LOCKED_KEY, "1");
