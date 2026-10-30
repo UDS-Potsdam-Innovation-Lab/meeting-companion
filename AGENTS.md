@@ -41,7 +41,8 @@ STATUS: CONFIGURED
   It also writes `screenshots/<view>-<width>x<height>.png` for the responsive layout (1440×900, 1024×768,
   768×1024, 480×800, and short live windows 1024×600 and 768×480); `e2e/responsive.spec.ts` checks those sizes.
 - Dev: `npm run tauri dev`. Browser-only build with a fake core (Playwright, screenshots): `npm run build:e2e`
-  (`vite build --mode e2e`, `.env.e2e` sets `VITE_MOCK_IPC=1`; open `/?fixture=empty|filled|over|corrupt|locked|live|live-done`;
+  (`vite build --mode e2e`, `.env.e2e` sets `VITE_MOCK_IPC=1`; open `/?fixture=empty|filled|over|corrupt|locked|live|live-done`
+  or the transcript fixtures `live-transcript|live-paused|live-mic-error|live-no-model`;
   the live fixtures are meant for a fixed clock, see `LIVE_TIMES` in `src/features/agenda/fixtures.ts`).
 - Layout:
   - `src/` — React UI. `src/i18n/de.json` + `en.json` (flat keys, de default), `src/features/<feature>/`,
@@ -51,17 +52,29 @@ STATUS: CONFIGURED
   - `src-tauri/` — Rust core: `src/model/` (meeting + validation), `src/store/` (`MeetingStore` trait,
     `FileMeetingStore`, `MemoryMeetingStore`, `LockedMeetingStore`), `src/crypto/` (XChaCha20-Poly1305
     encryption at rest; `KeyProvider` trait with `KeychainKeyProvider` for the app and
-    `MemoryKeyProvider` for tests), `src/lib.rs` (Tauri commands), `src/engines/` (later engines, each
-    behind a trait with a fake).
+    `MemoryKeyProvider` for tests), `src/lib.rs` (Tauri commands and events), `src/engines/` (engines,
+    each behind a trait with a fake: `audio.rs` `AudioSource` + `FakeAudioSource` and the bounded 30 s
+    `AudioSink`, `cpal_source.rs` the microphone, `stt.rs` `SpeechToText` + `ScriptedSpeechToText`,
+    `whisper.rs` whisper.cpp, `models.rs` the read-only search for whisper ggml models already on the
+    device — the one list of model folders per OS), `src/transcript/` (`Transcriber` pipeline, windows
+    of at most 3 s; encrypted append-only `<id>.transcript` store), `src/recording/` (`Recorder`: consent
+    gate, worker thread, capture states), `src/log.rs` (the only log output; never content).
   - `e2e/` — Playwright specs (axe, keyboard, layout); `e2e/screenshots/` for `npm run screenshot`.
   - `.github/workflows/ci.yml` — lint, test, compile and smoke test. Linux (`ubuntu-latest`) is the only
     CI-tested target for now; macOS and Windows are deferred until the feature set is final (add them to
     the matrix; OS-specific code stays in place).
-- Data at rest: meeting files (`<app_data>/meetings/<id>.meeting`) are encrypted; the data key lives only
-  in the OS keychain (Linux: Secret Service). Tests never touch the real keychain; the one keychain test
+- Data at rest: meeting files (`<app_data>/meetings/<id>.meeting`) and transcripts
+  (`<app_data>/meetings/<id>.transcript`, one sealed record per final segment) are encrypted; audio is
+  never written. The data key lives only in the OS keychain (Linux: Secret Service). Tests never touch the real keychain; the one keychain test
   is `#[ignore]` and run by hand (`cargo test --manifest-path src-tauri/Cargo.toml -- --ignored keychain`).
+  Likewise the one test with a real speech model: `cargo test --manifest-path src-tauri/Cargo.toml
+  --release -- --ignored whisper` (uses `MEETING_COMPANION_WHISPER_MODEL`, else the model the scan prefers).
+- Native build dependencies on Linux: `libasound2-dev` (microphone), `cmake`, `clang`, `libclang-dev`
+  (whisper.cpp is compiled from source by `whisper-rs`); CI installs them.
 - Rules: no literal user-facing strings in JSX (ESLint `react/jsx-no-literals` and a key-mode test);
   user text is rendered as text only (`react/no-danger`); no Tauri HTTP/shell plugins and a CSP whose
   `connect-src` allows only IPC (`src/config.test.ts`).
 - Env flags of the built app: `MEETING_COMPANION_STORE=memory` (in-memory store), `MEETING_COMPANION_SMOKE=1`
-  (smoke run: in-memory store, exits 0 once the agenda setup view has rendered).
+  (smoke run: in-memory store, fake microphone and engine, exits 0 once the agenda setup view has rendered),
+  `MEETING_COMPANION_AUDIO=fake` (generated tones instead of the microphone), `MEETING_COMPANION_STT=fake`
+  (scripted German/English segments instead of whisper; no model needed).
