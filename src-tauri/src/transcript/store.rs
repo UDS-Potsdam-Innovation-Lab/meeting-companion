@@ -338,7 +338,11 @@ mod tests {
             end_ms: i * 3_000 + 2_500,
             at: 1_700_000_000_000 + i * 3_000,
             text: text.to_owned(),
-            lang: if i.is_multiple_of(2) { Lang::De } else { Lang::En },
+            lang: if i.is_multiple_of(2) {
+                Lang::De
+            } else {
+                Lang::En
+            },
             is_final: true,
         }
     }
