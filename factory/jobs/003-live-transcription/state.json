@@ -1,0 +1,19 @@
+{
+  "id": "003-live-transcription",
+  "issue": 3,
+  "title": "Local live transcription",
+  "branch": "factory/003-live-transcription",
+  "builder": "builder-003-live-transcription",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "spec",
+  "round": 0,
+  "max_round": 3,
+  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
+  "history": [],
+  "decision": null,
+  "waiting": null,
+  "note": "Writing spec",
+  "updated": "2026-10-30T18:54:47Z"
+}

@@ -1,0 +1,1 @@
+Local live transcription (frame 02, centre): microphone capture, on-device speech-to-text in German and English behind an engine interface, transcript written to disk continuously; recording only after the facilitator confirms everyone was informed
