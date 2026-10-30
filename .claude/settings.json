@@ -1,0 +1,6 @@
+{
+  "extraKnownMarketplaces": {
+    "janrenz-factory": { "source": { "source": "github", "repo": "janrenz/factory", "ref": "v0.2.1" } }
+  },
+  "enabledPlugins": { "factory@janrenz-factory": true }
+}

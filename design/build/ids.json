@@ -1,0 +1,64 @@
+{
+ "s3_mindmap": {
+  "screen": 878,
+  "end": 890,
+  "tab_Transcript": 896,
+  "tab_Mind map": 898,
+  "tab_Notes": 900
+ },
+ "s1_setup": {
+  "screen": 3355,
+  "mode_With agenda": 3376,
+  "mode_Agenda-free": 3378,
+  "start": 3538
+ },
+ "s2_live": {
+  "screen": 569,
+  "end": 586,
+  "tab_Transcript": 650,
+  "tab_Mind map": 652,
+  "tab_Notes": 654
+ },
+ "s4_wrapup": {
+  "screen": 974,
+  "back": 986,
+  "send": 1151
+ },
+ "s5_board": {
+  "screen": 1239,
+  "next": 1276,
+  "map": 1341
+ },
+ "s6_speakers": {
+  "screen": 1721,
+  "back": 1733,
+  "apply": 1963
+ },
+ "s7_slides": {
+  "screen": 1965,
+  "end": 1979
+ },
+ "s8_review": {
+  "screen": 3206,
+  "skip": 3218,
+  "continue": 3353
+ },
+ "s9_roles": {
+  "screen": 2691
+ },
+ "s10_teams_panel": {
+  "screen": 2843,
+  "stage": 2954
+ },
+ "s11_teams_stage": {
+  "screen": 2958
+ },
+ "s12_teams_recap": {
+  "screen": 3118
+ },
+ "s13_free": {
+  "screen": 3542,
+  "end": 3556,
+  "toagenda": 3609
+ }
+}
