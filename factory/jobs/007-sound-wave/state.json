@@ -18,7 +18,7 @@
   },
   "history": [],
   "decision": null,
-  "waiting": null,
-  "note": "Writing spec",
-  "updated": "2026-10-30T20:59:12Z"
+  "waiting": "design",
+  "note": "Spec written; FigCraft frame 15 sound wave being drawn",
+  "updated": "2026-10-30T21:01:20Z"
 }
