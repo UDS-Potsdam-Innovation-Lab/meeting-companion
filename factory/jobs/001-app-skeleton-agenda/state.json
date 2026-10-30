@@ -7,13 +7,18 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "spec",
-  "round": 0,
+  "stage": "build",
+  "round": 1,
   "max_round": 3,
-  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
+  "reviews": {
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
+  },
   "history": [],
   "decision": null,
   "waiting": null,
-  "note": "Writing spec",
-  "updated": "2026-10-30T16:57:10Z"
+  "note": "Stack confirmed; building round 1",
+  "updated": "2026-10-30T16:59:06Z"
 }
