@@ -7,13 +7,28 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "spec",
-  "round": 0,
-  "max_round": 3,
-  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
-  "history": [],
+  "stage": "build",
+  "round": 2,
+  "max_round": 4,
+  "reviews": {
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
+  },
+  "history": [
+    {
+      "round": 1,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "PASS",
+        "code": "PASS"
+      }
+    }
+  ],
   "decision": null,
   "waiting": null,
-  "note": "Writing spec",
-  "updated": "2026-10-30T18:31:47Z"
+  "note": "Human rework: responsive layout for small windows",
+  "updated": "2026-10-30T18:59:41Z"
 }
