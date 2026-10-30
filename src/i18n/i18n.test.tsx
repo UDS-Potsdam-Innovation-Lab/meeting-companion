@@ -4,7 +4,16 @@ import { describe, expect, it } from "vitest";
 import de from "./de.json";
 import en from "./en.json";
 import { renderApp } from "../test/backend";
-import { filledMeeting, LIVE_TIMES, liveDoneMeeting, liveMeeting } from "../features/agenda/fixtures";
+import {
+  filledMeeting,
+  LIVE_PARTIAL,
+  LIVE_TIMES,
+  LIVE_TRANSCRIPT,
+  liveDoneMeeting,
+  liveMeeting,
+} from "../features/agenda/fixtures";
+import { emit } from "@tauri-apps/api/event";
+import { EVENT_CAPTURE, EVENT_SEGMENT, type CaptureState, type SegmentEvent } from "../lib/ipc";
 import { initials, type Meeting } from "../features/agenda/model";
 import { FakeClock } from "../lib/clock";
 
@@ -28,8 +37,9 @@ describe("AC6 catalogues", () => {
   });
 });
 
-function literalOffenders(container: HTMLElement, meeting: Meeting): string[] {
+function literalOffenders(container: HTMLElement, meeting: Meeting, extra: string[] = []): string[] {
   const userData = new Set<string>([
+    ...extra,
     meeting.title,
     ...meeting.participants.flatMap((p) => [p.name, initials(p.name)]),
     ...meeting.items.flatMap((i) => [i.title, i.outcome]),
@@ -85,6 +95,61 @@ describe("AC7 (job 002) no literal strings in the live view", () => {
     expect(screen.getByRole("button", { name: "⟦start.button⟧" })).toBeInTheDocument();
     expect(screen.getByText("⟦start.reason.noItems⟧")).toBeInTheDocument();
     expect(literalOffenders(container, meeting)).toEqual([]);
+  });
+});
+
+describe("AC7 (job 003) no literal strings in the transcript column and recording controls", () => {
+  const sendState = (s: Partial<CaptureState>) =>
+    act(() =>
+      emit(EVENT_CAPTURE, {
+        state: "recording",
+        meetingId: "fixture-live",
+        elapsedMs: 1_000,
+        level: 0.5,
+        reason: null,
+        ...s,
+      } satisfies CaptureState),
+    );
+
+  it("consent, recording, paused, error and no-model states come from keys", async () => {
+    const meeting = liveMeeting();
+    const clock = new FakeClock(LIVE_TIMES.running);
+    const texts = LIVE_TRANSCRIPT.map((l) => l.text);
+    const { container, unmount } = await renderApp(
+      { meeting, error: null },
+      {
+        keyMode: true,
+        clock,
+        view: "live",
+        recording: { transcript: { segments: LIVE_TRANSCRIPT, error: null } },
+      },
+    );
+    await screen.findByRole("combobox", { name: "⟦model.label⟧" });
+    expect(screen.getByRole("button", { name: "⟦consent.start⟧" })).toBeInTheDocument();
+    expect(literalOffenders(container, meeting, texts)).toEqual([]);
+    await sendState({});
+    await act(() =>
+      emit(EVENT_SEGMENT, { ...LIVE_PARTIAL, meetingId: "fixture-live" } satisfies SegmentEvent),
+    );
+    expect(screen.getByText("⟦transcript.speaking⟧")).toBeInTheDocument();
+    expect(literalOffenders(container, meeting, [...texts, LIVE_PARTIAL.text])).toEqual([]);
+    await sendState({ state: "paused" });
+    expect(literalOffenders(container, meeting, texts)).toEqual([]);
+    await sendState({ state: "error", reason: "noMicrophone" });
+    expect(literalOffenders(container, meeting, texts)).toEqual([]);
+    unmount();
+
+    const none = await renderApp(
+      { meeting, error: null },
+      {
+        keyMode: true,
+        clock,
+        view: "live",
+        recording: { models: { models: [], searched: ["/x/models"] } },
+      },
+    );
+    await screen.findByText("⟦model.none.title⟧");
+    expect(literalOffenders(none.container, meeting, ["/x/models"])).toEqual([]);
   });
 });
 

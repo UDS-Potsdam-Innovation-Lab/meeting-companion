@@ -187,3 +187,36 @@ for (const size of SHORT_WINDOWS) {
     });
   });
 }
+
+// Job 003: the transcript column and the recording controls in the same windows.
+for (const size of [...WINDOWS, ...SHORT_WINDOWS]) {
+  const label = `${size.width}×${size.height}`;
+  test.describe(`transcript at ${label}`, () => {
+    test.use({ viewport: size });
+
+    test(`consent prompt and model picker fit; Start recording usable`, async ({ page }) => {
+      await page.clock.setFixedTime(LIVE_TIMES.running);
+      await openApp(page, "live");
+      await page.getByRole("checkbox", { name: /Everyone was informed/ }).check();
+      await expectResponsive(page);
+      await expectUsable(
+        page.getByRole("button", { name: "Start recording" }),
+        page.getByRole("combobox", { name: "Speech model" }),
+        page.getByRole("button", { name: "End meeting" }),
+      );
+    });
+
+    test(`recording: REC chip, Pause and the transcript fit`, async ({ page }) => {
+      await page.clock.setFixedTime(LIVE_TIMES.running);
+      await openApp(page, "live-transcript");
+      await expect(page.getByTestId("rec-chip")).toBeVisible();
+      await expectResponsive(page);
+      await expectUsable(
+        page.getByRole("button", { name: "Pause" }),
+        page.getByRole("button", { name: "Next ›" }),
+        page.getByRole("button", { name: "End meeting" }),
+      );
+      await expect(page.getByTestId("partial-line")).toBeVisible();
+    });
+  });
+}

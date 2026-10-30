@@ -124,3 +124,47 @@ export function liveDoneMeeting(): Meeting {
   };
   return m;
 }
+
+// ---- transcript (frame 02 centre) ---------------------------------------------------------------
+
+/** `liveMeeting()` with the recording consent confirmed at 10:01. */
+export function liveConsentedMeeting(): Meeting {
+  const m = liveMeeting();
+  m.recordingConsentAt = at(10, 1);
+  return m;
+}
+
+const line = (h: number, m: number, s: number, text: string, lang: "de" | "en") => {
+  const startMs = (h * 3600 + m * 60 + s - (10 * 3600 + 60)) * 1000;
+  return { startMs, endMs: startMs + 4_000, at: at(h, m, s), text, lang, final: true };
+};
+
+/** Final lines of the frame (without speakers), German and English mixed. Recorded since 10:01. */
+export const LIVE_TRANSCRIPT = [
+  line(
+    10,
+    9,
+    5,
+    "If we keep the offline mode in scope, we can't make the 7th. Realistically it's the 14th.",
+    "en",
+  ),
+  line(
+    10,
+    10,
+    12,
+    "Die Pilotschulen brauchen offline nicht für die Beta. Zwei von dreien haben stabiles WLAN in den Klassenräumen.",
+    "de",
+  ),
+  line(10, 11, 3, "Then let's cut offline from the beta and go with the 14th. Any objections?", "en"),
+  line(10, 11, 40, "Passt für mich, solange wir die dritte Schule früh informieren.", "de"),
+  line(10, 12, 18, "Okay. Yusuf, can you write to them this week?", "en"),
+];
+
+/** The line being spoken in the frame. */
+export const LIVE_PARTIAL = {
+  ...line(10, 12, 50, "And the release notes for the schools, should those go out in German only or", "en"),
+  final: false,
+};
+
+/** Recorded time at `LIVE_TIMES.running` (recording since 10:01, no pause): 16:48. */
+export const LIVE_ELAPSED_MS = (16 * 60 + 48) * 1000;
