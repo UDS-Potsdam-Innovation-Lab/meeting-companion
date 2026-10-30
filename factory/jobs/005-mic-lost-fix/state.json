@@ -7,18 +7,18 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "build",
+  "stage": "review",
   "round": 1,
   "max_round": 3,
   "reviews": {
-    "security": "pending",
-    "ux": "pending",
-    "ui": "pending",
-    "code": "pending"
+    "security": "PASS",
+    "ux": "PASS",
+    "ui": "PASS",
+    "code": "PASS"
   },
   "history": [],
   "decision": null,
   "waiting": null,
-  "note": "Building (small bugfix)",
-  "updated": "2026-10-30T20:20:49Z"
+  "note": "Round 1: all reviews PASS; waiting for CI",
+  "updated": "2026-10-30T20:42:06Z"
 }
