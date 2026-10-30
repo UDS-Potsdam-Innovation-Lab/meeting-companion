@@ -25,10 +25,17 @@ macro_rules! log {
     };
 }
 
-/// Starts collecting log lines (from every thread) until [`take_captured`] is called.
+/// Tests that capture the log run one at a time: the capture is global.
 #[cfg(test)]
-pub fn capture() {
+static CAPTURING: Mutex<()> = Mutex::new(());
+
+/// Starts collecting log lines (from every thread) until [`take_captured`] is called. Hold the
+/// returned guard for the whole test: another capturing test waits until it is dropped.
+#[cfg(test)]
+pub fn capture() -> std::sync::MutexGuard<'static, ()> {
+    let guard = CAPTURING.lock().unwrap_or_else(|e| e.into_inner());
     *CAPTURE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Vec::new());
+    guard
 }
 
 /// Stops collecting and returns what was logged since [`capture`].
