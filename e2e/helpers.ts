@@ -11,7 +11,11 @@ export type Fixture =
   | "live-transcript"
   | "live-paused"
   | "live-mic-error"
-  | "live-no-model";
+  | "live-no-model"
+  | "speakers"
+  | "speakers-empty"
+  | "speakers-no-model"
+  | "live-speakers";
 
 /**
  * Opens the app with a seeded fake store and a chosen language; waits until the view is ready. Live
@@ -23,9 +27,10 @@ export async function openApp(page: Page, fixture: Fixture, locale: "de" | "en" 
       localStorage.setItem("meeting-companion.locale", l);
   }, locale);
   await page.goto(`/?fixture=${fixture}`);
-  const view = fixture.startsWith("live")
-    ? 'main[data-view="live"]'
-    : 'main[data-view="agenda-setup"][aria-busy="false"]';
+  const view =
+    fixture.startsWith("live") || fixture.startsWith("speakers")
+      ? 'main[data-view="live"]'
+      : 'main[data-view="agenda-setup"][aria-busy="false"]';
   await page.locator(view).waitFor();
   await page.evaluate(() => document.fonts.ready);
 }

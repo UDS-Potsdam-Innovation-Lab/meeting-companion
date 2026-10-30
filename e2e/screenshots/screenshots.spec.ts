@@ -18,6 +18,12 @@ const waitFor = (selector: string) => async (page: Page) => {
   await page.locator(selector).first().waitFor();
 };
 
+/** Opens the speakers view from the transcript footer. */
+const openSpeakers = async (page: Page) => {
+  await page.locator("[data-speakers-button]").click();
+  await page.locator('main[data-view="speakers"]').waitFor();
+};
+
 const VIEWS: View[] = [
   { name: "agenda-empty", fixture: "empty" },
   { name: "agenda-filled", fixture: "filled" },
@@ -79,6 +85,19 @@ const VIEWS: View[] = [
   { name: "live-paused", fixture: "live-paused", time: LIVE_TIMES.running, act: waitFor(".rec-chip--paused") },
   { name: "live-mic-error", fixture: "live-mic-error", time: LIVE_TIMES.running, act: waitFor(".rec-notice--error") },
   { name: "live-no-model", fixture: "live-no-model", time: LIVE_TIMES.running, act: waitFor(".model-picker--none") },
+  // Frame 06 and the speakers on frame 02 (job 004).
+  { name: "speakers", fixture: "speakers", time: LIVE_TIMES.running, act: openSpeakers },
+  { name: "speakers-empty", fixture: "speakers-empty", time: LIVE_TIMES.running, act: openSpeakers },
+  { name: "speakers-no-model", fixture: "speakers-no-model", time: LIVE_TIMES.running, act: openSpeakers },
+  {
+    name: "live-speakers",
+    fixture: "live-speakers",
+    time: LIVE_TIMES.running,
+    act: async (page) => {
+      await page.locator(".line-speaker--person").first().waitFor();
+      await page.getByRole("button", { name: /^Voice D ?, speaker of the line at 10:11/ }).click();
+    },
+  },
   {
     name: "live-transcript-de",
     fixture: "live-transcript",
@@ -119,6 +138,7 @@ const RESPONSIVE_VIEWS = [
   "live-done",
   "live-transcript",
   "live-consent",
+  "speakers",
 ];
 
 const sized = [

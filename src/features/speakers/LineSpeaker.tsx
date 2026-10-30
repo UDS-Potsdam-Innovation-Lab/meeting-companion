@@ -43,9 +43,6 @@ export function LineSpeaker({ line, speakers, open, onToggle }: Props) {
           type="button"
           className={`line-speaker line-speaker--${who.kind}`}
           aria-expanded={open}
-          aria-label={
-            name ? t("speakers.line.button", { name, time }) : t("speakers.line.buttonNone", { time })
-          }
           onClick={() => onToggle(!open)}
           disabled={line.seq === undefined}
         >
@@ -66,6 +63,10 @@ export function LineSpeaker({ line, speakers, open, onToggle }: Props) {
           ) : (
             <span className="avatar avatar--empty line-speaker__empty" aria-hidden="true" />
           )}
+          {/* The accessible name starts with what is visible: "Mara Klein, speaker of the line at 10:11". */}
+          <span className="visually-hidden">
+            {name ? t("speakers.line.suffix", { time }) : t("speakers.line.buttonNone", { time })}
+          </span>
         </button>
         <time className="transcript-line__meta" dateTime={new Date(line.at).toISOString()}>
           {time}

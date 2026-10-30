@@ -731,6 +731,50 @@ fn a_segment_whose_voice_does_not_come_is_stored_after_5_s_without_one() {
 }
 
 #[test]
+fn a_slow_diarizer_delays_neither_capture_ticks_nor_loss_detection() {
+    // The diarizer takes 4 s per segment; the device dies after 2.5 s of audio.
+    let rig = rig_with(|| talking().repeating().failing_after(2_500), fake_stt());
+    let recorder = rig.recorder.with_diarizer(diarizer(|| {
+        ScriptedDiarizer::new(vec![0, 1]).slow(Duration::from_secs(4))
+    }));
+    rig.meetings.save(&consented()).unwrap();
+    let started = Instant::now();
+    recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(6), || recorder
+        .status()
+        .state
+        == Capture::Error));
+    let failed_at = rig
+        .events
+        .states
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|(_, s)| s.state == Capture::Error)
+        .map(|(t, _)| *t)
+        .unwrap();
+    assert!(
+        failed_at.duration_since(started) < Duration::from_millis(2_500 + 2_000),
+        "lost device reported after {:?}",
+        failed_at.duration_since(started)
+    );
+    assert_eq!(recorder.status().reason, Some(Reason::MicrophoneLost));
+    // Ticks kept coming while the diarizer was busy.
+    let ticks = rig
+        .events
+        .states
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(t, s)| {
+            s.state == Capture::Recording && t.duration_since(started) < Duration::from_secs(2)
+        })
+        .count();
+    assert!(ticks >= 5, "{ticks} ticks");
+    recorder.stop();
+}
+
+#[test]
 fn without_a_speaker_model_recording_and_transcription_run_as_before() {
     let rig = rig_with(talking, fake_stt());
     let recorder = rig.recorder.with_diarizer(Box::new(NoSpeakerModelProvider {

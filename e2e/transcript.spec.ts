@@ -114,8 +114,9 @@ test.describe("AC7 transcript accessibility at 1280×800", () => {
     });
     const jump = page.getByRole("button", { name: "Jump to latest" });
     await expect(jump).toBeVisible();
+    // Jump to latest comes right before the list (whose lines hold a speaker button each).
     await feed.focus();
-    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
     await expect(jump).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(jump).toHaveCount(0);

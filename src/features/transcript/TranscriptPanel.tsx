@@ -141,6 +141,16 @@ function Feed({
   return (
     <div className="transcript-feed-wrap">
       {empty && active ? <p className="transcript-feed__empty">{t("transcript.empty")}</p> : null}
+      {/* Before the list in the focus order: the list now holds a button per line. */}
+      {!pinned && !empty ? (
+        <button
+          type="button"
+          className="button button--secondary button--small transcript-jump"
+          onClick={jump}
+        >
+          {t("transcript.jump")}
+        </button>
+      ) : null}
       {!empty ? (
         <ol
           className="transcript-feed"
@@ -171,15 +181,6 @@ function Feed({
             </li>
           ) : null}
         </ol>
-      ) : null}
-      {!pinned && !empty ? (
-        <button
-          type="button"
-          className="button button--secondary button--small transcript-jump"
-          onClick={jump}
-        >
-          {t("transcript.jump")}
-        </button>
       ) : null}
     </div>
   );

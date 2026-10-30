@@ -363,7 +363,7 @@ describe("AC5 choices", () => {
     const sent: unknown[] = [];
     let lines: SpeakerState["lines"] = [];
     await filled({
-      speakerReply: (cmd, args) => {
+      speakerReply: (_cmd, args) => {
         sent.push(args.target);
         const t = args.target as { kind: string; participantId?: string };
         lines =

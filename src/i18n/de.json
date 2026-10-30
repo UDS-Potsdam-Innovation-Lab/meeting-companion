@@ -212,7 +212,6 @@
   "speakers.how.remote": "Wer remote dabei ist, kommt mit dem Teams-/Zoom-Namen",
   "speakers.how.confirm": "Alles Unsichere wartet, bis eine Person es bestätigt",
   "speakers.apply": "Namen ins Transkript übernehmen",
-  "speakers.line.button": "{name}, Person der Zeile um {time}",
   "speakers.line.buttonNone": "Person der Zeile um {time}",
   "speakers.line.picker": "Person der Zeile um {time}",
   "speakers.line.title": "Wer hat das gesagt?",
@@ -221,5 +220,6 @@
   "speakers.line.nobody": "Nicht zugeordnet",
   "speakers.footer.off.one": "{count} Stimme",
   "speakers.footer.off.other": "{count} Stimmen",
-  "speakers.suggested.sub": "Vorschlag · Namensrunde"
+  "speakers.suggested.sub": "Vorschlag · Namensrunde",
+  "speakers.line.suffix": ", Person der Zeile um {time}"
 }

@@ -186,7 +186,7 @@ describe("AC7 (job 004) no literal strings in the speakers view and the line pic
         },
       },
     );
-    const lineButtons = await screen.findAllByRole("button", { name: "⟦speakers.line.button⟧" });
+    const lineButtons = await screen.findAllByRole("button", { name: /⟦speakers.line.suffix⟧$/ });
     await user.click(lineButtons[0]!);
     await user.click(screen.getByRole("button", { name: "⟦speakers.addGuest⟧" }));
     await user.click(screen.getByRole("button", { name: "⟦speakers.guest.add⟧" }));

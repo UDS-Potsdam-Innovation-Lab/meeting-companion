@@ -1,5 +1,8 @@
 // Checks on configuration that the app's privacy and CI promises rest on.
-import { readFileSync, readdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -135,5 +138,98 @@ describe("AC6 (job 003) recording adds no network and declares the microphone", 
       expect(strings).toMatch(/^"NSMicrophoneUsageDescription" = ".+";$/m);
     }
     expect(read("src-tauri/macos/de.lproj/InfoPlist.strings")).toContain("Gerät");
+  });
+});
+
+describe("AC6 (job 004) speaker detection adds no network and only the checksum-pinned native code", () => {
+  const cargo = read("src-tauri/Cargo.toml");
+  const lock = read("src-tauri/Cargo.lock");
+  const blocks = lock.split("[[package]]").slice(1);
+  const depsOf = (name: string) => {
+    const block = blocks.find((b) => new RegExp(`name = "${name}"`).test(b)) ?? "";
+    const list = /dependencies = \[([^\]]*)\]/.exec(block)?.[1] ?? "";
+    return [...list.matchAll(/"([^" ]+)/g)].map((m) => m[1]!);
+  };
+
+  it("pins the official sherpa-onnx crate and links it only from the verified folder", () => {
+    expect(cargo).toMatch(/sherpa-onnx = \{ version = "=2\.0\.1"/);
+    const config = read(".cargo/config.toml");
+    expect(config).toMatch(
+      /SHERPA_ONNX_LIB_DIR = \{ value = "src-tauri\/native\/lib", relative = true, force = true \}/,
+    );
+    const sums = read("src-tauri/native/sherpa-onnx.sha256").trim().split("\n");
+    expect(sums).toHaveLength(6);
+    for (const line of sums)
+      expect(line).toMatch(/^[0-9a-f]{64} {2}sherpa-onnx-v2\.0\.1-[\w-]+-static[\w-]*-lib\.tar\.bz2$/);
+    const wf = read(".github/workflows/ci.yml");
+    expect(wf).toContain("node scripts/sherpa-onnx.mjs fetch");
+    expect(wf).toContain("A corrupted sherpa-onnx archive fails the check");
+  });
+
+  it("the HTTP client in the lock file is only a build dependency of sherpa-onnx-sys", () => {
+    const users = blocks
+      .filter((b) => /dependencies = \[[^\]]*"ureq[" ]/.test(b))
+      .map((b) => /name = "([^"]+)"/.exec(b)?.[1]);
+    expect(users).toEqual(["sherpa-onnx-sys"]);
+    // The runtime crate sherpa-onnx itself pulls in no HTTP client.
+    const runtime = depsOf("sherpa-onnx");
+    expect(runtime).toContain("sherpa-onnx-sys");
+    for (const crate of ["ureq", "reqwest", "hyper", "curl", "tokio"]) expect(runtime).not.toContain(crate);
+  });
+
+  it("uses sherpa-onnx only through SpeakerEmbeddingExtractor, in sherpa.rs", () => {
+    const dir = join(root, "src-tauri/src");
+    const files = readdirSync(dir, { recursive: true })
+      .map(String)
+      .filter((f) => f.endsWith(".rs"));
+    for (const f of files) {
+      const src = readFileSync(join(dir, f), "utf8");
+      const uses = [...src.matchAll(/sherpa_onnx::(\{[^}]*\}|\w+)/g)].map((m) => m[1]!);
+      if (!f.endsWith("sherpa.rs")) {
+        expect(uses, f).toEqual([]);
+        continue;
+      }
+      const names = uses.flatMap((u) =>
+        u
+          .replace(/[{}\s]/g, "")
+          .split(",")
+          .filter(Boolean),
+      );
+      expect(names.sort()).toEqual(["SpeakerEmbeddingExtractor", "SpeakerEmbeddingExtractorConfig"]);
+    }
+  });
+
+  it("the capability file still grants nothing beyond the core defaults", () => {
+    const cap = JSON.parse(read("src-tauri/capabilities/default.json"));
+    expect(cap.permissions).toEqual(["core:default"]);
+  });
+});
+
+describe("AC2 (job 004) the archive check", () => {
+  const script = join(root, "scripts/sherpa-onnx.mjs");
+  const run = (args: string[]) => spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
+
+  it("accepts the pinned bytes and rejects a corrupted or unpinned archive", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sherpa-check-"));
+    try {
+      const name = "sherpa-onnx-v2.0.1-linux-x64-static-lib.tar.bz2";
+      const bytes = Buffer.from("FAKE-ARCHIVE-for-tests-only");
+      const sum = createHash("sha256").update(bytes).digest("hex");
+      const sums = join(dir, "sums");
+      writeFileSync(sums, `${sum}  ${name}\n`);
+      const file = join(dir, name);
+      writeFileSync(file, bytes);
+      expect(run(["verify", file, "--sums", sums]).status).toBe(0);
+      bytes[3] = bytes[3]! ^ 1;
+      writeFileSync(file, bytes);
+      const bad = run(["verify", file, "--sums", sums]);
+      expect(bad.status).toBe(1);
+      expect(bad.stderr).toContain("checksum mismatch");
+      const other = join(dir, "sherpa-onnx-v9.9.9-linux-x64-static-lib.tar.bz2");
+      writeFileSync(other, bytes);
+      expect(run(["verify", other, "--sums", sums]).status).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

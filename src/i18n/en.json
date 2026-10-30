@@ -212,7 +212,6 @@
   "speakers.how.remote": "Remote people come with their Teams / Zoom name",
   "speakers.how.confirm": "Anything unsure waits for a person to confirm",
   "speakers.apply": "Apply names to transcript",
-  "speakers.line.button": "{name}, speaker of the line at {time}",
   "speakers.line.buttonNone": "Speaker of the line at {time}",
   "speakers.line.picker": "Speaker of the line at {time}",
   "speakers.line.title": "Who said this?",
@@ -221,5 +220,6 @@
   "speakers.line.nobody": "Unassigned",
   "speakers.footer.off.one": "{count} speaker",
   "speakers.footer.off.other": "{count} speakers",
-  "speakers.suggested.sub": "Suggested · Name round"
+  "speakers.suggested.sub": "Suggested · Name round",
+  "speakers.line.suffix": ", speaker of the line at {time}"
 }

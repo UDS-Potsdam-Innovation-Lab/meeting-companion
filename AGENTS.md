@@ -42,7 +42,8 @@ STATUS: CONFIGURED
   768×1024, 480×800, and short live windows 1024×600 and 768×480); `e2e/responsive.spec.ts` checks those sizes.
 - Dev: `npm run tauri dev`. Browser-only build with a fake core (Playwright, screenshots): `npm run build:e2e`
   (`vite build --mode e2e`, `.env.e2e` sets `VITE_MOCK_IPC=1`; open `/?fixture=empty|filled|over|corrupt|locked|live|live-done`
-  or the transcript fixtures `live-transcript|live-paused|live-mic-error|live-no-model`;
+  or the transcript fixtures `live-transcript|live-paused|live-mic-error|live-no-model`, or the speaker
+  fixtures `speakers|speakers-empty|speakers-no-model|live-speakers` (open frame 06 with the footer button);
   the live fixtures are meant for a fixed clock, see `LIVE_TIMES` in `src/features/agenda/fixtures.ts`).
 - Layout:
   - `src/` — React UI. `src/i18n/de.json` + `en.json` (flat keys, de default), `src/features/<feature>/`,
