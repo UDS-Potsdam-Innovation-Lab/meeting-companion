@@ -51,6 +51,30 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # sherpa-onnx (speaker detection) links prebuilt static libraries. The archive is fetched once,
+      # checked against the SHA-256 pinned in src-tauri/native/sherpa-onnx.sha256 and unpacked into
+      # src-tauri/native/lib, which .cargo/config.toml makes the only place the build links them from.
+      - name: Cache the sherpa-onnx archive
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/native/archive
+          key: sherpa-onnx-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src-tauri/native/sherpa-onnx.sha256') }}
+
+      - name: Fetch and verify the sherpa-onnx libraries (pinned SHA-256)
+        run: node scripts/sherpa-onnx.mjs fetch
+
+      - name: A corrupted sherpa-onnx archive fails the check
+        shell: bash
+        run: |
+          dir=$(mktemp -d)
+          cp src-tauri/native/archive/*.tar.bz2 "$dir/"
+          file=$(ls "$dir"/*.tar.bz2)
+          printf 'corrupt' | dd of="$file" bs=1 seek=1000 count=7 conv=notrunc status=none
+          if node scripts/sherpa-onnx.mjs verify "$file"; then
+            echo "a corrupted archive passed the check"
+            exit 1
+          fi
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
