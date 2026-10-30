@@ -7,18 +7,28 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "needs-human",
-  "round": 1,
-  "max_round": 3,
+  "stage": "build",
+  "round": 2,
+  "max_round": 4,
   "reviews": {
-    "security": "PASS",
-    "ux": "PASS",
-    "ui": "PASS",
-    "code": "PASS"
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
   },
-  "history": [],
-  "decision": "ESCALATE",
+  "history": [
+    {
+      "round": 1,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "PASS",
+        "code": "PASS"
+      }
+    }
+  ],
+  "decision": null,
   "waiting": null,
-  "note": "Stored shape gains optional run field (profile rule); human to approve",
-  "updated": "2026-10-30T18:59:26Z"
+  "note": "Human rework: responsive layout for small windows",
+  "updated": "2026-10-30T18:59:41Z"
 }
