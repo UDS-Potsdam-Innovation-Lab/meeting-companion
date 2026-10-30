@@ -401,6 +401,8 @@ select {
 /* ---- agenda list ------------------------------------------------------------------------------ */
 .agenda-list {
   padding: 8px;
+  /* The rows reflow by the width of the list, not of the window (see "narrow agenda list"). */
+  container: agenda-list / inline-size;
 }
 
 .agenda-list__header,
@@ -760,6 +762,7 @@ select {
 }
 
 .top-bar__title {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -779,8 +782,16 @@ select {
   flex: 1;
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 20px;
   padding: 20px 24px;
+}
+
+/* "End meeting": the last control of the live view, at its bottom right. */
+.live__footer {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .live__left {
@@ -1134,36 +1145,61 @@ select {
   color: var(--dark-muted);
 }
 
-/* ---- narrow windows (phones, split screen) ---------------------------------------------------- */
-@media (max-width: 960px) {
+/* ---- responsive layout -----------------------------------------------------------------------
+ * Breakpoints follow the content, not devices:
+ * - setup, two columns: the agenda table needs about 640 px (fixed columns 420 px + a readable topic)
+ *   next to the meeting card's 320 px, plus gaps → below 1080 px one column, the card under the list.
+ * - agenda table → stacked rows when the list itself is narrower than about 600 px (container query),
+ *   the item editor's three fields when it is narrower than about 680 px.
+ * - live, two columns: the 300 px timer column next to a nudge of at least about 440 px → below 800 px
+ *   one column; the nudge then sticks to the bottom of the window above "End meeting".
+ * - top bar: below 640 px only the mark, the actions and the language switch stay.
+ */
+@media (max-width: 1279px) {
   .setup {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 20px 16px;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+    padding: 24px;
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 1079px) {
+  .setup {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 880px;
+  }
+}
+
+@media (max-width: 799px) {
   .live {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    gap: 16px;
     padding: 16px;
   }
 
   .live__stage {
-    position: fixed;
-    inset: auto 12px 12px;
+    position: sticky;
+    bottom: 12px;
+    z-index: 1;
   }
 
   .nudge {
     flex-wrap: wrap;
+    width: 100%;
+    max-width: none;
     margin-bottom: 0;
   }
 
-  .top-bar__title {
-    display: none;
+  .nudge__text {
+    flex: 1 1 200px;
+  }
+
+  .live__footer {
+    grid-column: auto;
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 639px) {
   .top-bar {
     padding: 10px 12px;
     gap: 8px;
@@ -1183,10 +1219,25 @@ select {
     padding: 4px 8px;
   }
 
+  .setup {
+    padding: 20px 16px;
+  }
+
   .setup__title {
     font-size: 26px;
   }
 
+  .live {
+    padding: 12px;
+  }
+
+  .live-agenda {
+    flex: none;
+  }
+}
+
+/* ---- narrow agenda list ------------------------------------------------------------------------- */
+@container agenda-list (max-width: 599px) {
   .agenda-list__header {
     display: none;
   }
@@ -1219,7 +1270,9 @@ select {
   .agenda-row__actions {
     grid-area: actions;
   }
+}
 
+@container agenda-list (max-width: 679px) {
   .item-editor {
     grid-template-columns: minmax(0, 1fr);
     padding: 4px 8px 14px;

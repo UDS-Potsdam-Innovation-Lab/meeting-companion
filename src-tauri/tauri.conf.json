@@ -17,8 +17,8 @@
         "title": "Meeting Companion",
         "width": 1440,
         "height": 900,
-        "minWidth": 1024,
-        "minHeight": 700
+        "minWidth": 400,
+        "minHeight": 480
       }
     ],
     "security": {

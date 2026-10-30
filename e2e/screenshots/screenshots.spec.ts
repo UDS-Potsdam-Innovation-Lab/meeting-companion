@@ -81,3 +81,34 @@ for (const width of WIDTHS) {
     });
   }
 }
+
+// Rework 1, responsive layout: setup and live view at the window sizes the layout is checked at
+// (e2e/responsive.spec.ts), plus short windows for the live view: screenshots/<view>-<w>x<h>.png.
+const RESPONSIVE_SIZES = [
+  { width: 1440, height: 900 },
+  { width: 1024, height: 768 },
+  { width: 768, height: 1024 },
+  { width: 480, height: 800 },
+];
+const SHORT_SIZES = [
+  { width: 1024, height: 600 },
+  { width: 768, height: 480 },
+];
+const RESPONSIVE_VIEWS = ["agenda-filled", "agenda-editing", "live-nudge", "live-over", "live-done"];
+
+const sized = [
+  ...RESPONSIVE_SIZES.flatMap((size) => RESPONSIVE_VIEWS.map((name) => ({ size, name }))),
+  ...SHORT_SIZES.map((size) => ({ size, name: "live-nudge" })),
+];
+
+for (const { size, name } of sized) {
+  const view = VIEWS.find((v) => v.name === name)!;
+  test(`${name}-${size.width}x${size.height}`, async ({ page }) => {
+    await page.setViewportSize(size);
+    if (view.time !== undefined) await page.clock.setFixedTime(view.time);
+    await openApp(page, view.fixture, "en");
+    await view.act?.(page);
+    // The window as the user sees it, not the full page: shows what fits and where the nudge sits.
+    await page.screenshot({ path: `screenshots/${name}-${size.width}x${size.height}.png` });
+  });
+}
