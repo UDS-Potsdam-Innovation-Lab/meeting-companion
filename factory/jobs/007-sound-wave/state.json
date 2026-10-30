@@ -1,0 +1,24 @@
+{
+  "id": "007-sound-wave",
+  "issue": 7,
+  "title": "Live sound wave while listening",
+  "branch": "factory/007-sound-wave",
+  "builder": "builder-007-sound-wave",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "spec",
+  "round": 0,
+  "max_round": 3,
+  "reviews": {
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
+  },
+  "history": [],
+  "decision": null,
+  "waiting": null,
+  "note": "Writing spec",
+  "updated": "2026-10-30T20:59:12Z"
+}
