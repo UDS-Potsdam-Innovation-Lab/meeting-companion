@@ -38,16 +38,14 @@ impl FileMeetingStore {
         let dir = dir.into();
         fs::create_dir_all(&dir)?;
         let unavailable = |e: crypto::KeyError| {
-            eprintln!("meeting-companion: {e}");
+            crate::log!("{e}");
             StoreError::KeyUnavailable
         };
         let key = match keys.load().map_err(unavailable)? {
             Some(key) => key,
             None => {
                 if has_meeting_files(&dir)? {
-                    eprintln!(
-                        "meeting-companion: encrypted meetings exist but the keychain has no key"
-                    );
+                    crate::log!("encrypted meetings exist but the keychain has no key");
                     return Err(StoreError::KeyUnavailable);
                 }
                 let key = DataKey::generate();
@@ -56,7 +54,7 @@ impl FileMeetingStore {
                 match keys.load().map_err(unavailable)? {
                     Some(stored) if stored == key => key,
                     _ => {
-                        eprintln!("meeting-companion: the keychain did not keep the new key");
+                        crate::log!("the keychain did not keep the new key");
                         return Err(StoreError::KeyUnavailable);
                     }
                 }
@@ -71,6 +69,12 @@ impl FileMeetingStore {
 
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// The transcripts of these meetings: `<id>.transcript` files in the same folder, sealed with
+    /// the same data key.
+    pub fn transcripts(&self) -> crate::transcript::FileTranscriptStore {
+        crate::transcript::FileTranscriptStore::new(self.dir.clone(), self.key.clone())
     }
 
     fn path_for(&self, id: &str) -> PathBuf {

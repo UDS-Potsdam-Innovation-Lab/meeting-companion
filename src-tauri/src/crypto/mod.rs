@@ -63,22 +63,9 @@ fn aad(id: &str) -> Vec<u8> {
 
 /// Encrypts `plaintext` for the meeting `id`.
 pub fn seal(key: &DataKey, id: &str, plaintext: &[u8]) -> Vec<u8> {
-    let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
-    let aad = aad(id);
-    let ciphertext = key
-        .cipher()
-        .encrypt(
-            &nonce,
-            Payload {
-                msg: plaintext,
-                aad: &aad,
-            },
-        )
-        .expect("XChaCha20-Poly1305 encryption of an in-memory buffer cannot fail");
     let mut out = Vec::with_capacity(OVERHEAD + plaintext.len());
     out.extend_from_slice(MAGIC);
-    out.extend_from_slice(&nonce);
-    out.extend_from_slice(&ciphertext);
+    out.extend_from_slice(&seal_with(key, &aad(id), plaintext));
     out
 }
 
@@ -88,14 +75,45 @@ pub fn open(key: &DataKey, id: &str, sealed: &[u8]) -> Option<Zeroizing<Vec<u8>>
     if sealed.len() < OVERHEAD || &sealed[..MAGIC.len()] != MAGIC {
         return None;
     }
-    let (nonce, ciphertext) = sealed[MAGIC.len()..].split_at(NONCE_LEN);
-    let aad = aad(id);
+    open_with(key, &aad(id), &sealed[MAGIC.len()..])
+}
+
+/// Bytes [`seal_with`] adds to the plaintext: nonce and tag.
+pub const SEAL_OVERHEAD: usize = NONCE_LEN + TAG_LEN;
+
+/// Encrypts `plaintext` bound to the associated data `aad`: `nonce (24 bytes) || ciphertext + tag`.
+/// A fresh random nonce every call. Used for single records (transcript segments) whose `aad` names
+/// the meeting and the record's position.
+pub fn seal_with(key: &DataKey, aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
+    let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
+    let ciphertext = key
+        .cipher()
+        .encrypt(
+            &nonce,
+            Payload {
+                msg: plaintext,
+                aad,
+            },
+        )
+        .expect("XChaCha20-Poly1305 encryption of an in-memory buffer cannot fail");
+    let mut out = Vec::with_capacity(SEAL_OVERHEAD + plaintext.len());
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ciphertext);
+    out
+}
+
+/// Reverses [`seal_with`]. `None` if the bytes were changed, or `aad` or the key differ.
+pub fn open_with(key: &DataKey, aad: &[u8], sealed: &[u8]) -> Option<Zeroizing<Vec<u8>>> {
+    if sealed.len() < SEAL_OVERHEAD {
+        return None;
+    }
+    let (nonce, ciphertext) = sealed.split_at(NONCE_LEN);
     key.cipher()
         .decrypt(
             XNonce::from_slice(nonce),
             Payload {
                 msg: ciphertext,
-                aad: &aad,
+                aad,
             },
         )
         .ok()

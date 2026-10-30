@@ -1,0 +1,2 @@
+/* Shown when macOS asks for microphone access. */
+"NSMicrophoneUsageDescription" = "Meeting Companion transcribes the meeting on this device after the facilitator confirms that everyone was informed. The audio never leaves the device.";
