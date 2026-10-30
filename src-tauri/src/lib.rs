@@ -27,7 +27,7 @@ use engines::{FakeSttProvider, SttProvider, WhisperProvider};
 use model::{FieldError, Meeting};
 use recording::{
     CaptureState, EventSink, MicTestError, MicTestState, Reason, RecordError, Recorder,
-    SegmentEvent, StartOptions,
+    SegmentEvent, StartOptions, SwitchedEvent,
 };
 use settings::{
     Cached, Catalog, LockedSettingsStore, MemorySettingsStore, SettingsError, SettingsLoad,
@@ -57,6 +57,8 @@ pub const EVENT_SEGMENT: &str = "transcript-segment";
 pub const EVENT_SETTINGS: &str = "settings-changed";
 /// Event with the microphone test's state ([`MicTestState`]).
 pub const EVENT_MIC_TEST: &str = "mic-test";
+/// Event when recording switched to the system default microphone ([`SwitchedEvent`]).
+pub const EVENT_SWITCHED: &str = "microphone-switched";
 const SMOKE_TIMEOUT: Duration = Duration::from_secs(90);
 const SMOKE_VIEW: &str = "agenda-setup";
 
@@ -339,6 +341,9 @@ impl EventSink for TauriEvents {
     }
     fn mic_test(&self, state: &MicTestState) {
         let _ = self.0.emit(EVENT_MIC_TEST, state);
+    }
+    fn switched(&self, event: &SwitchedEvent) {
+        let _ = self.0.emit(EVENT_SWITCHED, event);
     }
 }
 

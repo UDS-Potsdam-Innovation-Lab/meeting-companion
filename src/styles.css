@@ -2475,3 +2475,48 @@ select {
     height: 24px;
   }
 }
+
+/* Frame 02 addition: recording switched to the system microphone (job 006). */
+.switched-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+
+.switched-notice__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--accent-ink);
+}
+
+.switched-notice__text {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.switched-notice__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+
+.switched-notice__body {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.switched-notice__actions {
+  display: flex;
+  gap: 8px;
+}

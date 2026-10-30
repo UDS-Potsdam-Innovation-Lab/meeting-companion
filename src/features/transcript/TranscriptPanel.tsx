@@ -51,6 +51,9 @@ export function TranscriptPanel({ recording, consented, onOpenSettings, hidden =
         ) : (
           <OffNotice recording={recording} />
         )}
+        {active && recording.switched ? (
+          <SwitchedNotice recording={recording} onOpenSettings={onOpenSettings} />
+        ) : null}
         {recording.transcriptError ? (
           <p className="banner banner--error" role="alert">
             {t("transcript.loadFailed")}
@@ -315,6 +318,44 @@ function MissingMicNotice({
         </button>
       </div>
       <p className="rec-notice__local">{t("recording.missing.hint")}</p>
+    </div>
+  );
+}
+
+/**
+ * Frame 02 addition: the chosen microphone was lost and recording carries on with the system default.
+ * Non-blocking: a status with an icon and text (not colour alone), "Settings" and "Dismiss".
+ */
+function SwitchedNotice({ recording, onOpenSettings }: { recording: Recording; onOpenSettings: () => void }) {
+  const { t, locale } = useI18n();
+  const { settings } = useSettings();
+  const event = recording.switched!;
+  const time = formatClock(event.at, locale);
+  return (
+    <div className="switched-notice" role="status" data-testid="mic-switched">
+      <span className="switched-notice__icon" aria-hidden="true">
+        <MicIcon />
+      </span>
+      <div className="switched-notice__text">
+        <p className="switched-notice__title">{t("recording.switched.title")}</p>
+        <p className="switched-notice__body">
+          {settings.inputDevice
+            ? t("recording.switched.body", { name: settings.inputDevice, time })
+            : t("recording.switched.bodyNoName", { time })}
+        </p>
+      </div>
+      <div className="switched-notice__actions">
+        <button type="button" className="button button--outline button--small" onClick={onOpenSettings}>
+          {t("settings.open")}
+        </button>
+        <button
+          type="button"
+          className="button button--outline button--small"
+          onClick={recording.dismissSwitched}
+        >
+          {t("recording.switched.dismiss")}
+        </button>
+      </div>
     </div>
   );
 }

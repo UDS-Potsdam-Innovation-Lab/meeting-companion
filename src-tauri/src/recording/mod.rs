@@ -141,8 +141,22 @@ pub enum RecordError {
 pub trait EventSink: Send + Sync {
     fn capture(&self, state: &CaptureState);
     fn segment(&self, event: &SegmentEvent);
+    /// The chosen microphone was lost and recording carries on with the system default
+    /// (`microphone-switched` event).
+    fn switched(&self, _event: &SwitchedEvent) {}
     /// The microphone test's state (`mic-test` event).
     fn mic_test(&self, _state: &MicTestState) {}
+}
+
+/// Recording switched to the system default microphone after the chosen one was lost.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchedEvent {
+    pub meeting_id: String,
+    /// Wall-clock time of the switch, ms since epoch.
+    pub at: u64,
+    /// Recorded time of the meeting at the switch.
+    pub elapsed_ms: u64,
 }
 
 /// How a recording session runs, from the settings.
@@ -210,7 +224,7 @@ struct Inner {
 }
 
 pub struct Recorder {
-    audio: AudioFactory,
+    audio: Arc<AudioFactory>,
     devices: Arc<dyn AudioDevices>,
     test: Mutex<Option<mic_test::Running>>,
     stt: Box<dyn SttProvider>,
@@ -229,7 +243,7 @@ impl Recorder {
         now_ms: fn() -> u64,
     ) -> Self {
         Self {
-            audio,
+            audio: Arc::new(audio),
             devices: Arc::new(NoAudioDevices),
             test: Mutex::new(None),
             stt,
@@ -382,9 +396,17 @@ impl Recorder {
         let shared = self.shared.clone();
         let worker_sink = sink.clone();
         let id = meeting_id.to_owned();
+        // "Switch to the system default" applies to a chosen device; losing the default stops.
+        let fallback =
+            (opts.on_lost == DeviceLost::SwitchToDefault && opts.device.is_some()).then(|| {
+                Fallback {
+                    audio: self.audio.clone(),
+                    now_ms: self.now_ms,
+                }
+            });
         let handle = std::thread::Builder::new()
             .name("transcript".into())
-            .spawn(move || run(shared, worker_sink, transcriber, writer, id))
+            .spawn(move || run(shared, worker_sink, transcriber, writer, id, fallback))
             .map_err(|_| self.refuse(meeting_id, Reason::EngineFailed))?;
         inner.worker = Some((sink, handle, wanted));
         Ok(state)
@@ -430,6 +452,8 @@ impl Recorder {
                 Ok(engine) => inner.engine = Some((model, engine)),
                 Err(_) => crate::log!("the transcript worker stopped unexpectedly"),
             }
+            // A source the worker switched to while this halt began is closed too.
+            self.shared.close_source();
         }
         let current = self.status();
         if let Some(id) = &current.meeting_id {
@@ -474,12 +498,40 @@ const FLUSH_GRACE: Duration = Duration::from_millis(250);
 /// The worker. Two threads: one drains the sink and runs the pipeline (a slow engine only makes the
 /// transcript lag; the sink keeps the audio, bounded), the other watches the device and sends
 /// ticks, so a busy engine neither looks like a lost microphone nor freezes the state.
+/// The system default microphone, for "Switch to the system default".
+struct Fallback {
+    audio: Arc<AudioFactory>,
+    now_ms: fn() -> u64,
+}
+
+impl Fallback {
+    /// Closes the lost source and starts the system default on the same sink, so the pipeline,
+    /// the recorded time and the capture state carry on. `false` if the default cannot be opened.
+    fn switch(&self, shared: &Shared, sink: &AudioSink) -> bool {
+        shared.close_source();
+        let mut source = (self.audio)();
+        sink.recover();
+        match source.start(sink.clone()) {
+            Ok(()) => {
+                *shared.source.lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
+                crate::log!("microphone lost: switched to the system default");
+                true
+            }
+            Err(e) => {
+                crate::log!("microphone lost; the system default could not be opened: {e}");
+                false
+            }
+        }
+    }
+}
+
 fn run(
     shared: Arc<Shared>,
     sink: AudioSink,
     mut transcriber: Transcriber,
     mut writer: Box<dyn TranscriptWriter>,
     meeting_id: String,
+    fallback: Option<Fallback>,
 ) -> Box<dyn SpeechToText> {
     use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::SeqCst};
     let elapsed_ms = AtomicU64::new(transcriber.recorded_ms());
@@ -498,6 +550,7 @@ fn run(
             s.level = (level * 4.0).min(1.0);
         });
     };
+    let has_fallback = fallback.is_some();
     let engine = std::thread::scope(|scope| {
         let stt = scope.spawn(|| {
             let deliver = |segments: Vec<Segment>,
@@ -532,7 +585,9 @@ fn run(
                     level_bits.store(transcriber.level().to_bits(), SeqCst);
                 }
                 let gone = lost.lock().unwrap_or_else(|e| e.into_inner()).take();
-                let lost_now = taken.failed.map(Reason::from).or(gone);
+                // With a fallback, the monitor decides whether a failure ends the session.
+                let failed = taken.failed.filter(|_| !has_fallback);
+                let lost_now = failed.map(Reason::from).or(gone);
                 if taken.ended || lost_now.is_some() {
                     let flushed = transcriber
                         .flush()
@@ -554,12 +609,26 @@ fn run(
         });
         let mut last_tick = Instant::now();
         let mut lost_since: Option<Instant> = None;
+        let mut fallback = fallback;
         while !done.load(SeqCst) {
             std::thread::sleep(Duration::from_millis(25));
             let (failed, ended) = sink.peek();
             let reason = failed.map(Reason::from).or_else(|| {
                 (!ended && sink.since_last_push() >= STALL).then_some(Reason::MicrophoneLost)
             });
+            // One switch per session: if the default is lost as well, recording stops.
+            if reason.is_some() && !ended && !reported.load(SeqCst) {
+                if let Some(f) = fallback.take() {
+                    if f.switch(&shared, &sink) {
+                        shared.events.switched(&SwitchedEvent {
+                            meeting_id: meeting_id.clone(),
+                            at: (f.now_ms)(),
+                            elapsed_ms: elapsed_ms.load(SeqCst),
+                        });
+                        continue;
+                    }
+                }
+            }
             if let Some(reason) = reason {
                 lost.lock()
                     .unwrap_or_else(|e| e.into_inner())

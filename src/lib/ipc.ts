@@ -139,6 +139,19 @@ export const EVENT_CAPTURE = "capture-state";
 export const EVENT_SEGMENT = "transcript-segment";
 export const EVENT_SETTINGS = "settings-changed";
 export const EVENT_MIC_TEST = "mic-test";
+export const EVENT_SWITCHED = "microphone-switched";
+
+/** The chosen microphone was lost and recording carries on with the system default. */
+export interface SwitchedEvent {
+  meetingId: string;
+  /** Wall-clock time of the switch, ms since epoch. */
+  at: number;
+  elapsedMs: number;
+}
+
+export function onMicrophoneSwitched(handler: (e: SwitchedEvent) => void): () => void {
+  return subscribe<SwitchedEvent>(EVENT_SWITCHED, handler);
+}
 
 // ---- settings ------------------------------------------------------------------------------------
 // Stored by the core, encrypted, in one file. The UI caches only locale and theme (first paint).

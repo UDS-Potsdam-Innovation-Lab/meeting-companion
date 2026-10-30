@@ -4,12 +4,14 @@ import {
   confirmRecordingConsent,
   loadTranscript,
   onCaptureState,
+  onMicrophoneSwitched,
   onTranscriptSegment,
   pauseRecording,
   recordingStatus,
   startRecording,
   stopRecording,
   type CaptureState,
+  type SwitchedEvent,
   type RecordReason,
   type TranscriptLoadError,
   type TranscriptSegment,
@@ -25,6 +27,9 @@ export interface Recording {
   /** What is being said right now, replaced by its final line. */
   partial: TranscriptSegment | null;
   transcriptError: TranscriptLoadError | null;
+  /** The chosen microphone was lost and recording switched to the system default (until dismissed). */
+  switched: SwitchedEvent | null;
+  dismissSwitched: () => void;
   /** A command is running (start, pause): buttons wait. */
   busy: boolean;
   /** Stores the consent confirmation, then starts recording. */
@@ -52,6 +57,7 @@ export function useRecording(meetingId: string, onConsent: (at: number) => void)
   const [received, setReceived] = useState(0);
   const [transcriptError, setTranscriptError] = useState<TranscriptLoadError | null>(null);
   const [busy, setBusy] = useState(false);
+  const [switched, setSwitched] = useState<SwitchedEvent | null>(null);
   const consentRef = useRef(onConsent);
   useEffect(() => {
     consentRef.current = onConsent;
@@ -78,6 +84,9 @@ export function useRecording(meetingId: string, onConsent: (at: number) => void)
         setPartial(segment);
       }
     });
+    const stopSwitched = onMicrophoneSwitched((e) => {
+      if (!cancelled && e.meetingId === meetingId) setSwitched(e);
+    });
     void recordingStatus().then((s) => {
       if (!cancelled && ours(s.meetingId)) setCapture(s);
     });
@@ -94,6 +103,7 @@ export function useRecording(meetingId: string, onConsent: (at: number) => void)
       cancelled = true;
       stopCapture();
       stopSegments();
+      stopSwitched();
     };
   }, [meetingId]);
 
@@ -140,6 +150,8 @@ export function useRecording(meetingId: string, onConsent: (at: number) => void)
     received,
     partial,
     transcriptError,
+    switched,
+    dismissSwitched: useCallback(() => setSwitched(null), []),
     busy,
     confirmAndStart,
     start,

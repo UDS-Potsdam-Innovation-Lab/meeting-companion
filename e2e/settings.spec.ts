@@ -106,6 +106,25 @@ test.describe("AC3 chosen microphone missing", () => {
   });
 });
 
+test.describe("AC3 switched to the system default", () => {
+  test("the live view shows a non-blocking notice with text and an icon; recording carries on", async ({
+    page,
+  }) => {
+    await open(page, "live-switched");
+    const notice = page.getByTestId("mic-switched");
+    await expect(notice).toContainText("Switched to the system microphone");
+    await expect(notice).toContainText("Jabra Speak 510 stopped at");
+    await expect(notice.locator("svg")).toBeVisible();
+    await expect(page.getByTestId("rec-chip")).toContainText("REC");
+    await expectNoAxeViolations(page);
+    // Nothing blocks the meeting: the left column still works.
+    await page.getByRole("button", { name: "+5 min" }).click();
+    await notice.getByRole("button", { name: "Dismiss" }).click();
+    await expect(notice).toHaveCount(0);
+    await expect(page.getByTestId("rec-chip")).toContainText("REC");
+  });
+});
+
 test.describe("AC6 theme", () => {
   test("System follows prefers-color-scheme without a reload", async ({ page }) => {
     await page.emulateMedia({ colorScheme: "light" });

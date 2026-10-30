@@ -116,6 +116,7 @@ const VIEWS: View[] = [
       await page.locator('[data-testid="mic-missing"]').waitFor();
     },
   },
+  { name: "live-switched", fixture: "live-switched", time: LIVE_TIMES.running, act: waitFor(".switched-notice") },
   { name: "live-transcript-dark", fixture: "settings-dark", time: LIVE_TIMES.running, act: async (page) => {
       await page.getByRole("button", { name: "Back to meeting" }).click();
       await page.locator(".transcript-line--partial").waitFor();

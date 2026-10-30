@@ -8,7 +8,9 @@ import {
   EVENT_CAPTURE,
   EVENT_MIC_TEST,
   EVENT_SEGMENT,
+  EVENT_SWITCHED,
   type CaptureState,
+  type SwitchedEvent,
   type MicTestState,
   type SegmentEvent,
 } from "../../lib/ipc";
@@ -284,6 +286,38 @@ describe("AC3 microphone choice", () => {
     expect(within(group).getByRole("radio", { name: /Stop recording and tell me/ })).toBeChecked();
     await user.click(within(group).getByRole("radio", { name: /Switch to the system default/ }));
     expect(changes(core)).toEqual([{ key: "deviceLost", value: "switchToDefault" }]);
+  });
+});
+
+describe("AC3 switched to the system default (frame 02 addition)", () => {
+  it("shows a non-blocking notice with icon and text; Dismiss hides it; recording state is untouched", async () => {
+    const user = userEvent.setup();
+    const { core } = await live({ status: recordingState(), settings: { inputDevice: "Jabra Speak 510" } });
+    await act(() => emit(EVENT_CAPTURE, recordingState()));
+    const before = core.calls.length;
+    await act(() =>
+      emit(EVENT_SWITCHED, {
+        meetingId: ID,
+        at: LIVE_TIMES.running,
+        elapsedMs: 83_000,
+      } satisfies SwitchedEvent),
+    );
+    const notice = await screen.findByTestId("mic-switched");
+    expect(notice).toHaveAttribute("role", "status");
+    expect(notice).toHaveTextContent("Switched to the system microphone");
+    expect(notice).toHaveTextContent(/Jabra Speak 510 stopped at \d\d:\d\d\. Recording carries on/);
+    expect(notice.querySelector("svg")).not.toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("rec-chip")).toHaveTextContent("REC00:01:23");
+    // A switch for another meeting is ignored.
+    await user.click(within(notice).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByTestId("mic-switched")).toBeNull();
+    await act(() =>
+      emit(EVENT_SWITCHED, { meetingId: "other", at: 1, elapsedMs: 0 } satisfies SwitchedEvent),
+    );
+    expect(screen.queryByTestId("mic-switched")).toBeNull();
+    const sent = core.calls.slice(before).map((c) => c.cmd);
+    expect(sent.filter((c) => c.includes("recording"))).toEqual([]);
   });
 });
 

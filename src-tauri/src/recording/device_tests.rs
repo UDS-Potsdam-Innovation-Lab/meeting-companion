@@ -21,6 +21,7 @@ struct Events {
     states: Mutex<Vec<CaptureState>>,
     segments: Mutex<Vec<SegmentEvent>>,
     tests: Mutex<Vec<MicTestState>>,
+    switched: Mutex<Vec<SwitchedEvent>>,
 }
 
 impl EventSink for Events {
@@ -32,6 +33,9 @@ impl EventSink for Events {
     }
     fn mic_test(&self, state: &MicTestState) {
         self.tests.lock().unwrap().push(state.clone());
+    }
+    fn switched(&self, event: &SwitchedEvent) {
+        self.switched.lock().unwrap().push(event.clone());
     }
 }
 
@@ -85,6 +89,14 @@ fn rig_with(transcripts: Arc<dyn TranscriptStore>) -> Rig {
 }
 
 fn rig_full(transcripts: Arc<dyn TranscriptStore>, devices: FakeAudioDevices) -> Rig {
+    rig_custom(transcripts, devices, speech)
+}
+
+fn rig_custom(
+    transcripts: Arc<dyn TranscriptStore>,
+    devices: FakeAudioDevices,
+    default: impl Fn() -> FakeAudioSource + Send + Sync + 'static,
+) -> Rig {
     let default_counters = Arc::new(FakeCounters::default());
     let c = default_counters.clone();
     let devices = Arc::new(devices);
@@ -92,7 +104,7 @@ fn rig_full(transcripts: Arc<dyn TranscriptStore>, devices: FakeAudioDevices) ->
     let loads = Arc::new(AtomicUsize::new(0));
     let stats = Arc::new(SttStats::default());
     let recorder = Recorder::new(
-        Box::new(move || Box::new(speech().with_counters(c.clone()))),
+        Box::new(move || Box::new(default().with_counters(c.clone()))),
         Box::new(CountingStt {
             loads: loads.clone(),
             stats: stats.clone(),
@@ -412,4 +424,183 @@ fn walk(root: &std::path::Path) -> Vec<String> {
     }
     out.sort();
     out
+}
+
+// ---- AC3: when the chosen microphone disappears mid-recording ------------------------------------
+
+fn policy(on_lost: DeviceLost) -> StartOptions {
+    StartOptions {
+        device: Some(ROOM_MIC.into()),
+        on_lost,
+        ..StartOptions::default()
+    }
+}
+
+/// The room microphone delivers 1.5 s of audio, then fails like a pulled USB cable.
+fn pulled_after_1500() -> FakeAudioDevices {
+    FakeAudioDevices::new(&["Built-in Audio", ROOM_MIC], |_| {
+        speech().failing_after(1_500)
+    })
+}
+
+/// The room microphone delivers 0.6 s at once, then nothing more and no error (a silent device).
+fn silent_after_start() -> FakeAudioDevices {
+    FakeAudioDevices::new(&["Built-in Audio", ROOM_MIC], |_| {
+        FakeAudioSource::new(vec![Tone::speech(600)], Pace::Fast)
+    })
+}
+
+fn states(r: &Rig) -> Vec<Capture> {
+    r.events
+        .states
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|s| s.state)
+        .collect()
+}
+
+#[test]
+fn stop_and_tell_me_behaves_as_before_when_the_device_is_pulled() {
+    let r = rig_full(Arc::new(MemoryTranscriptStore::new()), pulled_after_1500());
+    let store = meetings();
+    r.recorder
+        .start_with(&store, "m-1", &policy(DeviceLost::Stop))
+        .unwrap();
+    let pulled = Instant::now() + Duration::from_millis(1_500);
+    assert!(wait_until(Duration::from_secs(5), || r
+        .recorder
+        .status()
+        .state
+        == Capture::Error));
+    assert!(Instant::now() < pulled + Duration::from_secs(2));
+    assert_eq!(r.recorder.status().reason, Some(Reason::MicrophoneLost));
+    assert_eq!(
+        r.default_counters.starts(),
+        0,
+        "no other microphone was opened"
+    );
+    assert!(r.events.switched.lock().unwrap().is_empty());
+}
+
+#[test]
+fn switch_to_the_system_default_keeps_recording_and_the_elapsed_time() {
+    for devices in [pulled_after_1500(), silent_after_start()] {
+        let r = rig_full(Arc::new(MemoryTranscriptStore::new()), devices);
+        let store = meetings();
+        let started = Instant::now();
+        r.recorder
+            .start_with(&store, "m-1", &policy(DeviceLost::SwitchToDefault))
+            .unwrap();
+        assert!(wait_until(Duration::from_secs(5), || r
+            .default_counters
+            .starts()
+            == 1));
+        // Pulled at 1.5 s (or silent from ~0 s, detected after STALL): switched within 2 s of it.
+        assert!(started.elapsed() < Duration::from_millis(1_500) + Duration::from_secs(2));
+        let switched = r.events.switched.lock().unwrap().clone();
+        assert_eq!(switched.len(), 1);
+        assert_eq!(switched[0].meeting_id, "m-1");
+        // The lost device was closed; the default keeps the session going.
+        assert_eq!(r.devices.counters().stops(), 1);
+        let at_switch = r.recorder.status().elapsed_ms;
+        std::thread::sleep(Duration::from_millis(1_200));
+        let status = r.recorder.status();
+        assert_eq!(status.state, Capture::Recording);
+        assert_eq!(status.reason, None);
+        assert!(
+            status.elapsed_ms > at_switch,
+            "{} > {at_switch}",
+            status.elapsed_ms
+        );
+        assert!(status.elapsed_ms >= switched[0].elapsed_ms);
+        assert!(!states(&r).contains(&Capture::Error), "{:?}", states(&r));
+        // Pause closes the default; nothing starts again on its own.
+        r.recorder.pause();
+        assert_eq!(r.default_counters.stops(), 1);
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(r.default_counters.starts(), 1);
+        assert_eq!(r.devices.counters().starts(), 1);
+        assert_eq!(r.recorder.status().state, Capture::Paused);
+        // The next Resume uses the chosen device again.
+        r.devices.set_connected(&["Built-in Audio", ROOM_MIC]);
+        r.recorder
+            .start_with(&store, "m-1", &policy(DeviceLost::SwitchToDefault))
+            .unwrap();
+        assert_eq!(r.devices.counters().starts(), 2);
+        r.recorder.stop();
+        assert_eq!(r.default_counters.starts(), 1);
+    }
+}
+
+#[test]
+fn when_the_system_default_is_lost_too_recording_stops() {
+    let r = rig_custom(
+        Arc::new(MemoryTranscriptStore::new()),
+        pulled_after_1500(),
+        || speech().failing_after(500),
+    );
+    let store = meetings();
+    r.recorder
+        .start_with(&store, "m-1", &policy(DeviceLost::SwitchToDefault))
+        .unwrap();
+    assert!(wait_until(Duration::from_secs(6), || r
+        .recorder
+        .status()
+        .state
+        == Capture::Error));
+    assert_eq!(r.recorder.status().reason, Some(Reason::MicrophoneLost));
+    assert_eq!(r.default_counters.starts(), 1, "one switch per session");
+    assert_eq!(r.events.switched.lock().unwrap().len(), 1);
+
+    // A default that cannot be opened at all: the session stops as with "Stop and tell me".
+    let r = rig_custom(
+        Arc::new(MemoryTranscriptStore::new()),
+        pulled_after_1500(),
+        || speech().failing_start(AudioError::NoMicrophone),
+    );
+    r.recorder
+        .start_with(&store, "m-1", &policy(DeviceLost::SwitchToDefault))
+        .unwrap();
+    assert!(wait_until(Duration::from_secs(5), || r
+        .recorder
+        .status()
+        .state
+        == Capture::Error));
+    assert!(r.events.switched.lock().unwrap().is_empty());
+}
+
+#[test]
+fn with_the_system_default_chosen_a_loss_stops_even_with_the_switch_policy() {
+    let r = rig_custom(
+        Arc::new(MemoryTranscriptStore::new()),
+        pulled_after_1500(),
+        || speech().failing_after(800),
+    );
+    let store = meetings();
+    let opts = StartOptions {
+        on_lost: DeviceLost::SwitchToDefault,
+        ..StartOptions::default()
+    };
+    r.recorder.start_with(&store, "m-1", &opts).unwrap();
+    assert!(wait_until(Duration::from_secs(5), || r
+        .recorder
+        .status()
+        .state
+        == Capture::Error));
+    assert_eq!(r.default_counters.starts(), 1);
+    assert!(r.events.switched.lock().unwrap().is_empty());
+}
+
+#[test]
+fn the_switched_event_carries_no_device_name() {
+    let e = SwitchedEvent {
+        meeting_id: "m-1".into(),
+        at: 5,
+        elapsed_ms: 1_000,
+    };
+    assert_eq!(
+        serde_json::to_value(&e).unwrap(),
+        serde_json::json!({ "meetingId": "m-1", "at": 5, "elapsedMs": 1000 })
+    );
 }

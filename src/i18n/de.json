@@ -245,5 +245,9 @@
   "recording.missing.title": "{name} ist nicht angeschlossen",
   "recording.missing.body": "Die Aufnahme ist nicht gestartet. Sie wechselt nicht von selbst zu einem anderen Mikrofon.",
   "recording.missing.useDefault": "Systemstandard nutzen",
-  "recording.missing.hint": "Mit dem Systemstandard startet die Aufnahme sofort."
+  "recording.missing.hint": "Mit dem Systemstandard startet die Aufnahme sofort.",
+  "recording.switched.title": "Zum Systemmikrofon gewechselt",
+  "recording.switched.body": "{name} ist um {time} ausgefallen. Die Aufnahme läuft mit dem Systemstandard weiter.",
+  "recording.switched.bodyNoName": "Das Mikrofon ist um {time} ausgefallen. Die Aufnahme läuft mit dem Systemstandard weiter.",
+  "recording.switched.dismiss": "Ausblenden"
 }

@@ -245,5 +245,9 @@
   "recording.missing.title": "{name} is not connected",
   "recording.missing.body": "The recording did not start. It does not switch to another microphone by itself.",
   "recording.missing.useDefault": "Use system default",
-  "recording.missing.hint": "With the system default, recording starts right away."
+  "recording.missing.hint": "With the system default, recording starts right away.",
+  "recording.switched.title": "Switched to the system microphone",
+  "recording.switched.body": "{name} stopped at {time}. Recording carries on with the system default.",
+  "recording.switched.bodyNoName": "The microphone stopped at {time}. Recording carries on with the system default.",
+  "recording.switched.dismiss": "Dismiss"
 }

@@ -22,6 +22,7 @@ import {
   EVENT_MIC_TEST,
   EVENT_SEGMENT,
   EVENT_SETTINGS,
+  EVENT_SWITCHED,
   MIC_TEST_OFF,
   type CachedSettings,
   type CaptureState,
@@ -29,6 +30,7 @@ import {
   type SettingChange,
   type Settings,
   type SettingsLoad,
+  type SwitchedEvent,
   type LoadResult,
   type ModelList,
   type RecordReason,
@@ -68,7 +70,8 @@ type Fixture =
   | "settings-recording"
   | "settings-dark"
   | "settings-missing"
-  | "live-mic-missing";
+  | "live-mic-missing"
+  | "live-switched";
 
 const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   filled: filledMeeting,
@@ -86,6 +89,7 @@ const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   "settings-dark": liveConsentedMeeting,
   "settings-missing": filledMeeting,
   "live-mic-missing": liveConsentedMeeting,
+  "live-switched": liveConsentedMeeting,
 };
 
 /** Input devices of the fake core: the system default is not one of them. */
@@ -156,7 +160,7 @@ function seed(fixture: Fixture) {
   if (fixture === "locked") localStorage.setItem(LOCKED_KEY, "1");
   if (fixture === "live-no-model" || fixture === "settings-no-model")
     localStorage.setItem(MODELS_KEY, "none");
-  if (fixture.startsWith("settings") || fixture === "live-mic-missing") {
+  if (fixture.startsWith("settings") || fixture === "live-mic-missing" || fixture === "live-switched") {
     // "Jabra Speak 710" is chosen but not connected.
     const missing = fixture === "settings-missing" || fixture === "live-mic-missing";
     const settings: Settings = {
@@ -169,18 +173,28 @@ function seed(fixture: Fixture) {
     localStorage.setItem("meeting-companion.theme", settings.theme);
   }
   if (fixture === "settings-mic-test") localStorage.setItem(MIC_TEST_KEY, "fixed");
+
   const id = meetings[0]?.id ?? null;
+  if (fixture === "live-switched") {
+    pendingSwitch = { meetingId: id!, at: LIVE_TRANSCRIPT.at(-1)!.at, elapsedMs: LIVE_ELAPSED_MS };
+  }
   if (
     fixture === "live-transcript" ||
     fixture === "live-paused" ||
     fixture === "live-mic-error" ||
     fixture === "settings-recording" ||
+    fixture === "live-switched" ||
     fixture === "settings-dark"
   ) {
     setTranscript(id!, LIVE_TRANSCRIPT);
   }
   // Fixed states for screenshots: the script does not run, so nothing moves.
-  if (fixture === "live-transcript" || fixture === "settings-recording" || fixture === "settings-dark") {
+  if (
+    fixture === "live-transcript" ||
+    fixture === "settings-recording" ||
+    fixture === "settings-dark" ||
+    fixture === "live-switched"
+  ) {
     capture = { state: "recording", meetingId: id, elapsedMs: LIVE_ELAPSED_MS, level: 0.55, reason: null };
     pendingPartial = { ...LIVE_PARTIAL, meetingId: id! };
   }
@@ -195,6 +209,8 @@ function seed(fixture: Fixture) {
 
 /** A partial line a fixture shows once the view listens. */
 let pendingPartial: SegmentEvent | null = null;
+/** A microphone switch a fixture shows once the view listens. */
+let pendingSwitch: SwitchedEvent | null = null;
 
 function all(): Meeting[] {
   try {
@@ -406,6 +422,9 @@ export function installMockBackend() {
           const partial = pendingPartial;
           pendingPartial = null;
           if (partial) setTimeout(() => void emit(EVENT_SEGMENT, partial), 0);
+          const switched = pendingSwitch;
+          pendingSwitch = null;
+          if (switched) setTimeout(() => void emit(EVENT_SWITCHED, switched), 0);
           return capture;
         }
         case "load_transcript":
