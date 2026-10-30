@@ -137,6 +137,12 @@ export interface LiveSnapshot {
   schedule: { onTrack: boolean; minutes: number };
   /** Slot minus every item's planned minutes including extensions; negative when over. */
   bufferMinutes: number;
+  /**
+   * While on track: how much of the planned buffer (slot minus the items' original minutes) the
+   * projection has used up, through overruns, "+5 min" or a late start. At most 0 when nothing was
+   * used. null when behind (the buffer is gone).
+   */
+  bufferUsedMinutes: number | null;
 }
 
 /** The meeting's end time on the day the meeting was started. */
@@ -161,11 +167,13 @@ export function liveSnapshot(m: Meeting, run: Run, now: number): LiveSnapshot {
   let current: CurrentItem | null = null;
   let upcomingMinutes = 0;
   let plannedTotal = 0;
+  let originalTotal = 0;
 
   const rows = m.items.map((item, index): LiveRow => {
     const r = records.get(item.id);
     const plannedMinutes = item.minutes + (r?.extraMinutes ?? 0);
     plannedTotal += plannedMinutes;
+    originalTotal += item.minutes;
     if (!r) {
       upcomingMinutes += plannedMinutes;
       return { item, index, state: "upcoming", plannedMinutes, actualMinutes: null, over: false };
@@ -191,6 +199,7 @@ export function liveSnapshot(m: Meeting, run: Run, now: number): LiveSnapshot {
   const cur = current as CurrentItem | null;
   const scheduled = scheduledEnd(m, run);
   const projectedEnd = now + Math.max(0, cur?.remainingMs ?? 0) + upcomingMinutes * MINUTE;
+  const schedule = scheduleStatus(scheduled, projectedEnd);
   return {
     rows,
     current: cur,
@@ -198,8 +207,9 @@ export function liveSnapshot(m: Meeting, run: Run, now: number): LiveSnapshot {
     agendaDone: !cur && rows.every((r) => r.state !== "upcoming"),
     scheduledEnd: scheduled,
     projectedEnd,
-    schedule: scheduleStatus(scheduled, projectedEnd),
+    schedule,
     bufferMinutes: slotMinutes(m) - plannedTotal,
+    bufferUsedMinutes: schedule.onTrack ? slotMinutes(m) - originalTotal - schedule.minutes : null,
   };
 }
 

@@ -121,19 +121,25 @@ function ParkingLot({ parked }: { parked: LiveRow[] }) {
   );
 }
 
-/** Frame 02 "Overall": "Meeting ends HH:MM" and whether the projection is on track. */
+/**
+ * Frame 02 "Overall": "Meeting ends HH:MM" and the projection. While on track it says how much of the
+ * buffer is used, so it agrees with an item timer that runs over; otherwise how far behind it is.
+ */
 export function OverallLine({ snapshot }: { snapshot: LiveSnapshot }) {
   const { t, locale } = useI18n();
   const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(
     new Date(snapshot.scheduledEnd),
   );
   const { onTrack, minutes } = snapshot.schedule;
+  const used = snapshot.bufferUsedMinutes ?? 0;
+  let status: string;
+  if (!onTrack) status = t("live.overall.behind", { minutes });
+  else if (used > 0) status = t("live.overall.bufferUsed", { minutes: used });
+  else status = t("live.overall.bufferLeft", { minutes });
   return (
     <p className="overall" data-on-track={onTrack}>
       <span className="overall__ends">{t("live.overall.ends", { time })}</span>
-      <span className={`overall__status overall__status--${onTrack ? "ok" : "behind"}`}>
-        {onTrack ? t("live.overall.onTrack", { minutes }) : t("live.overall.behind", { minutes })}
-      </span>
+      <span className={`overall__status overall__status--${onTrack ? "ok" : "behind"}`}>{status}</span>
     </p>
   );
 }

@@ -136,6 +136,28 @@ describe("AC3 planned vs actual and the overall line", () => {
     // Over time the remaining part counts as 0: 10:30 + 35 min = 11:05.
     const late = snap(m, new Date(2026, 9, 30, 10, 30).getTime());
     expect(late.schedule).toEqual({ onTrack: false, minutes: 5 });
+    expect(late.bufferUsedMinutes).toBeNull();
+  });
+
+  it("buffer used: overruns, extensions and running over count; none while on plan", () => {
+    const m = liveMeeting();
+    // Item 01 ran 1 of the 5 buffer minutes over.
+    expect(snap(m, LIVE_TIMES.running).bufferUsedMinutes).toBe(1);
+    // Item 02 is 2:10 over: 10:58:10 projected, 1 min (rounded down) left of the buffer.
+    expect(snap(m, LIVE_TIMES.over).bufferUsedMinutes).toBe(4);
+    // Exactly on time: the whole buffer is used, still on track.
+    const exact = snap(m, new Date(2026, 9, 30, 10, 25).getTime());
+    expect(exact.schedule).toEqual({ onTrack: true, minutes: 0 });
+    expect(exact.bufferUsedMinutes).toBe(5);
+    // Nothing used yet at the start of item 01.
+    const fresh = { ...m, run: { ...m.run!, items: [{ ...m.run!.items[0]!, endedAt: null }] } };
+    expect(snap(fresh, LIVE_TIMES.start).bufferUsedMinutes).toBe(0);
+    // An item that ended early gives buffer back (negative use).
+    const early = {
+      ...m,
+      run: { ...m.run!, items: [{ ...m.run!.items[0]!, endedAt: LIVE_TIMES.start + 3 * MINUTE }] },
+    };
+    expect(snap(early, LIVE_TIMES.start + 3 * MINUTE).bufferUsedMinutes).toBe(-2);
   });
 });
 
