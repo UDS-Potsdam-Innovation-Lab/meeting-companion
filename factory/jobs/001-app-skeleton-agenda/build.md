@@ -65,3 +65,80 @@ f951b12 test(e2e): axe, keyboard, layout and restart checks; npm run screenshot
 da757ad feat(core): meeting model, validation and MeetingStore with file and memory stores
 6453bbc chore(stack): establish Tauri 2 + Rust + React 19/Vite 6 + TypeScript
 ```
+
+## Rework
+
+From `rework-1.md` (human, 2026-10-30) and `round-1/ci.md`. The branch was already pushed, so I merged `main` in (b26d9ed); nothing was rebased or force-pushed.
+
+### Requested changes and what I did
+1. **CI on Linux only.** The matrix in `.github/workflows/ci.yml` is now `[ubuntu-latest]`, with a comment that names macos-latest and windows-latest for later. The steps for macOS and Windows (smoke run without xvfb) stay as they were, and so does the OS-specific Rust code (rename, `sync_dir`, keyring features for Keychain and Credential Manager). `src/config.test.ts` now checks for ubuntu-latest plus the lint/test/build/smoke steps. The `## Application stack` section of `AGENTS.md` says Linux is the only CI-tested target for now. AC1 is amended to match: CI builds, tests and smoke-tests on Linux. (6361bfa)
+2. **Keyboard e2e test on macOS.** The test now uses `ControlOrMeta+A` instead of `Control+A` (`e2e/agenda-setup.spec.ts` "an item can be edited entirely by keyboard"). (6361bfa)
+3. **Encryption at rest.** (2027554)
+   - `FileMeetingStore` now writes `<id>.meeting` files that hold the meeting JSON, encrypted.
+   - The data key is generated on first start and put into the OS keychain through `KeyProvider`. The app uses `KeychainKeyProvider` (`keyring` 3.6, Secret Service over pure-Rust zbus on Linux). Tests use `MemoryKeyProvider`.
+   - If the keychain is unavailable, or it has no key while meeting files exist, the app does not crash. It uses `LockedMeetingStore`, which refuses every read and write. It does not create a replacement key and does not change or write any file. The UI shows a DE/EN message that cannot be dismissed (`store.keyUnavailable.*`), and the generic save-error banner is hidden so the message is not shown twice.
+   - Unchanged: atomic temp file + rename, the corrupt-file handling (file left untouched) and the 4 MB limit.
+   - A tampered file, a file encrypted with another key, or a file copied over another meeting's file fails authentication. It is reported like a corrupt file ("could not be read", load error `corrupt`), never as a crash.
+4. **Found while doing this (not requested, fixed):** the `.gitignore` pattern `screenshots/` also matched `e2e/screenshots/`. That means `e2e/screenshots/screenshots.spec.ts` was never committed in round 1, so `npm run screenshot` could not work from a fresh checkout. The pattern is now `/screenshots/` and the spec is tracked. (b1a9f0e)
+
+### Encryption scheme
+- Cipher: XChaCha20-Poly1305 (RustCrypto `chacha20poly1305` 0.10, an AEAD). No hand-rolled crypto.
+- Key: 256 bits from the OS random generator. It is held in memory as `Zeroizing`, so it is wiped on drop, and its `Debug` output is redacted.
+- Key storage: only in the OS keychain, under service = app identifier `de.udspotsdam.meetingcompanion` and account `meeting-data-key`. The key is never written to disk or logged; log lines name only the kind of error.
+- Nonce: a fresh random 192-bit nonce per write. With XChaCha's nonce size, random nonces are safe and never need a counter.
+- File layout: `"MCMEET01" (8 bytes) || nonce (24) || ciphertext || Poly1305 tag (16)`.
+- Associated data: `"MCMEET01" || meeting id`. A file only opens under its own name.
+- First start: the app generates the key, stores it, and reads it back to check. The store is used only if the keychain returns the same key.
+- Old plaintext `<id>.json` files from round 1 (only on dev machines) are ignored and left as they are; there is no migration.
+- D-Bus to the Secret Service is a local Unix socket. It is not a network connection and opens no listening port.
+
+### Tests added
+- Rust `crypto::tests`:
+  - round_trip
+  - same_plaintext_gives_different_ciphertext
+  - tampered_ciphertext_nonce_or_header_is_rejected
+  - wrong_key_or_other_meeting_id_is_rejected
+  - debug_output_never_shows_the_key
+  - keychain_round_trip: `#[ignore]`, uses the real Secret Service; run by hand here with `-- --ignored keychain` → PASS, and the test entry was deleted afterwards
+- Rust `store::file::tests`:
+  - nothing_readable_is_on_disk (no title, participant names, topic or "title" bytes on disk)
+  - tampered_file_is_rejected_and_left_untouched
+  - a_file_copied_over_another_meeting_is_rejected
+  - valid_ciphertext_of_an_invalid_meeting_counts_as_corrupt
+  - first_start_generates_a_key_and_puts_it_in_the_keychain
+  - missing_key_with_existing_files_refuses_to_open_and_touches_nothing
+  - unavailable_keychain_refuses_to_open_and_writes_nothing
+  - another_key_cannot_read_the_files
+  - all earlier store tests, ported to encrypted files
+- Rust `tests::missing_key_is_reported_and_nothing_is_saved`.
+- `src/app/App.test.tsx`: "a missing keychain key shows a lasting error and nothing claims to be saved".
+- e2e: axe has no violations on the key-unavailable state, in German.
+- New screenshot state: `agenda-key-unavailable-<width>.png`.
+
+### Secure coding (additions)
+- Encryption at rest: AEAD with a vetted crate, a key that exists only in the keychain and in memory, and a redacted `Debug` output for the key.
+- No silent data loss: without a key nothing is written, and no new key is ever created while encrypted files exist.
+- `npm audit` reports 0 vulnerabilities, and gitleaks finds no leaks across the 15 commits in the branch history (exit 0).
+
+### Test run
+`npm test` → Vitest 54 passed / 0 failed; cargo test 40 passed / 0 failed / 1 ignored (the real keychain test); Playwright 8 passed / 0 failed. Exit 0.
+`npm run lint` → exit 0. `npm run tauri build -- --no-bundle` → built. `node scripts/smoke.mjs` → `SMOKE OK: agenda-setup rendered`. `npm run screenshot` → 24 passed.
+```
+  ✓  7 [chromium] › e2e/agenda-setup.spec.ts:146:3 › AC5 restart › after a reload the last meeting is back with all fields
+  ✓  4 [chromium] › e2e/agenda-setup.spec.ts:55:3 › AC7 accessibility at 1280×800 › over budget and store error, in German: no axe violations
+  8 passed (9.1s)
+```
+
+### Commits (main..HEAD)
+```
+b1a9f0e fix: track e2e/screenshots; ignore only the top-level screenshots output
+2027554 feat(store): encrypt meeting files at rest with a keychain-held data key
+6361bfa ci: test on Linux only for now; fix select-all in the keyboard e2e test on macOS
+b26d9ed Merge main into factory/001-app-skeleton-agenda
+954a8c5 chore: check out text files with LF on every OS so prettier --check passes on Windows
+3e54c95 ci: lint, test, compile and smoke-test on ubuntu, macos and windows
+f951b12 test(e2e): axe, keyboard, layout and restart checks; npm run screenshot
+547fd63 feat(agenda): agenda setup view with meeting card, agenda list and de/en UI
+da757ad feat(core): meeting model, validation and MeetingStore with file and memory stores
+6453bbc chore(stack): establish Tauri 2 + Rust + React 19/Vite 6 + TypeScript
+```

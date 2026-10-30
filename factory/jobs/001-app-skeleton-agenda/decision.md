@@ -1,22 +1,30 @@
-ESCALATE
-CI has never run for 954a8c5, so AC1's 3-OS pass can't be checked, and the job adds on-device storage of personal data (participant names, unencrypted), which the profile says must go to a human.
+APPROVE
+Round 2 addresses both of the human's rework decisions (Linux-only CI, encryption at rest with a keychain-held key), CI is green on HEAD b1a9f0e, every AC has a matching test, and all four reviewers pass with notes only.
 
 ## Checks
-- Tests: no `round-*/ci.md` exists (profile `ci_workflow: none`, branch not pushed), so there is no CI result for HEAD 954a8c53d21175503c50e1baaa2d1ba908dc6ecd. build.md reports these local results: `npm test` → Vitest 53/0, cargo 27/0, Playwright 8/0; `npm run lint`, `tauri build --no-bundle` and `scripts/smoke.mjs` pass on Linux only. I did not re-run the suite.
+- Tests: `round-2/ci.md` → `CI: success` (run 41104995714, ubuntu-latest), commit b1a9f0e = `git rev-parse HEAD` b1a9f0ef95f86ad733e1a0be888a01c433df2ee4. I did not re-run the suite. build.md reports local results of Vitest 54/0, cargo 40/0 with 1 ignored (the real-keychain test), Playwright 8/0, plus lint, build, smoke and screenshot all passing.
 - Acceptance criteria:
-  - AC1 ✗ not verified. `src/config.test.ts` "AC1 CI workflow" checks the shape of ci.yml (push/PR triggers, 3-OS matrix, lint/test/build/smoke steps). The AC also requires that "all jobs pass" on ubuntu, macOS and Windows, and that has never been observed.
-  - AC2 ✓ `MeetingCard.test.tsx` covers each rejection, not-saved and the XSS literal; also `model.test.ts` AC2 and the Rust `model::tests`.
-  - AC3 ✓ `AgendaList.test.tsx` AC3 (add/edit/move/remove, keyboard move, lead options = participants, lead cleared, 01/02 numbering) and `model.test.ts` AC3.
+  - AC1 ✓, as amended by rework-1 to Linux only. `src/config.test.ts` "AC1 CI workflow" checks the push/PR triggers, ubuntu-latest, the npm ci/lint/test/tauri build/smoke steps, and that no step has continue-on-error or `|| true`. The actual CI run is green. Commit 6361bfa also fixes the round-1 macOS failure (ControlOrMeta+A).
+  - AC2 ✓ `MeetingCard.test.tsx` covers each rejection, not-saved and the XSS literal. Also `model.test.ts` AC2 and Rust `model::tests`.
+  - AC3 ✓ `AgendaList.test.tsx` and `model.test.ts` AC3.
   - AC4 ✓ `model.test.ts` and `AgendaList.test.tsx` cover under, exact and over, with the over case shown in text plus the overrun class.
-  - AC5 ✓ Rust `store::file::tests` (temp+rename, reopen latest, corrupt file left untouched, failed write keeps the old version), `App.test.tsx` AC5, `e2e` restart and no-network tests, `config.test.ts` (no HTTP plugin, CSP connect-src = IPC only).
-  - AC6 ✓ `i18n.test.tsx` (key parity, key-mode render fails on literal text), `App.test.tsx` AC6 (de default, switch without reload, choice remembered).
-  - AC7 ✓ `e2e/agenda-setup.spec.ts` (axe WCAG 2.2 AA at 1280×800, no horizontal scroll, targets ≥ 24 px, Tab order with focus ring, keyboard move and edit).
-- Scope / factory files untouched: ✓ No paths under `.claude/` or `factory/` in `git diff main...HEAD`. The diff stays within the spec: skeleton, frame 01 manual builder, store, i18n, CI, screenshot command, and the AGENTS.md stack section. Out-of-scope frame elements are left out.
-- Dependencies: runtime deps are tauri, serde, serde_json, react, react-dom, @tauri-apps/api, plus `@fontsource-variable/inter`. The spec doesn't name the font package; it bundles Inter locally so no font CDN is used. Dev tooling is in line with the stack: Vitest 5 instead of the then-current 3 (to fix an npm audit finding), `yaml`, `tempfile`, ESLint plugins. Rust is pinned to 1.99.1, which meets 1.85+.
-- Reviews round 1: security, ux, ui and code all PASS, with notes only.
+  - AC5 ✓ Rust `store::file::tests`, now on encrypted files: one file per meeting with no temp file left, reopen latest, corrupt or tampered file left untouched, failed write keeps the old version, invalid meeting never written. `lib.rs` tests, `App.test.tsx`, the e2e restart and no-network tests, and `config.test.ts` (no HTTP plugin, CSP connect-src = IPC only).
+  - Rework encryption ✓ `crypto::tests`: round_trip, tampered_ciphertext_nonce_or_header_is_rejected, wrong_key_or_other_meeting_id_is_rejected, debug_output_never_shows_the_key. `store::file::tests`: nothing_readable_is_on_disk, missing_key_with_existing_files_refuses_to_open_and_touches_nothing, unavailable_keychain_refuses_to_open_and_writes_nothing, another_key_cannot_read_the_files. Also `lib::tests::missing_key_is_reported_and_nothing_is_saved` and the App test for the locked state. All of these use `MemoryKeyProvider`.
+  - AC6 ✓ `i18n.test.tsx` (key parity, key-mode render) and `App.test.tsx` AC6. The new `store.keyUnavailable.*` keys exist in de and en.
+  - AC7 ✓ `e2e/agenda-setup.spec.ts` (axe WCAG 2.2 AA including the key-unavailable state, no horizontal scroll, targets ≥ 24 px, Tab order with focus ring, keyboard move and edit).
+- Scope / factory files untouched: ✓ `git diff --name-only main...HEAD` has no paths under `.claude/` or `factory/`. Encryption at rest was out of scope in the spec but was ordered by the human in rework-1, so it is in scope now. The `.gitignore` fix (b1a9f0e) is a small correction needed for `npm run screenshot`.
+- Dependencies:
+  - The human named `keyring` in rework-1 and asked for "a vetted crate" for the cipher. `chacha20poly1305` (RustCrypto) is that crate.
+  - `zeroize` was already a transitive dependency of chacha20poly1305/cipher (`cargo tree -i zeroize`).
+  - `@fontsource-variable/inter` and Vitest 5 were put to the human in the round-1 escalation. The rework did not object to them.
+- Profile rule ("changes what is stored"): the storage change in this job is what the human decided in rework-1 after the round-1 escalation. Nothing is deleted or migrated: old round-1 dev `.json` files are ignored and left in place. Nothing is sent off the device.
+- Non-blocking reviewer notes for follow-up:
+  - The `keyring` 3.6 → zbus 4 stack has "unmaintained" advisories, but no vulnerabilities.
+  - Add `cargo deny`/`cargo audit` to CI.
+  - GitHub Actions are pinned by tag, not by SHA.
+  - Disable the form inputs while the keychain is unavailable.
+  - Linux Secret Service has no per-app ACL.
+  - Spec/AGENTS.md should record the encryption decision. AGENTS.md already does.
 
 ## For the human (ESCALATE only)
-1. **Storage of personal data (profile approver rule: "Escalate anything that changes what is recorded, stored, or sent off the device").** From now on the app stores meeting title, date and time slot, participant names and the agenda as plain JSON, one file per meeting, in the OS app-data directory (`<app_data>/meetings/<id>.json`). There is no encryption and no deletion; both are deferred by the spec (encryption to job 3, deletion and archive to a later job). The security reviewer flagged this as a human decision. Decide: is unencrypted local storage of participant names acceptable until job 3, or must agenda files be encrypted at rest as well?
-2. **AC1 is unverified.** The CI workflow has never run, because the branch isn't pushed and the profile still has `ci_workflow: none`. The Windows/macOS smoke run and the rename-over-existing path in the store have only been tested on Linux. Decide whether to push the branch and approve only after a green 3-OS run (recommended), or accept the local Linux evidence and merge.
-3. **Minor, confirm or reject:** the unnamed runtime dependency `@fontsource-variable/inter`, and Vitest 5 instead of the version the stack implied.
-4. **After merge (orchestrator or you):** in `factory/profile.md`, set `ci_workflow: ci.yml`, narrow `ui_paths` to `src/**`, and set the reviewer-ui screenshot command to `npm run screenshot`.
+n/a
