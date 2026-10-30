@@ -1,0 +1,24 @@
+{
+  "id": "004-speaker-matching",
+  "issue": 4,
+  "title": "Speakers matched to attendees",
+  "branch": "factory/004-speaker-matching",
+  "builder": "builder-004-speaker-matching",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "spec",
+  "round": 0,
+  "max_round": 3,
+  "reviews": {
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
+  },
+  "history": [],
+  "decision": null,
+  "waiting": null,
+  "note": "Writing spec",
+  "updated": "2026-10-30T20:03:42Z"
+}
