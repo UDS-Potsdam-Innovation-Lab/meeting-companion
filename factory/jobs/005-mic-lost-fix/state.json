@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "review",
+  "stage": "approve",
   "round": 1,
   "max_round": 3,
   "reviews": {
@@ -19,6 +19,6 @@
   "history": [],
   "decision": null,
   "waiting": null,
-  "note": "Round 1: all reviews PASS; waiting for CI",
-  "updated": "2026-10-30T20:42:06Z"
+  "note": "CI green; approver running",
+  "updated": "2026-10-30T21:08:00Z"
 }
