@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "approve",
+  "stage": "merged",
   "round": 1,
   "max_round": 3,
   "reviews": {
@@ -16,9 +16,19 @@
     "ui": "PASS",
     "code": "PASS"
   },
-  "history": [],
-  "decision": null,
+  "history": [
+    {
+      "round": 1,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "PASS",
+        "code": "PASS"
+      }
+    }
+  ],
+  "decision": "APPROVE",
   "waiting": null,
-  "note": "CI green; approver running",
-  "updated": "2026-10-30T21:08:00Z"
+  "note": "Merged into main after round 1",
+  "updated": "2026-10-30T21:08:28Z"
 }
