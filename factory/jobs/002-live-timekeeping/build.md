@@ -73,3 +73,47 @@ e29ae5f feat(live): live meeting view with timer, agenda, parking lot and nudge
 0dca7bb feat(live): run state, injectable clock and timekeeping logic
 d47329d feat(core): store and validate the run state of a meeting
 ```
+
+## Rework
+From `rework-1.md` (responsive layout plus the decisions on the approver's escalation).
+
+| Requested | What I did | Test |
+|-----------|------------|------|
+| Responsive setup and live view; narrow windows reflow, no squeeze, no horizontal scroll | Breakpoints come from the content and are documented at the top of the responsive block in `src/styles.css`. **Setup:** two columns from 1080 px. Between 1080 and 1279 px the meeting card shrinks to 300–340 px. Below 1080 px there is one column (max 880 px, centred) with the meeting card under the agenda. The reported bug was a 90 px topic column at 1024 px. **Agenda table → stacked rows:** a container query on the list (< 600 px), not the window, so it reacts to the column width. The item editor goes to one column below 680 px. **Live view:** the 300 px left column of frame 02 from 800 px up. Below that there is one column, and the nudge sticks to the window bottom (sticky, not `fixed`), so at the end of the page it no longer covers the overall line or "End meeting". **Top bar:** the meeting title stays visible with an ellipsis. Below 640 px only the mark, the actions and the language switch stay. Wide windows keep frames 01/02. | e2e/responsive.spec.ts (19 tests) |
+| Window can actually be made that small | `src-tauri/tauri.conf.json`: `minWidth` 1024 → 400, `minHeight` 700 → 480. Before, the desktop window could not go below 1024×700. No other config change. | manual (tauri dev picks it up after a restart) |
+| Cover ~1440, ~1024, ~768, ~480 and a short live window | Checked at 1440×900, 1024×768, 768×1024 and 480×800 (setup and live), plus short live windows of 1024×600, 768×480 and 480×480. | e2e/responsive.spec.ts |
+| Playwright checks: no horizontal overflow, key controls visible and clickable | Per size: no document scroll width beyond the window. No element outside the window and no element clipping its content (the ellipsised title is the only exception). No text below 11 px (the avatar initials are excluded, since the name is written next to them). Targets at least 24 px. Key controls are visible and pass a trial click, which fails when something covers them. Setup: two-column vs stacked geometry, and a topic column of at least 160 px. Live: the 300 px column at ≥ 800 px, full width below, and "End meeting" below the agenda. Short windows: scrolled to the bottom, the sticky nudge does not overlap the overall line or "End meeting". **Run against the old stylesheet, 5 of these fail** (setup at 1024 and live at 768/480/480×480), so they catch the regression. | e2e/responsive.spec.ts |
+| Screenshots for the reviewers | `npm run screenshot` also writes `screenshots/<view>-<w>x<h>.png` (viewport, not full page) for agenda-filled, agenda-editing, live-nudge, live-over and live-done at the four sizes, and live-nudge at 1024×600 and 768×480 (22 new files, 67 total). AGENTS.md is updated. | `npm run screenshot` 67 passed |
+| Decision 2: the overall line agrees with the item timers | While on track it shows how much of the planned buffer (slot minus the items' original minutes) the projection has used: "On track · 4 min of buffer used" / "Im Plan · 4 Min. Puffer verbraucht". The count includes overruns, a timer running over, "+5 min" and a late start. While nothing is used: "On track · 5 min buffer" / "Im Plan · 5 Min. Puffer". Behind: unchanged ("N min behind"). This drops the old "on track (+N min)" key. The projection formula of AC3 is unchanged; only the wording comes from it (`bufferUsedMinutes` in `run.ts`). | run.test.ts::"buffer used: overruns, extensions and running over count; none while on plan"; LiveView.test.tsx::"agrees with an item timer that runs over…", "shows the buffer that is left…" |
+| Decision 3: "End meeting" visually last and last in tab order | Moved out of the top bar into a footer row at the bottom right of the live view (`.live__footer`, after the nudge in DOM order). The top bar keeps brand, title and language. The inline second-click confirmation is unchanged. Tab order is now language, +5, Park it, Next ›, parking lot, nudge (Wrap up, +5), End meeting. | e2e/live.spec.ts::"the keyboard reaches every live control…" (now asserts End meeting last); e2e/responsive.spec.ts |
+| Decision 1 | No change. | – |
+
+Also fixed: a flaky harness in `LiveView.test.tsx`, about 2 failures in 5 full vitest runs before any of my changes, including the unchanged AC1 test. `renderApp` returned once the live `<main>` was in the DOM, before `useNow` had subscribed to the FakeClock in its effect, so an early `clock.set` was lost. The helper now waits for `FakeClock.listening`. After the fix there were 0 failures in 12 runs. No product code changed for this.
+
+Secure coding: no new surface. No port, plugin, permission, dependency or network access. The only config change is the window's minimum size. Stored data is unchanged.
+
+Merged `main` (factory files for job 003 only, no conflicts). I merged rather than rebased because the branch is pushed.
+
+### Test run
+`npm test` → vitest 96 passed (8 files), cargo 54 passed / 1 ignored, playwright 36 passed. `npm run lint` clean. `npm run screenshot` 67 passed. `gitleaks.sh` exit 0.
+```
+  ✓  31 [chromium] › e2e/responsive.spec.ts:103:5 › agenda setup at 480×800 › the open item editor and validation errors fit (796ms)
+  ✓  30 [chromium] › e2e/responsive.spec.ts:72:5 › agenda setup at 480×800 › reflows without squeezing; key controls usable (1.2s)
+  ✓  33 [chromium] › e2e/responsive.spec.ts:148:5 › live view at 480×800 › agenda done, open parking lot and End meeting armed (680ms)
+  ✓  32 [chromium] › e2e/responsive.spec.ts:119:5 › live view at 480×800 › timer, agenda and nudge reflow; key controls usable (997ms)
+  ✓  34 [chromium] › e2e/responsive.spec.ts:163:5 › live view in a short window 1024×600 › nothing is cut off and every control can be reached and clicked (947ms)
+  ✓  35 [chromium] › e2e/responsive.spec.ts:163:5 › live view in a short window 768×480 › nothing is cut off and every control can be reached and clicked (1.1s)
+  ✓  36 [chromium] › e2e/responsive.spec.ts:163:5 › live view in a short window 480×480 › nothing is cut off and every control can be reached and clicked (1.1s)
+
+  36 passed (15.1s)
+```
+
+### Commits
+```
+2d77ff8 Merge branch 'main' into factory/002-live-timekeeping
+b682855 feat(ui): responsive layout for setup and live view down to 400 px
+4b3b95b feat(live): End meeting last in the live view, visually and in tab order
+e5287ee feat(live): overall line shows how much buffer is used
+3706eca test: wait until the live view listens to the fake clock
+```
+(The component tests for the buffer line landed in 4b3b95b together with the End meeting change, not in e5287ee.)

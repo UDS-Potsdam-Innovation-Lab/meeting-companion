@@ -7,14 +7,14 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "build",
+  "stage": "approve",
   "round": 2,
   "max_round": 4,
   "reviews": {
-    "security": "pending",
-    "ux": "pending",
-    "ui": "pending",
-    "code": "pending"
+    "security": "PASS",
+    "ux": "PASS",
+    "ui": "PASS",
+    "code": "PASS"
   },
   "history": [
     {
@@ -29,6 +29,6 @@
   ],
   "decision": null,
   "waiting": null,
-  "note": "Human rework: responsive layout for small windows",
-  "updated": "2026-10-30T18:59:41Z"
+  "note": "Round 2 CI green; approver running",
+  "updated": "2026-10-30T19:15:13Z"
 }
