@@ -1,0 +1,4 @@
+# whisper.cpp is built by CMake inside `whisper-rs-sys`. An unoptimised build is several times
+# slower than real time, so `tauri dev` always builds it as Release.
+[env]
+CMAKE_BUILD_TYPE = "Release"

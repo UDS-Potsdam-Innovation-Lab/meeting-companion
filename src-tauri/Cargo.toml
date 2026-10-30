@@ -29,3 +29,8 @@ whisper-rs = "0.16"
 
 [dev-dependencies]
 tempfile = "3"
+
+# Dependencies (whisper-rs-sys, cpal, ...) are optimised in dev builds; the app's own code is not.
+# The native whisper.cpp build gets CMAKE_BUILD_TYPE=Release from `.cargo/config.toml`.
+[profile.dev.package."*"]
+opt-level = 3
