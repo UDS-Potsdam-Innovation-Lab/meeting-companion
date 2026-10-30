@@ -18,7 +18,7 @@
   },
   "history": [],
   "decision": null,
-  "waiting": null,
-  "note": "Writing spec",
-  "updated": "2026-10-30T20:03:42Z"
+  "waiting": "spec review (human)",
+  "note": "Spec revised after review 1: real local diarizer in scope",
+  "updated": "2026-10-30T20:14:30Z"
 }
