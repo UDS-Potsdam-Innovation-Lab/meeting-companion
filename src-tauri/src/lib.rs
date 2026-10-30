@@ -8,6 +8,7 @@ pub mod engines;
 pub mod log;
 pub mod model;
 pub mod recording;
+pub mod settings;
 pub mod store;
 pub mod transcript;
 
