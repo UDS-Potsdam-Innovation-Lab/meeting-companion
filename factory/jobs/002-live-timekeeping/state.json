@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "review",
+  "stage": "needs-human",
   "round": 1,
   "max_round": 3,
   "reviews": {
@@ -17,8 +17,8 @@
     "code": "PASS"
   },
   "history": [],
-  "decision": null,
+  "decision": "ESCALATE",
   "waiting": null,
-  "note": "All round 1 reviews PASS; waiting for Linux CI",
-  "updated": "2026-10-30T18:53:23Z"
+  "note": "Stored shape gains optional run field (profile rule); human to approve",
+  "updated": "2026-10-30T18:59:26Z"
 }
