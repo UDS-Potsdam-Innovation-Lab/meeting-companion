@@ -112,6 +112,10 @@ describe("AC2 reachable, non-modal, applies at once", () => {
     const { core } = await live({ status: recordingState() });
     await act(() => emit(EVENT_CAPTURE, recordingState()));
     const feed = await screen.findByRole("list", { name: "Transcript" });
+    // The stored transcript has loaded, so no later line moves the feed.
+    await waitFor(() =>
+      expect(within(feed).getAllByRole("listitem").length).toBeGreaterThanOrEqual(LIVE_TRANSCRIPT.length),
+    );
     // jsdom has no layout: a feed of 400 px in a 200 px window, read up to 40 px from the top.
     Object.defineProperty(feed, "scrollHeight", { value: 400, configurable: true });
     Object.defineProperty(feed, "clientHeight", { value: 200, configurable: true });
