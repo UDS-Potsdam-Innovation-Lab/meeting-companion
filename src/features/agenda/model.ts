@@ -33,6 +33,11 @@ export interface Meeting {
   updatedAt: number;
   /** Timekeeping once the meeting has started; absent before. See `src/features/live/run.ts`. */
   run?: Run | null;
+  /**
+   * When the facilitator confirmed that everyone was informed that the meeting is transcribed (ms since
+   * epoch). Set by the core only (`confirmRecordingConsent`); the core keeps its stored value on save.
+   */
+  recordingConsentAt?: number | null;
 }
 
 /** When the meeting and each agenda item ran. Times are milliseconds since the Unix epoch. */

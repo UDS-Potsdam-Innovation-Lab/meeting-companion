@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { LOCALES, useI18n, type Locale, type MessageKey } from "../i18n";
 import { LogoMark, PlusIcon } from "../ui/icons";
 
@@ -6,9 +7,11 @@ interface Props {
   onNewMeeting?: () => void;
   /** Live meeting: the meeting title next to the brand. */
   meetingTitle?: string;
+  /** Live meeting: recording indicator and controls, before the language switch. */
+  actions?: ReactNode;
 }
 
-export function TopBar({ onNewMeeting, meetingTitle }: Props) {
+export function TopBar({ onNewMeeting, meetingTitle, actions }: Props) {
   const { t, locale, setLocale } = useI18n();
   return (
     <header className="top-bar">
@@ -27,6 +30,7 @@ export function TopBar({ onNewMeeting, meetingTitle }: Props) {
       ) : null}
       {meetingTitle !== undefined ? <span className="top-bar__title">{meetingTitle}</span> : null}
       <span className="top-bar__spacer" />
+      {actions}
       <div className="lang-switch" role="group" aria-label={t("topbar.language")}>
         {LOCALES.map((l: Locale) => (
           <button

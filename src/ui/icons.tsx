@@ -53,3 +53,23 @@ export const LogoMark = () => (
     <path d="M7 1l6 6-6 6-6-6z" fill="#FFFFFF" />
   </svg>
 );
+
+export const PauseIcon = () => (
+  <svg {...base} fill="currentColor" stroke="none">
+    <rect x="3.5" y="3" width="3" height="10" rx="0.8" />
+    <rect x="9.5" y="3" width="3" height="10" rx="0.8" />
+  </svg>
+);
+
+export const PlayIcon = () => (
+  <svg {...base} fill="currentColor" stroke="none">
+    <path d="M4.5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.4 2.7a.6.6 0 0 0-.9.5Z" />
+  </svg>
+);
+
+export const MicIcon = () => (
+  <svg {...base}>
+    <rect x="5.5" y="1.8" width="5" height="8" rx="2.5" />
+    <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" />
+  </svg>
+);

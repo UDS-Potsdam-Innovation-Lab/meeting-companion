@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { TopBar } from "../../app/TopBar";
 import { useI18n } from "../../i18n";
 import { useClock, useNow } from "../../lib/clock";
@@ -9,6 +9,9 @@ import { LiveAgenda, OverallLine } from "./LiveAgenda";
 import { Nudge, nudgeTitle } from "./Nudge";
 import { advance, canExtend, endRun, extend, liveSnapshot, nudgeDue, nudgeKey } from "./run";
 import { TimerCard } from "./TimerCard";
+import { RecordingControls } from "../transcript/RecordingControls";
+import { TranscriptPanel } from "../transcript/TranscriptPanel";
+import { useRecording } from "../transcript/useRecording";
 
 export const LIVE_VIEW = "live";
 
@@ -19,8 +22,9 @@ interface Props {
 }
 
 /**
- * Frame 02 "Live meeting": top bar, the left column (timer, agenda, parking lot, overall line), the
- * time nudge and "End meeting" at the bottom right. The centre and right columns come with later jobs; their space stays empty.
+ * Frame 02 "Live meeting": top bar with the recording indicator, the left column (timer, agenda,
+ * parking lot, overall line), the centre column (transcript), the time nudge over it and "End meeting"
+ * at the bottom right. The right column (captures) comes with a later job.
  */
 export function LiveView({ meeting, state }: Props) {
   const i18n = useI18n();
@@ -32,6 +36,30 @@ export function LiveView({ meeting, state }: Props) {
   const snapshot = liveSnapshot(meeting, run, now);
   const { current } = snapshot;
   const extendable = canExtend(meeting);
+  const onConsent = useCallback((at: number) => update((m) => ({ ...m, recordingConsentAt: at })), [update]);
+  const recording = useRecording(meeting.id, onConsent);
+
+  // When a recording control the user was on disappears with the state change it caused (Start
+  // recording, Pause on a device error), focus moves to the control that now applies instead of being
+  // lost. Nothing is focused on page load.
+  const viewRef = useRef<HTMLDivElement>(null);
+  const lastFocused = useRef<Element | null>(null);
+  const captureState = recording.capture.state;
+  useEffect(() => {
+    const view = viewRef.current;
+    const track = (e: FocusEvent) => {
+      lastFocused.current = e.target as Element;
+    };
+    view?.addEventListener("focusin", track);
+    return () => view?.removeEventListener("focusin", track);
+  }, []);
+  useEffect(() => {
+    const was = lastFocused.current;
+    const active = document.activeElement;
+    if (!was || (active && active !== document.body)) return;
+    if (was.isConnected && !(was as HTMLButtonElement).disabled) return;
+    viewRef.current?.querySelector<HTMLButtonElement>("[data-rec-action]:not(:disabled)")?.focus();
+  }, [captureState, recording.busy]);
 
   // Nudge: shown from 80 % of the current budget until "Wrap up", "+5 min" or the item ends; at most
   // once per item and budget. Dismissals last for this session.
@@ -79,14 +107,27 @@ export function LiveView({ meeting, state }: Props) {
     setDismissed((d) => new Set(d).add(key));
   };
   const onEnd = () => {
-    update((m) => endRun(m, clock.now()));
-    // Wrap-up (frame 04) does not exist yet: a new meeting opens in setup.
-    startNew();
+    // Capture stops before the meeting ends.
+    void recording.stop().then(() => {
+      update((m) => endRun(m, clock.now()));
+      // Wrap-up (frame 04) does not exist yet: a new meeting opens in setup.
+      startNew();
+    });
   };
 
   return (
-    <>
-      <TopBar meetingTitle={meeting.title} />
+    <div className="live-view" ref={viewRef}>
+      <TopBar
+        meetingTitle={meeting.title}
+        actions={
+          <RecordingControls
+            capture={recording.capture}
+            busy={recording.busy}
+            onPause={() => void recording.pause()}
+            onResume={() => void recording.start()}
+          />
+        }
+      />
       <main className="live" id="main" data-view={LIVE_VIEW}>
         <h1 className="visually-hidden">{t("live.heading")}</h1>
         <div className="live__left" ref={leftRef}>
@@ -105,6 +146,9 @@ export function LiveView({ meeting, state }: Props) {
           />
           <LiveAgenda snapshot={snapshot} />
           <OverallLine snapshot={snapshot} />
+        </div>
+        <div className="live__centre">
+          <TranscriptPanel recording={recording} consented={!!meeting.recordingConsentAt} />
         </div>
         <div className="live__stage">
           {showNudge && current ? (
@@ -125,6 +169,6 @@ export function LiveView({ meeting, state }: Props) {
           {announced.text}
         </div>
       </main>
-    </>
+    </div>
   );
 }

@@ -761,6 +761,11 @@ select {
   min-height: 100vh;
 }
 
+/* Groups the live view for focus handling only; takes no part in the layout. */
+.live-view {
+  display: contents;
+}
+
 .top-bar__title {
   flex: 0 1 auto;
   min-width: 0;
@@ -801,13 +806,35 @@ select {
   min-width: 0;
 }
 
-/* The centre and right columns of the frame come with later jobs; this area stays empty. */
+/* Centre column: the transcript card. The right column (captures) comes with a later job. */
+.live__left {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.live__centre {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The nudge floats over the bottom of the transcript card, as in the frame. */
 .live__stage {
+  grid-column: 2;
+  grid-row: 1;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   align-items: center;
   min-width: 0;
+  pointer-events: none;
+}
+
+.live__stage > * {
+  pointer-events: auto;
 }
 
 .timer-card {
@@ -1145,6 +1172,303 @@ select {
   color: var(--dark-muted);
 }
 
+/* ---- recording indicator (frame 02 top bar) ----------------------------------------------------- */
+.rec-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rec-chip,
+.device-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.rec-chip {
+  background: var(--overrun-soft);
+  color: var(--overrun);
+  font-weight: 600;
+}
+
+.rec-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--overrun);
+}
+
+.rec-chip__time {
+  font-variant-numeric: tabular-nums;
+}
+
+.rec-chip--paused {
+  background: var(--sunken);
+  color: var(--ink-2);
+}
+
+.device-chip {
+  background: var(--sunken);
+  color: var(--ink-2);
+}
+
+.button--outline {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.button--outline:hover:not(:disabled) {
+  background: var(--sunken);
+}
+
+/* ---- transcript (frame 02 centre) --------------------------------------------------------------- */
+.transcript-card {
+  display: flex;
+  flex-direction: column;
+  height: max(440px, calc(100vh - 160px));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.transcript-card__header {
+  display: flex;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.transcript-card__tab {
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: var(--sunken);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.transcript-card__body {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 16px 20px 0;
+}
+
+.transcript-feed-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.transcript-feed {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 4px 4px 16px;
+  list-style: none;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-radius: 8px;
+}
+
+.transcript-feed__empty {
+  padding: 8px 4px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.transcript-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.transcript-line__meta {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.transcript-line__text {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.transcript-line--partial .transcript-line__text {
+  color: var(--muted);
+}
+
+.transcript-jump {
+  position: absolute;
+  right: 8px;
+  bottom: 12px;
+  box-shadow: var(--shadow);
+}
+
+.transcript-card__footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
+}
+
+.transcript-card__status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.level-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+}
+
+.level-meter__bar {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: height 0.15s ease-out;
+}
+
+.level-meter--flat .level-meter__bar {
+  height: 3px !important;
+  background: var(--line-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .level-meter__bar {
+    transition: none;
+  }
+}
+
+/* Consent, recording off and error: one area in the card body, never a dialog. */
+.rec-notice {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 600px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.rec-notice [role="alert"] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rec-notice--error {
+  border-color: var(--overrun);
+}
+
+.rec-notice__title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.rec-notice__body,
+.rec-notice__local,
+.rec-notice__hint {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.rec-notice__local {
+  color: var(--muted);
+}
+
+.rec-notice__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.consent-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.consent-check input {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.model-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.model-picker__label,
+.model-picker__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.model-picker__select {
+  min-height: 36px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.model-picker__hint {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.model-picker__warn {
+  font-size: 12px;
+  color: var(--amber-ink);
+}
+
+.model-picker__folders {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
 /* ---- responsive layout -----------------------------------------------------------------------
  * Breakpoints follow the content, not devices:
  * - setup, two columns: the agenda table needs about 640 px (fixed columns 420 px + a readable topic)
@@ -1169,12 +1493,48 @@ select {
   }
 }
 
+/* Top bar with the recording controls: below 900 px they move to a second row of the bar. */
+@media (max-width: 899px) {
+  .top-bar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .lang-switch {
+    order: 2;
+  }
+
+  .rec-controls {
+    order: 3;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+}
+
 @media (max-width: 799px) {
   .live {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
     gap: 16px;
     padding: 16px;
+  }
+
+  .live__left,
+  .live__centre,
+  .live__stage {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  /* One column: the card grows with its content; the line list scrolls on its own. */
+  .transcript-card {
+    height: auto;
+  }
+
+  .transcript-feed {
+    min-height: 120px;
+    max-height: min(60vh, 520px);
   }
 
   .live__stage {
