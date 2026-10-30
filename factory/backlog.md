@@ -4,7 +4,7 @@
 while running and `[x] … → <job-id> (<stage>)` when done.
 
 - [x] App skeleton and agenda setup (frame 01): desktop app that starts on macOS, Windows and Linux, creates a meeting with title, time slot, participants and agenda items (lead, goal, minutes), stores it locally; CI that builds and tests on all three OSes → 001-app-skeleton-agenda (merged)
-- [~] Timekeeping in the live meeting (frame 02, left column): timer per agenda item, next item, +5 min from the buffer, park a topic, nudge at 80 %, planned vs actual per item
+- [x] Timekeeping in the live meeting (frame 02, left column): timer per agenda item, next item, +5 min from the buffer, park a topic, nudge at 80 %, planned vs actual per item → 002-live-timekeeping (merged)
 - [~] Local live transcription (frame 02, centre): microphone capture, on-device speech-to-text in German and English behind an engine interface, transcript written to disk continuously; recording only after the facilitator confirms everyone was informed
 - [ ] Speakers matched to attendees (frame 06): diarization, name round at check-in, manual assignment, names applied backwards, opt-in voice profiles
 - [ ] Language model engine: local model or Claude API behind one interface, API key in the OS keychain
