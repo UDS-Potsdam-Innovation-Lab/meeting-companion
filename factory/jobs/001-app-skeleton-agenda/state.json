@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "approve",
+  "stage": "merged",
   "round": 2,
   "max_round": 4,
   "reviews": {
@@ -25,10 +25,19 @@
         "ui": "PASS",
         "code": "PASS"
       }
+    },
+    {
+      "round": 2,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "PASS",
+        "code": "PASS"
+      }
     }
   ],
-  "decision": null,
+  "decision": "APPROVE",
   "waiting": null,
-  "note": "Round 2 all PASS, Linux CI success; approver running",
-  "updated": "2026-10-30T18:26:23Z"
+  "note": "Merged into main after round 2 (Linux CI green, encryption at rest added)",
+  "updated": "2026-10-30T18:27:55Z"
 }
