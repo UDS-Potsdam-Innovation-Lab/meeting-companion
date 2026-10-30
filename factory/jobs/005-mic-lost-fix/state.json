@@ -1,0 +1,24 @@
+{
+  "id": "005-mic-lost-fix",
+  "issue": 5,
+  "title": "Recording stops with MicrophoneLost while transcribing",
+  "branch": "factory/005-mic-lost-fix",
+  "builder": "builder-005-mic-lost-fix",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "spec",
+  "round": 0,
+  "max_round": 3,
+  "reviews": {
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
+  },
+  "history": [],
+  "decision": null,
+  "waiting": null,
+  "note": "Writing spec (bugfix)",
+  "updated": "2026-10-30T20:19:49Z"
+}
