@@ -1,3 +1,11 @@
 .worktrees/
 __pycache__/
 .DS_Store
+node_modules/
+dist/
+dist-e2e/
+/screenshots/
+playwright-report/
+test-results/
+src-tauri/target/
+src-tauri/gen/

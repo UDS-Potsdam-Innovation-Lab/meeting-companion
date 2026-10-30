@@ -27,12 +27,38 @@ Product brief: [docs/vision.md](docs/vision.md). Non-functional requirements:
 
 ## Application stack
 
-STATUS: NOT CONFIGURED
+STATUS: CONFIGURED
 
-Constraints for the proposal:
-- One codebase for macOS, Windows and Linux desktops; the smart board's embedded PC (OS to be confirmed,
-  likely Windows or Android) must run it, at worst as a full-screen touch UI.
-- On-device speech-to-text and speaker diarization (Whisper-class models), German and English.
-- Pluggable language model: local model or a cloud API (Claude), chosen in settings.
-- A local web view for phones in the room (QR code, same network) and later a Microsoft Teams meeting app.
-- Reference: Meetily (Tauri + Rust + whisper.cpp) solves the same local-transcription problem.
+- Language: Rust (pinned in `rust-toolchain.toml`, edition 2021) for the core; TypeScript 5 for the UI.
+  Node 22 LTS (`.nvmrc`), npm.
+- Framework: Tauri 2 (desktop shell, system web view); React 19 + Vite 6 for the UI.
+- Test command: `npm test` (runs `vitest run && cargo test --manifest-path src-tauri/Cargo.toml && playwright test`).
+  Playwright needs Chromium once: `npx playwright install chromium`.
+- Lint command: `npm run lint` (`tsc --noEmit`, ESLint, Prettier, `cargo fmt --check`, `cargo clippy -D warnings`).
+- Build: `npm run tauri build -- --no-bundle`; smoke test of the built app: `node scripts/smoke.mjs`
+  (on headless Linux: `xvfb-run -a node scripts/smoke.mjs`).
+- Screenshots: `npm run screenshot` writes `screenshots/<view>-<width>.png` at 375, 1280 and 1920 px.
+- Dev: `npm run tauri dev`. Browser-only build with a fake core (Playwright, screenshots): `npm run build:e2e`
+  (`vite build --mode e2e`, `.env.e2e` sets `VITE_MOCK_IPC=1`; open `/?fixture=empty|filled|over|corrupt|locked`).
+- Layout:
+  - `src/` — React UI. `src/i18n/de.json` + `en.json` (flat keys, de default), `src/features/<feature>/`,
+    `src/ui/` shared components, `src/app/` shell, `src/lib/ipc.ts` the only module that calls Tauri
+    (`src/lib/mockBackend.ts` is its fake for the e2e build). Unit/component tests sit next to the code
+    as `*.test.ts(x)` (Vitest + Testing Library, Tauri mocked with `@tauri-apps/api/mocks`).
+  - `src-tauri/` — Rust core: `src/model/` (meeting + validation), `src/store/` (`MeetingStore` trait,
+    `FileMeetingStore`, `MemoryMeetingStore`, `LockedMeetingStore`), `src/crypto/` (XChaCha20-Poly1305
+    encryption at rest; `KeyProvider` trait with `KeychainKeyProvider` for the app and
+    `MemoryKeyProvider` for tests), `src/lib.rs` (Tauri commands), `src/engines/` (later engines, each
+    behind a trait with a fake).
+  - `e2e/` — Playwright specs (axe, keyboard, layout); `e2e/screenshots/` for `npm run screenshot`.
+  - `.github/workflows/ci.yml` — lint, test, compile and smoke test. Linux (`ubuntu-latest`) is the only
+    CI-tested target for now; macOS and Windows are deferred until the feature set is final (add them to
+    the matrix; OS-specific code stays in place).
+- Data at rest: meeting files (`<app_data>/meetings/<id>.meeting`) are encrypted; the data key lives only
+  in the OS keychain (Linux: Secret Service). Tests never touch the real keychain; the one keychain test
+  is `#[ignore]` and run by hand (`cargo test --manifest-path src-tauri/Cargo.toml -- --ignored keychain`).
+- Rules: no literal user-facing strings in JSX (ESLint `react/jsx-no-literals` and a key-mode test);
+  user text is rendered as text only (`react/no-danger`); no Tauri HTTP/shell plugins and a CSP whose
+  `connect-src` allows only IPC (`src/config.test.ts`).
+- Env flags of the built app: `MEETING_COMPANION_STORE=memory` (in-memory store), `MEETING_COMPANION_SMOKE=1`
+  (smoke run: in-memory store, exits 0 once the agenda setup view has rendered).
