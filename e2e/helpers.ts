@@ -1,6 +1,17 @@
 import type { Page } from "@playwright/test";
 
-export type Fixture = "empty" | "filled" | "over" | "corrupt" | "locked" | "live" | "live-done";
+export type Fixture =
+  | "empty"
+  | "filled"
+  | "over"
+  | "corrupt"
+  | "locked"
+  | "live"
+  | "live-done"
+  | "live-transcript"
+  | "live-paused"
+  | "live-mic-error"
+  | "live-no-model";
 
 /**
  * Opens the app with a seeded fake store and a chosen language; waits until the view is ready. Live

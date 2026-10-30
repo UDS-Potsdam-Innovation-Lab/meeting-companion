@@ -40,6 +40,11 @@ pub struct Meeting {
     /// meeting has not started, so version 1 files without it load unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<Run>,
+    /// When the facilitator confirmed that everyone was informed that the meeting is transcribed
+    /// (ms since epoch). Set only by the core's consent command; recording refuses to start without
+    /// it. Optional and left out of the JSON while unset, so files without it load unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording_consent_at: Option<u64>,
 }
 
 /// When the meeting and each agenda item ran. All times are milliseconds since the Unix epoch.
@@ -258,6 +263,9 @@ pub fn validate(m: &Meeting) -> Vec<FieldError> {
     if let Some(run) = &m.run {
         validate_run(m, run, &mut errs);
     }
+    if m.recording_consent_at.is_some() && m.run.is_none() {
+        errs.push(FieldError::new("recordingConsentAt", "withoutRun"));
+    }
 
     errs
 }
@@ -340,6 +348,7 @@ pub(crate) mod tests {
             }],
             updated_at: 0,
             run: None,
+            recording_consent_at: None,
         }
     }
 
@@ -604,6 +613,23 @@ pub(crate) mod tests {
         let mut m = running();
         run_mut(&mut m).items[1].parked = true;
         assert_eq!(codes(&m), vec![("run.items[1].parked".into(), "notEnded")]);
+    }
+
+    #[test]
+    fn consent_is_optional_kept_and_needs_a_run() {
+        // A file without the field (all files before this job) loads with no consent.
+        let json = serde_json::to_value(running()).unwrap();
+        assert!(json.get("recordingConsentAt").is_none());
+        let back: Meeting = serde_json::from_value(json).unwrap();
+        assert_eq!(back.recording_consent_at, None);
+        let mut m = running();
+        m.recording_consent_at = Some(2_000);
+        assert!(validate(&m).is_empty());
+        let json = serde_json::to_value(&m).unwrap();
+        assert_eq!(json["recordingConsentAt"], 2_000);
+        let mut s = sample();
+        s.recording_consent_at = Some(1);
+        assert_eq!(codes(&s), vec![("recordingConsentAt".into(), "withoutRun")]);
     }
 
     #[test]

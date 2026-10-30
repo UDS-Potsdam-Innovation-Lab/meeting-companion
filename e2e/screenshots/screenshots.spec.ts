@@ -13,6 +13,11 @@ interface View {
   act?: (page: Page) => Promise<void>;
 }
 
+/** Waits until the mock core's state is on screen. */
+const waitFor = (selector: string) => async (page: Page) => {
+  await page.locator(selector).first().waitFor();
+};
+
 const VIEWS: View[] = [
   { name: "agenda-empty", fixture: "empty" },
   { name: "agenda-filled", fixture: "filled" },
@@ -68,6 +73,18 @@ const VIEWS: View[] = [
     },
   },
   { name: "live-nudge-de", fixture: "live", time: LIVE_TIMES.nudge },
+  // Frame 02, centre column and recording controls (job 003), with segments from the mock core.
+  { name: "live-consent", fixture: "live", time: LIVE_TIMES.running, act: waitFor(".model-picker") },
+  { name: "live-transcript", fixture: "live-transcript", time: LIVE_TIMES.running, act: waitFor(".transcript-line--partial") },
+  { name: "live-paused", fixture: "live-paused", time: LIVE_TIMES.running, act: waitFor(".rec-chip--paused") },
+  { name: "live-mic-error", fixture: "live-mic-error", time: LIVE_TIMES.running, act: waitFor(".rec-notice--error") },
+  { name: "live-no-model", fixture: "live-no-model", time: LIVE_TIMES.running, act: waitFor(".model-picker--none") },
+  {
+    name: "live-transcript-de",
+    fixture: "live-transcript",
+    time: LIVE_TIMES.running,
+    act: waitFor(".transcript-line--partial"),
+  },
 ];
 
 for (const width of WIDTHS) {
@@ -94,7 +111,15 @@ const SHORT_SIZES = [
   { width: 1024, height: 600 },
   { width: 768, height: 480 },
 ];
-const RESPONSIVE_VIEWS = ["agenda-filled", "agenda-editing", "live-nudge", "live-over", "live-done"];
+const RESPONSIVE_VIEWS = [
+  "agenda-filled",
+  "agenda-editing",
+  "live-nudge",
+  "live-over",
+  "live-done",
+  "live-transcript",
+  "live-consent",
+];
 
 const sized = [
   ...RESPONSIVE_SIZES.flatMap((size) => RESPONSIVE_VIEWS.map((name) => ({ size, name }))),

@@ -1,0 +1,487 @@
+use std::sync::Mutex;
+
+use super::*;
+use crate::crypto::{DataKey, MemoryKeyProvider};
+use crate::engines::audio::{FakeAudioSource, FakeCounters, Pace, Tone};
+use crate::engines::stt::{Lang, ScriptedSpeechToText};
+use crate::engines::{FakeSttProvider, NoModelProvider};
+use crate::model::tests::running;
+use crate::model::Meeting;
+use crate::store::{FileMeetingStore, MemoryMeetingStore};
+use crate::transcript::{FileTranscriptStore, MemoryTranscriptStore};
+
+/// Collects events; on every final segment it checks the segment is already in the store.
+struct Events {
+    states: Mutex<Vec<(Instant, CaptureState)>>,
+    segments: Mutex<Vec<(Instant, SegmentEvent)>>,
+    store: Option<Arc<dyn TranscriptStore>>,
+    stored_before_sent: Mutex<bool>,
+}
+
+impl Events {
+    fn new(store: Option<Arc<dyn TranscriptStore>>) -> Arc<Self> {
+        Arc::new(Self {
+            states: Mutex::new(Vec::new()),
+            segments: Mutex::new(Vec::new()),
+            store,
+            stored_before_sent: Mutex::new(true),
+        })
+    }
+    fn segments(&self) -> Vec<Segment> {
+        self.segments
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, e)| e.segment.clone())
+            .collect()
+    }
+    fn finals(&self) -> Vec<Segment> {
+        self.segments().into_iter().filter(|s| s.is_final).collect()
+    }
+    fn first_partial_at(&self) -> Option<Instant> {
+        self.segments
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(_, e)| !e.segment.is_final)
+            .map(|(t, _)| *t)
+    }
+    fn last_state(&self) -> CaptureState {
+        self.states.lock().unwrap().last().unwrap().1.clone()
+    }
+}
+
+impl EventSink for Events {
+    fn capture(&self, state: &CaptureState) {
+        self.states
+            .lock()
+            .unwrap()
+            .push((Instant::now(), state.clone()));
+    }
+    fn segment(&self, event: &SegmentEvent) {
+        if event.segment.is_final {
+            if let Some(store) = &self.store {
+                let stored = store.load(&event.meeting_id).unwrap();
+                if stored.last() != Some(&event.segment) {
+                    *self.stored_before_sent.lock().unwrap() = false;
+                }
+            }
+        }
+        self.segments
+            .lock()
+            .unwrap()
+            .push((Instant::now(), event.clone()));
+    }
+}
+
+const MARKER: &str = "Zebra-Quokka-7731";
+
+fn script() -> ScriptedSpeechToText {
+    ScriptedSpeechToText::new(vec![
+        (
+            format!("Wir verschieben den Offline-Modus {MARKER}."),
+            Lang::De,
+        ),
+        (
+            "We keep the fourteenth as the launch date.".into(),
+            Lang::En,
+        ),
+    ])
+}
+
+fn fake_stt() -> Box<FakeSttProvider> {
+    Box::new(FakeSttProvider {
+        make: Box::new(script),
+    })
+}
+
+fn consented() -> Meeting {
+    let mut m = running();
+    m.recording_consent_at = Some(2_000);
+    m
+}
+
+struct Rig {
+    recorder: Recorder,
+    events: Arc<Events>,
+    counters: Arc<FakeCounters>,
+    meetings: MemoryMeetingStore,
+    transcripts: Arc<dyn TranscriptStore>,
+}
+
+fn rig_with(
+    make_source: impl Fn() -> FakeAudioSource + Send + Sync + 'static,
+    stt: Box<dyn SttProvider>,
+) -> Rig {
+    let counters = Arc::new(FakeCounters::default());
+    let c = counters.clone();
+    let transcripts: Arc<dyn TranscriptStore> = Arc::new(MemoryTranscriptStore::new());
+    let events = Events::new(Some(transcripts.clone()));
+    let recorder = Recorder::new(
+        Box::new(move || Box::new(make_source().with_counters(c.clone()))),
+        stt,
+        transcripts.clone(),
+        events.clone(),
+        || 1_000_000,
+    );
+    Rig {
+        recorder,
+        events,
+        counters,
+        meetings: MemoryMeetingStore::new(),
+        transcripts,
+    }
+}
+
+/// 0.5 s quiet, then speech and pauses, in real time; then silence (an open, quiet room).
+fn talking() -> FakeAudioSource {
+    FakeAudioSource::new(
+        vec![
+            Tone::silence(500),
+            Tone::speech(1_800),
+            Tone::silence(800),
+            Tone::speech(1_500),
+            Tone::silence(800),
+        ],
+        Pace::RealTime,
+    )
+}
+
+fn wait_until(limit: Duration, mut f: impl FnMut() -> bool) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < limit {
+        if f() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    f()
+}
+
+#[test]
+fn no_audio_source_starts_before_consent_and_one_starts_after() {
+    let rig = rig_with(talking, fake_stt());
+    let mut m = running();
+    rig.meetings.save(&m).unwrap();
+    assert_eq!(rig.counters.starts(), 0);
+    // The UI cannot skip the gate: start without stored consent is refused.
+    assert_eq!(
+        rig.recorder.start(&rig.meetings, "m-1", None),
+        Err(RecordError::NoConsent)
+    );
+    assert_eq!(rig.counters.starts(), 0);
+    assert_eq!(rig.recorder.status().state, Capture::Off);
+
+    m.recording_consent_at = Some(5_000);
+    rig.meetings.save(&m).unwrap();
+    let state = rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert_eq!(state.state, Capture::Recording);
+    assert_eq!(rig.counters.starts(), 1);
+    // Starting again while recording does not open the microphone twice.
+    rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert_eq!(rig.counters.starts(), 1);
+    rig.recorder.stop();
+    assert_eq!(rig.counters.stops(), 1);
+}
+
+#[test]
+fn a_meeting_that_is_not_running_or_unknown_is_refused() {
+    let rig = rig_with(talking, fake_stt());
+    assert_eq!(
+        rig.recorder.start(&rig.meetings, "m-1", None),
+        Err(RecordError::NoMeeting)
+    );
+    let mut m = consented();
+    m.run.as_mut().unwrap().items[1].ended_at = Some(400_000);
+    m.run.as_mut().unwrap().ended_at = Some(400_000);
+    rig.meetings.save(&m).unwrap();
+    assert_eq!(
+        rig.recorder.start(&rig.meetings, "m-1", None),
+        Err(RecordError::NotRunning)
+    );
+    assert_eq!(rig.counters.starts(), 0);
+}
+
+#[test]
+fn without_a_speech_model_the_microphone_is_not_opened_and_the_reason_is_shown() {
+    let rig = rig_with(
+        talking,
+        Box::new(NoModelProvider {
+            searched: vec!["/x/models".into()],
+        }),
+    );
+    rig.meetings.save(&consented()).unwrap();
+    assert_eq!(
+        rig.recorder.start(&rig.meetings, "m-1", None),
+        Err(RecordError::Failed {
+            reason: Reason::NoModel
+        })
+    );
+    assert_eq!(rig.counters.starts(), 0);
+    let s = rig.recorder.status();
+    assert_eq!((s.state, s.reason), (Capture::Error, Some(Reason::NoModel)));
+}
+
+#[test]
+fn no_microphone_or_a_blocked_one_is_reported_as_the_reason() {
+    for (err, reason) in [
+        (AudioError::NoMicrophone, Reason::NoMicrophone),
+        (AudioError::Blocked, Reason::MicrophoneBlocked),
+    ] {
+        let rig = rig_with(move || talking().failing_start(err), fake_stt());
+        rig.meetings.save(&consented()).unwrap();
+        assert_eq!(
+            rig.recorder.start(&rig.meetings, "m-1", None),
+            Err(RecordError::Failed { reason })
+        );
+        assert_eq!(rig.events.last_state().state, Capture::Error);
+        assert_eq!(rig.events.last_state().reason, Some(reason));
+    }
+}
+
+#[test]
+fn a_device_that_fails_mid_meeting_leaves_the_recording_state_within_2_s() {
+    let rig = rig_with(|| talking().repeating().failing_after(700), fake_stt());
+    rig.meetings.save(&consented()).unwrap();
+    let started = Instant::now();
+    rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(4), || rig
+        .recorder
+        .status()
+        .state
+        == Capture::Error));
+    let failed_at = rig
+        .events
+        .states
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|(_, s)| s.state == Capture::Error)
+        .map(|(t, _)| *t)
+        .unwrap();
+    // The fake fails after 700 ms of audio; the error state follows well within 2 s.
+    assert!(failed_at.duration_since(started) < Duration::from_millis(700 + 2_000));
+    assert_eq!(rig.recorder.status().reason, Some(Reason::MicrophoneLost));
+    // The source was closed.
+    assert_eq!(rig.counters.stops(), 1);
+    // "Resume recording" starts a new session without asking for consent again.
+    assert!(rig.recorder.start(&rig.meetings, "m-1", None).is_ok());
+    assert_eq!(rig.counters.starts(), 2);
+    rig.recorder.stop();
+}
+
+#[test]
+fn a_device_that_goes_silent_without_an_error_counts_as_lost() {
+    // Fast pace: the script ends after 1 s and the fake stops delivering anything at all.
+    let rig = rig_with(
+        || FakeAudioSource::new(vec![Tone::speech(1_000)], Pace::Fast),
+        fake_stt(),
+    );
+    rig.meetings.save(&consented()).unwrap();
+    rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(3), || rig
+        .recorder
+        .status()
+        .state
+        == Capture::Error));
+    assert_eq!(rig.recorder.status().reason, Some(Reason::MicrophoneLost));
+    // The utterance that was cut off was still finished and stored.
+    assert_eq!(rig.transcripts.load("m-1").unwrap().len(), 1);
+}
+
+#[test]
+fn pause_closes_the_microphone_freezes_the_time_and_resume_continues() {
+    let rig = rig_with(talking, fake_stt());
+    rig.meetings.save(&consented()).unwrap();
+    rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+    // The first partial reaches the UI event within 3 s of the scripted speech start (0.5 s).
+    let started = Instant::now();
+    assert!(wait_until(Duration::from_secs(4), || rig
+        .events
+        .first_partial_at()
+        .is_some()));
+    let first = rig.events.first_partial_at().unwrap();
+    assert!(
+        first.duration_since(started) <= Duration::from_millis(500 + 3_000),
+        "first partial after {:?}",
+        first.duration_since(started)
+    );
+    assert!(wait_until(Duration::from_secs(5), || rig
+        .events
+        .finals()
+        .len()
+        >= 2));
+
+    let paused = rig.recorder.pause();
+    assert_eq!(paused.state, Capture::Paused);
+    assert_eq!(rig.counters.stops(), 1);
+    let frozen = paused.elapsed_ms;
+    assert!(frozen >= 3_000, "{frozen}");
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(rig.recorder.status().elapsed_ms, frozen);
+    assert_eq!(rig.recorder.status().state, Capture::Paused);
+
+    let resumed = rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert_eq!(resumed.state, Capture::Recording);
+    assert_eq!(resumed.elapsed_ms, frozen);
+    assert_eq!(rig.counters.starts(), 2);
+    std::thread::sleep(Duration::from_millis(400));
+    assert!(rig.recorder.status().elapsed_ms > frozen);
+    let stopped = rig.recorder.stop();
+    assert_eq!(stopped.state, Capture::Off);
+    assert_eq!(rig.counters.stops(), 2);
+
+    // Every final segment was stored before it was sent, and the store has exactly what was sent.
+    assert!(*rig.events.stored_before_sent.lock().unwrap());
+    assert_eq!(rig.transcripts.load("m-1").unwrap(), rig.events.finals());
+    let langs: Vec<Lang> = rig.events.finals().iter().map(|s| s.lang).collect();
+    assert!(langs.contains(&Lang::De) && langs.contains(&Lang::En));
+    // Partials come before the final of their utterance.
+    let segs = rig.events.segments();
+    assert!(!segs[0].is_final);
+}
+
+#[test]
+fn ending_the_meeting_stops_capture() {
+    let rig = rig_with(talking, fake_stt());
+    rig.meetings.save(&consented()).unwrap();
+    rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+    rig.recorder.stop_meeting("m-2");
+    assert_eq!(rig.recorder.status().state, Capture::Recording);
+    rig.recorder.stop_meeting("m-1");
+    assert_eq!(rig.recorder.status().state, Capture::Off);
+    assert_eq!(rig.counters.stops(), 1);
+}
+
+#[test]
+fn errors_and_states_serialise_without_engine_types() {
+    assert_eq!(
+        serde_json::to_value(RecordError::NoConsent).unwrap(),
+        serde_json::json!({ "kind": "noConsent" })
+    );
+    assert_eq!(
+        serde_json::to_value(RecordError::Failed {
+            reason: Reason::NoModel
+        })
+        .unwrap(),
+        serde_json::json!({ "kind": "failed", "reason": "noModel" })
+    );
+    let ev = SegmentEvent {
+        meeting_id: "m-1".into(),
+        segment: Segment {
+            start_ms: 1,
+            end_ms: 2,
+            at: 3,
+            text: "x".into(),
+            lang: Lang::En,
+            is_final: false,
+        },
+    };
+    assert_eq!(
+        serde_json::to_value(ev).unwrap(),
+        serde_json::json!({ "meetingId": "m-1", "startMs": 1, "endMs": 2, "at": 3, "text": "x", "lang": "en", "final": false })
+    );
+    let s = serde_json::to_value(CaptureState::off()).unwrap();
+    assert_eq!(s["state"], "off");
+    assert_eq!(s["elapsedMs"], 0);
+}
+
+/// AC6: a session with the fakes on real files leaves only `.meeting` and `.transcript` files, and
+/// neither the log nor any error message contains what was said.
+#[test]
+fn a_recording_session_writes_only_meeting_and_transcript_files_and_logs_no_text() {
+    crate::log::capture();
+    let dir = tempfile::tempdir().unwrap();
+    let meetings_dir = dir.path().join("meetings");
+    let keys = MemoryKeyProvider::with_key(DataKey::generate());
+    let store = FileMeetingStore::open(&meetings_dir, &keys).unwrap();
+    store.save(&consented()).unwrap();
+    let transcripts: Arc<dyn TranscriptStore> = Arc::new(store.transcripts());
+    let events = Events::new(Some(transcripts.clone()));
+    let recorder = Recorder::new(
+        Box::new(|| Box::new(talking())),
+        fake_stt(),
+        transcripts.clone(),
+        events.clone(),
+        || 1_000_000,
+    );
+    recorder.start(&store, "m-1", None).unwrap();
+    let ok = wait_until(Duration::from_secs(8), || events.finals().len() >= 2);
+    assert!(ok, "{:?} {:?}", recorder.status(), events.segments());
+    recorder.pause();
+    recorder.start(&store, "m-1", None).unwrap();
+    recorder.stop();
+    // An error path too: a source that fails, and a transcript that cannot be read.
+    let failing = Recorder::new(
+        Box::new(|| Box::new(talking().repeating().failing_after(1_500))),
+        fake_stt(),
+        transcripts.clone(),
+        events.clone(),
+        || 1_000_000,
+    );
+    failing.start(&store, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(5), || failing
+        .status()
+        .state
+        == Capture::Error));
+    drop(failing);
+    let other = FileTranscriptStore::new(&meetings_dir, DataKey::generate());
+    let err = other.load("m-1").unwrap_err();
+
+    let stored = transcripts.load("m-1").unwrap();
+    assert!(
+        stored.iter().any(|s| s.text.contains(MARKER)),
+        "the session did transcribe the marker"
+    );
+    let logs = crate::log::take_captured();
+    assert!(
+        logs.iter().any(|l| l.contains("recording stopped")),
+        "{logs:?}"
+    );
+    for line in &logs {
+        assert!(
+            !line.contains(MARKER),
+            "log line contains transcript text: {line}"
+        );
+        assert!(!line.contains("Offline-Modus"), "{line}");
+    }
+    for message in [
+        err.to_string(),
+        format!("{err:?}"),
+        serde_json::to_string(&recorder.status()).unwrap(),
+        serde_json::to_string(&RecordError::Failed {
+            reason: Reason::MicrophoneLost,
+        })
+        .unwrap(),
+    ] {
+        assert!(!message.contains(MARKER), "{message}");
+    }
+
+    let mut names: Vec<String> = walk(dir.path());
+    names.sort();
+    assert_eq!(names, ["meetings/m-1.meeting", "meetings/m-1.transcript"]);
+    for n in &names {
+        assert!(n.ends_with(".meeting") || n.ends_with(".transcript"));
+    }
+}
+
+fn walk(root: &std::path::Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for e in std::fs::read_dir(&dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                out.push(
+                    p.strip_prefix(root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                );
+            }
+        }
+    }
+    out
+}

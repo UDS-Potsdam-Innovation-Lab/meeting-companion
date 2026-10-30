@@ -83,3 +83,57 @@ describe("AC1 CI workflow", () => {
     expect(runs).not.toMatch(/\|\|\s*true/);
   });
 });
+
+describe("AC6 (job 003) recording adds no network and declares the microphone", () => {
+  const cargo = read("src-tauri/Cargo.toml");
+  const lock = read("src-tauri/Cargo.lock");
+  const conf = JSON.parse(read("src-tauri/tauri.conf.json"));
+
+  it("adds no HTTP client crate and no Tauri plugin for the engines", () => {
+    for (const crate of ["reqwest", "ureq", "hyper", "curl", "isahc", "attohttpc", "tauri-plugin-"]) {
+      expect(cargo).not.toContain(crate);
+    }
+    // Neither engine crate pulls one in, directly or through its dependencies.
+    const deps = new Map<string, string[]>();
+    for (const block of lock.split("[[package]]").slice(1)) {
+      const name = /name = "([^"]+)"/.exec(block)?.[1];
+      const list = /dependencies = \[([^\]]*)\]/.exec(block)?.[1] ?? "";
+      if (name)
+        deps.set(
+          name,
+          [...list.matchAll(/"([^" ]+)/g)].map((m) => m[1]!),
+        );
+    }
+    const closure = new Set<string>();
+    const visit = (n: string) => {
+      if (closure.has(n)) return;
+      closure.add(n);
+      for (const d of deps.get(n) ?? []) visit(d);
+    };
+    for (const engine of ["cpal", "whisper-rs"]) {
+      expect(deps.has(engine), engine).toBe(true);
+      visit(engine);
+    }
+    for (const crate of ["reqwest", "ureq", "hyper", "isahc", "curl", "curl-sys", "tokio"]) {
+      expect(closure.has(crate), crate).toBe(false);
+    }
+  });
+
+  it("the window's capability grants nothing beyond the core defaults", () => {
+    const cap = JSON.parse(read("src-tauri/capabilities/default.json"));
+    expect(cap.permissions).toEqual(["core:default"]);
+  });
+
+  it("the macOS bundle declares NSMicrophoneUsageDescription in German and English", () => {
+    const plist = read("src-tauri/Info.plist");
+    expect(plist).toContain("<key>NSMicrophoneUsageDescription</key>");
+    const files = conf.bundle.macOS.files as Record<string, string>;
+    for (const lang of ["de", "en"]) {
+      const source = files[`Resources/${lang}.lproj/InfoPlist.strings`];
+      expect(source).toBeDefined();
+      const strings = read(join("src-tauri", source!));
+      expect(strings).toMatch(/^"NSMicrophoneUsageDescription" = ".+";$/m);
+    }
+    expect(read("src-tauri/macos/de.lproj/InfoPlist.strings")).toContain("Gerät");
+  });
+});

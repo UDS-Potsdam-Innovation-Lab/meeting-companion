@@ -1,0 +1,2 @@
+/* Shown when macOS asks for microphone access. */
+"NSMicrophoneUsageDescription" = "Meeting Companion schreibt das Meeting auf diesem Gerät mit, nachdem die Moderation bestätigt hat, dass alle informiert sind. Die Aufnahme verlässt das Gerät nicht.";

@@ -102,7 +102,7 @@ test.describe("AC5 nudge", () => {
     await page.clock.setFixedTime(LIVE_TIMES.nudge);
     await expect(nudge(page)).toBeVisible();
     await expect(page.getByRole("button", { name: "Park it" })).toBeFocused();
-    await expect(page.locator('[aria-live="polite"]')).toContainText("3 minutes left for item 02");
+    await expect(page.getByTestId("nudge-announcement")).toContainText("3 minutes left for item 02");
     await nudge(page).getByRole("button", { name: "Wrap up" }).click();
     await expect(nudge(page)).toHaveCount(0);
     await page.clock.setFixedTime(LIVE_TIMES.over);
