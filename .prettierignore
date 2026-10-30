@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-e2e
+screenshots
+playwright-report
+test-results
+src-tauri/target
+src-tauri/gen
+src-tauri/icons
+package-lock.json
+design
+factory
+docs
+.claude
+AGENTS.md
+README.md
