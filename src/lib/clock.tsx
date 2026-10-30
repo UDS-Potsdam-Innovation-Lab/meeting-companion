@@ -45,6 +45,11 @@ export class FakeClock implements Clock {
   advance(ms: number) {
     this.set(this.time + ms);
   }
+
+  /** Something subscribed (the view has run its effects), so `set` reaches it. */
+  get listening(): boolean {
+    return this.listeners.size > 0;
+  }
 }
 
 const ClockContext = createContext<Clock>(systemClock);

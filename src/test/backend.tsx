@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { expect } from "vitest";
 import { App } from "../app/App";
 import { I18nProvider } from "../i18n";
-import { ClockProvider, systemClock, type Clock } from "../lib/clock";
+import { ClockProvider, FakeClock, systemClock, type Clock } from "../lib/clock";
 import type { Meeting } from "../features/agenda/model";
 import type { LoadResult } from "../lib/ipc";
 
@@ -50,6 +50,9 @@ export async function renderApp(load?: LoadResult, opts: RenderOptions = {}) {
   );
   if (opts.view === "live") {
     await waitFor(() => expect(utils.container.querySelector('main[data-view="live"]')).not.toBeNull());
+    // The view subscribes to the clock in an effect; a tick before that would be missed.
+    const clock = opts.clock;
+    if (clock instanceof FakeClock) await waitFor(() => expect(clock.listening).toBe(true));
   } else {
     // The setup view is ready once the meeting card is there.
     await screen.findByRole("region", { name: opts.keyMode ? "⟦meeting.heading⟧" : /^Meeting$/ });
