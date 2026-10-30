@@ -7,18 +7,28 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "needs-human",
-  "round": 1,
-  "max_round": 3,
+  "stage": "build",
+  "round": 2,
+  "max_round": 4,
   "reviews": {
-    "security": "PASS",
-    "ux": "PASS",
-    "ui": "PASS",
-    "code": "PASS"
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
   },
-  "history": [],
-  "decision": "ESCALATE",
+  "history": [
+    {
+      "round": 1,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "PASS",
+        "code": "PASS"
+      }
+    }
+  ],
+  "decision": null,
   "waiting": null,
-  "note": "ESCALATE; CI failed on macOS (keyboard e2e test uses Control+A); Linux and Windows pass",
-  "updated": "2026-10-30T17:59:48Z"
+  "note": "Human rework: Linux-only CI, fix keyboard test, encrypt meeting data at rest",
+  "updated": "2026-10-30T18:01:21Z"
 }

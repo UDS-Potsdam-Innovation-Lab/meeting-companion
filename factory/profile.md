@@ -4,12 +4,10 @@
 factory_version: 0.2.1
 flavour: local
 main: main
-ci_workflow: none               # job 1 adds .github/workflows/ci.yml; switch to ci.yml afterwards
+ci_workflow: ci.yml             # Linux only until the feature set is final (decision 2026-10-30)
 lenses: [security, ux, ui, code]
-ui_paths:                       # set once the stack is confirmed
+ui_paths:
   - "src/**"
-  - "app/**"
-  - "ui/**"
 secret_scan: true
 docs:
   agents: AGENTS.md
@@ -73,7 +71,7 @@ design:
 - NFR sections: Clients and usability, Internationalisation.
 - Compare against the matching frame in `design/screens/`. Board screens at 1920×1080 in addition to
   375 and 1280 px.
-- Screenshot command: set by job 1.
+- Screenshot command: `npm run screenshot` (writes screenshots/ at 375, 1280, 1920 px).
 
 ## reviewer-code
 
