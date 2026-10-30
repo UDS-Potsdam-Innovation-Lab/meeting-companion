@@ -1,0 +1,1 @@
+App skeleton and agenda setup (frame 01): desktop app that starts on macOS, Windows and Linux, creates a meeting with title, time slot, participants and agenda items (lead, goal, minutes), stores it locally; CI that builds and tests on all three OSes

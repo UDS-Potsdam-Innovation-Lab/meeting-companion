@@ -1,0 +1,19 @@
+{
+  "id": "001-app-skeleton-agenda",
+  "issue": 1,
+  "title": "App skeleton and agenda setup",
+  "branch": "factory/001-app-skeleton-agenda",
+  "builder": "builder-001-app-skeleton-agenda",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "spec",
+  "round": 0,
+  "max_round": 3,
+  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
+  "history": [],
+  "decision": null,
+  "waiting": null,
+  "note": "Writing spec",
+  "updated": "2026-10-30T16:57:10Z"
+}
