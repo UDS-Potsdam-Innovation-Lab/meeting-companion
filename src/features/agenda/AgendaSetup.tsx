@@ -1,9 +1,12 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
+import { useClock } from "../../lib/clock";
 import { viewReady, type LoadError } from "../../lib/ipc";
 import { CloseIcon } from "../../ui/icons";
+import { startRun } from "../live/run";
 import { AgendaList } from "./AgendaList";
 import { MeetingCard } from "./MeetingCard";
+import { StartMeeting, type StartBlocker } from "./StartMeeting";
 import type { MeetingState } from "./useMeeting";
 
 export const AGENDA_SETUP_VIEW = "agenda-setup";
@@ -13,6 +16,17 @@ export function AgendaSetup({ state }: { state: MeetingState }) {
   const { t } = useI18n();
   const { meeting, loadError, saveFailed, update, dismissLoadError } = state;
   const ready = meeting !== null;
+  const clock = useClock();
+  // Input that has not passed validation is kept in the forms, not in the meeting; they report it here.
+  const [invalidMeeting, setInvalidMeeting] = useState(false);
+  const [invalidItem, setInvalidItem] = useState(false);
+  const onMeetingValidity = useCallback((bad: boolean) => setInvalidMeeting(bad), []);
+  const onItemValidity = useCallback((bad: boolean) => setInvalidItem(bad), []);
+
+  let blocker: StartBlocker | null = null;
+  if (loadError === "keyUnavailable") blocker = "locked";
+  else if (invalidMeeting || invalidItem) blocker = "invalid";
+  else if (!meeting || meeting.items.length === 0) blocker = "noItems";
 
   useEffect(() => {
     if (ready) void viewReady(AGENDA_SETUP_VIEW);
@@ -34,11 +48,23 @@ export function AgendaSetup({ state }: { state: MeetingState }) {
           </div>
         ) : null}
 
-        {meeting ? <AgendaList key={meeting.id} meeting={meeting} onChange={update} /> : null}
+        {meeting ? (
+          <AgendaList key={meeting.id} meeting={meeting} onChange={update} onValidity={onItemValidity} />
+        ) : null}
       </div>
 
       <div className="setup__right">
-        {meeting ? <MeetingCard key={meeting.id} meeting={meeting} onChange={update} /> : null}
+        {meeting ? (
+          <>
+            <MeetingCard
+              key={meeting.id}
+              meeting={meeting}
+              onChange={update}
+              onValidity={onMeetingValidity}
+            />
+            <StartMeeting blocker={blocker} onStart={() => update((m) => startRun(m, clock.now()))} />
+          </>
+        ) : null}
       </div>
     </main>
   );

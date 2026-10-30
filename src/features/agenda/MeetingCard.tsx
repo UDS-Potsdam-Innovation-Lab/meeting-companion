@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { useI18n } from "../../i18n";
 import { Avatar } from "../../ui/Avatar";
 import { Field, invalidProps } from "../../ui/Field";
@@ -20,13 +20,15 @@ import type { MeetingEdit } from "./useMeeting";
 interface Props {
   meeting: Meeting;
   onChange: (edit: MeetingEdit) => boolean;
+  /** Told whether title, date or time slot hold invalid input. */
+  onValidity?: (invalid: boolean) => void;
 }
 
 /**
  * Title, time slot and participants. Each field keeps what the person typed; only values that pass
  * validation reach the meeting (and so the store). Mount it with `key={meeting.id}`.
  */
-export function MeetingCard({ meeting, onChange }: Props) {
+export function MeetingCard({ meeting, onChange, onValidity }: Props) {
   const { t, tp } = useI18n();
   const uid = useId();
   const ids = {
@@ -46,6 +48,12 @@ export function MeetingCard({ meeting, onChange }: Props) {
   const [slotError, setSlotError] = useState<TimeSlotError | null>(null);
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState<ErrorCode | null>(null);
+
+  const invalid = titleError !== null || dateError || slotError !== null;
+  useEffect(() => {
+    onValidity?.(invalid);
+    return () => onValidity?.(false);
+  }, [invalid, onValidity]);
 
   function changeTitle(value: string) {
     setTitle(value);

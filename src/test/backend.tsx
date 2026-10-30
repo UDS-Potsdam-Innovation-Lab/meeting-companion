@@ -1,7 +1,9 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import { expect } from "vitest";
 import { App } from "../app/App";
 import { I18nProvider } from "../i18n";
+import { ClockProvider, FakeClock, systemClock, type Clock } from "../lib/clock";
 import type { Meeting } from "../features/agenda/model";
 import type { LoadResult } from "../lib/ipc";
 
@@ -30,14 +32,30 @@ export function fakeCore(load: LoadResult = { meeting: null, error: null }): Fak
   return core;
 }
 
-export async function renderApp(load?: LoadResult, opts: { keyMode?: boolean } = {}) {
+export interface RenderOptions {
+  keyMode?: boolean;
+  clock?: Clock;
+  /** The view to wait for: agenda setup (default) or the live meeting. */
+  view?: "setup" | "live";
+}
+
+export async function renderApp(load?: LoadResult, opts: RenderOptions = {}) {
   const core = fakeCore(load);
   const utils = render(
-    <I18nProvider keyMode={opts.keyMode}>
-      <App />
-    </I18nProvider>,
+    <ClockProvider clock={opts.clock ?? systemClock}>
+      <I18nProvider keyMode={opts.keyMode}>
+        <App />
+      </I18nProvider>
+    </ClockProvider>,
   );
-  // The view is ready once the meeting card is there.
-  await screen.findByRole("region", { name: opts.keyMode ? "⟦meeting.heading⟧" : /^Meeting$/ });
+  if (opts.view === "live") {
+    await waitFor(() => expect(utils.container.querySelector('main[data-view="live"]')).not.toBeNull());
+    // The view subscribes to the clock in an effect; a tick before that would be missed.
+    const clock = opts.clock;
+    if (clock instanceof FakeClock) await waitFor(() => expect(clock.listening).toBe(true));
+  } else {
+    // The setup view is ready once the meeting card is there.
+    await screen.findByRole("region", { name: opts.keyMode ? "⟦meeting.heading⟧" : /^Meeting$/ });
+  }
   return { core, ...utils };
 }

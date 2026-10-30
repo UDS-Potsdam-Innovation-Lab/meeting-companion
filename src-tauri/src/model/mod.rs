@@ -16,6 +16,8 @@ pub const MAX_PARTICIPANTS: usize = 100;
 pub const MAX_ITEMS: usize = 100;
 pub const MINUTES_MIN: u32 = 1;
 pub const MINUTES_MAX: u32 = 240;
+/// Most minutes "+5 min" may add to one agenda item in total.
+pub const EXTRA_MINUTES_MAX: i64 = 240;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,6 +36,40 @@ pub struct Meeting {
     /// Milliseconds since the Unix epoch of the last save; set by the app, not by the UI.
     #[serde(default)]
     pub updated_at: u64,
+    /// Timekeeping of the meeting once it has started. Optional and left out of the JSON while the
+    /// meeting has not started, so version 1 files without it load unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<Run>,
+}
+
+/// When the meeting and each agenda item ran. All times are milliseconds since the Unix epoch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Run {
+    pub started_at: u64,
+    /// Set by "End meeting"; an ended meeting is never resumed.
+    #[serde(default)]
+    pub ended_at: Option<u64>,
+    /// The agenda items that have started, in the order they started. At most one has no end: the
+    /// current item.
+    pub items: Vec<RunItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunItem {
+    /// Id of one of the meeting's agenda items.
+    pub item_id: String,
+    pub started_at: u64,
+    #[serde(default)]
+    pub ended_at: Option<u64>,
+    /// Minutes added with "+5 min". Signed so that a negative value from the UI is reported as a field
+    /// error instead of failing to parse.
+    #[serde(default)]
+    pub extra_minutes: i64,
+    /// Ended with "Park it" instead of "Next".
+    #[serde(default)]
+    pub parked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,7 +255,57 @@ pub fn validate(m: &Meeting) -> Vec<FieldError> {
         }
     }
 
+    if let Some(run) = &m.run {
+        validate_run(m, run, &mut errs);
+    }
+
     errs
+}
+
+/// The run state comes from the UI over IPC and is checked like any other input.
+fn validate_run(m: &Meeting, run: &Run, errs: &mut Vec<FieldError>) {
+    if m.items.is_empty() {
+        errs.push(FieldError::new("run", "noItems"));
+    }
+    if let Some(end) = run.ended_at {
+        if end < run.started_at {
+            errs.push(FieldError::new("run.endedAt", "beforeStart"));
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut current = 0;
+    for (i, r) in run.items.iter().enumerate() {
+        let at = |f: &str| format!("run.items[{i}].{f}");
+        if !m.items.iter().any(|it| it.id == r.item_id) {
+            errs.push(FieldError::new(at("itemId"), "unknown"));
+        } else if !seen.insert(r.item_id.as_str()) {
+            errs.push(FieldError::new(at("itemId"), "duplicate"));
+        }
+        if r.started_at < run.started_at {
+            errs.push(FieldError::new(at("startedAt"), "beforeRunStart"));
+        }
+        match r.ended_at {
+            Some(end) if end < r.started_at => {
+                errs.push(FieldError::new(at("endedAt"), "beforeStart"));
+            }
+            Some(_) => {}
+            None => {
+                current += 1;
+                if r.parked {
+                    errs.push(FieldError::new(at("parked"), "notEnded"));
+                }
+                if run.ended_at.is_some() {
+                    errs.push(FieldError::new(at("endedAt"), "openAfterEnd"));
+                }
+            }
+        }
+        if !(0..=EXTRA_MINUTES_MAX).contains(&r.extra_minutes) {
+            errs.push(FieldError::new(at("extraMinutes"), "outOfRange"));
+        }
+    }
+    if current > 1 {
+        errs.push(FieldError::new("run.items", "multipleCurrent"));
+    }
 }
 
 #[cfg(test)]
@@ -253,7 +339,46 @@ pub(crate) mod tests {
                 minutes: 5,
             }],
             updated_at: 0,
+            run: None,
         }
+    }
+
+    /// `sample()` with two items, started at 1000; item 1 is done, item 2 is current.
+    pub fn running() -> Meeting {
+        let mut m = sample();
+        m.items.push(AgendaItem {
+            id: "i-2".into(),
+            title: "Beta launch".into(),
+            outcome: String::new(),
+            lead: None,
+            goal: Goal::Decide,
+            minutes: 15,
+        });
+        m.run = Some(Run {
+            started_at: 1_000,
+            ended_at: None,
+            items: vec![
+                RunItem {
+                    item_id: "i-1".into(),
+                    started_at: 1_000,
+                    ended_at: Some(361_000),
+                    extra_minutes: 0,
+                    parked: false,
+                },
+                RunItem {
+                    item_id: "i-2".into(),
+                    started_at: 361_000,
+                    ended_at: None,
+                    extra_minutes: 5,
+                    parked: false,
+                },
+            ],
+        });
+        m
+    }
+
+    fn run_mut(m: &mut Meeting) -> &mut Run {
+        m.run.as_mut().unwrap()
     }
 
     fn codes(m: &Meeting) -> Vec<(String, &'static str)> {
@@ -364,5 +489,129 @@ pub(crate) mod tests {
         let json = serde_json::to_string(&m).unwrap();
         let back: Meeting = serde_json::from_str(&json).unwrap();
         assert_eq!(back.title, "<img src=x onerror=alert(1)>");
+    }
+
+    // ---- run state ------------------------------------------------------------------------------
+
+    #[test]
+    fn running_meeting_is_valid() {
+        assert!(validate(&running()).is_empty());
+    }
+
+    #[test]
+    fn version_1_file_without_run_loads_and_is_written_back_unchanged() {
+        let json = r#"{"version":1,"id":"m-1","title":"Sync","date":"2026-10-30","start":"10:00",
+            "end":"11:00","participants":[],"items":[{"id":"i-1","title":"A","outcome":"",
+            "lead":null,"goal":"inform","minutes":5}],"updatedAt":7}"#;
+        let m: Meeting = serde_json::from_str(json).unwrap();
+        assert_eq!(m.run, None);
+        assert!(validate(&m).is_empty());
+        let back = serde_json::to_value(&m).unwrap();
+        assert!(back.get("run").is_none());
+    }
+
+    #[test]
+    fn run_round_trips_through_json_in_camel_case() {
+        let m = running();
+        let json = serde_json::to_value(&m).unwrap();
+        assert_eq!(json["run"]["items"][1]["itemId"], "i-2");
+        assert_eq!(json["run"]["items"][1]["extraMinutes"], 5);
+        let back: Meeting = serde_json::from_value(json).unwrap();
+        assert_eq!(back, m);
+    }
+
+    #[test]
+    fn run_rejects_unknown_item_ids() {
+        let mut m = running();
+        run_mut(&mut m).items[1].item_id = "i-9".into();
+        assert_eq!(codes(&m), vec![("run.items[1].itemId".into(), "unknown")]);
+    }
+
+    #[test]
+    fn run_rejects_an_item_started_twice() {
+        let mut m = running();
+        run_mut(&mut m).items[1].item_id = "i-1".into();
+        assert_eq!(codes(&m), vec![("run.items[1].itemId".into(), "duplicate")]);
+    }
+
+    #[test]
+    fn run_rejects_item_end_before_start() {
+        let mut m = running();
+        run_mut(&mut m).items[0].ended_at = Some(999);
+        assert_eq!(
+            codes(&m),
+            vec![("run.items[0].endedAt".into(), "beforeStart")]
+        );
+        let mut m = running();
+        run_mut(&mut m).ended_at = Some(500);
+        assert_eq!(
+            codes(&m),
+            vec![
+                ("run.endedAt".into(), "beforeStart"),
+                ("run.items[1].endedAt".into(), "openAfterEnd")
+            ]
+        );
+    }
+
+    #[test]
+    fn run_rejects_an_item_started_before_the_meeting() {
+        let mut m = running();
+        run_mut(&mut m).items[0].started_at = 10;
+        assert_eq!(
+            codes(&m),
+            vec![("run.items[0].startedAt".into(), "beforeRunStart")]
+        );
+    }
+
+    #[test]
+    fn run_rejects_more_than_one_current_item() {
+        let mut m = running();
+        run_mut(&mut m).items[0].ended_at = None;
+        assert_eq!(codes(&m), vec![("run.items".into(), "multipleCurrent")]);
+    }
+
+    #[test]
+    fn run_rejects_negative_or_absurd_extensions() {
+        let mut m = running();
+        for ok in [0, 5, 240] {
+            run_mut(&mut m).items[1].extra_minutes = ok;
+            assert!(validate(&m).is_empty(), "{ok} should be accepted");
+        }
+        for bad in [-5, 241, i64::MAX] {
+            run_mut(&mut m).items[1].extra_minutes = bad;
+            assert_eq!(
+                codes(&m),
+                vec![("run.items[1].extraMinutes".into(), "outOfRange")],
+                "{bad} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn run_rejects_a_meeting_without_items() {
+        let mut m = sample();
+        m.items.clear();
+        m.run = Some(Run {
+            started_at: 1,
+            ended_at: None,
+            items: vec![],
+        });
+        assert_eq!(codes(&m), vec![("run".into(), "noItems")]);
+    }
+
+    #[test]
+    fn run_rejects_a_parked_item_that_has_not_ended() {
+        let mut m = running();
+        run_mut(&mut m).items[1].parked = true;
+        assert_eq!(codes(&m), vec![("run.items[1].parked".into(), "notEnded")]);
+    }
+
+    #[test]
+    fn ended_run_with_every_item_closed_is_valid() {
+        let mut m = running();
+        let run = run_mut(&mut m);
+        run.items[1].ended_at = Some(400_000);
+        run.ended_at = Some(400_000);
+        assert!(validate(&m).is_empty());
     }
 }

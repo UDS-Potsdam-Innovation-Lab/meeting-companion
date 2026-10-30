@@ -227,6 +227,21 @@ mod tests {
     }
 
     #[test]
+    fn save_rejects_an_invalid_run_with_field_errors() {
+        let store = MemoryMeetingStore::new();
+        let mut m = crate::model::tests::running();
+        m.run.as_mut().unwrap().items[1].extra_minutes = -5;
+        match save(&store, m, 1) {
+            Err(SaveError::Invalid { fields }) => {
+                assert_eq!(fields[0].field, "run.items[1].extraMinutes");
+                assert_eq!(fields[0].code, "outOfRange");
+            }
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+        assert!(load_latest(&store).meeting.is_none());
+    }
+
+    #[test]
     fn save_error_serialises_with_a_kind_tag() {
         let json = serde_json::to_value(SaveError::Io).unwrap();
         assert_eq!(json, serde_json::json!({ "kind": "io" }));

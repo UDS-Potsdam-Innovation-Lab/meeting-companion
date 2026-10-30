@@ -20,11 +20,13 @@ import type { MeetingEdit } from "./useMeeting";
 interface Props {
   meeting: Meeting;
   onChange: (edit: MeetingEdit) => boolean;
+  /** Told whether an open topic editor holds invalid input. */
+  onValidity?: (invalid: boolean) => void;
 }
 
 type FocusTarget = { id: string; control: "edit" | "up" | "down" } | { id: "add"; control: "add" };
 
-export function AgendaList({ meeting, onChange }: Props) {
+export function AgendaList({ meeting, onChange, onValidity }: Props) {
   const { t } = useI18n();
   const [openId, setOpenId] = useState<string | null>(null);
   /** A topic being added that has not passed validation yet; it is not part of the meeting. */
@@ -200,6 +202,7 @@ export function AgendaList({ meeting, onChange }: Props) {
                     participants={participants}
                     onCommit={commit}
                     onDone={() => done(item.id)}
+                    onValidity={onValidity}
                   />
                 ) : null}
               </li>

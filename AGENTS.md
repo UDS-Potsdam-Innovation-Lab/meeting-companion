@@ -38,8 +38,11 @@ STATUS: CONFIGURED
 - Build: `npm run tauri build -- --no-bundle`; smoke test of the built app: `node scripts/smoke.mjs`
   (on headless Linux: `xvfb-run -a node scripts/smoke.mjs`).
 - Screenshots: `npm run screenshot` writes `screenshots/<view>-<width>.png` at 375, 1280 and 1920 px.
+  It also writes `screenshots/<view>-<width>x<height>.png` for the responsive layout (1440×900, 1024×768,
+  768×1024, 480×800, and short live windows 1024×600 and 768×480); `e2e/responsive.spec.ts` checks those sizes.
 - Dev: `npm run tauri dev`. Browser-only build with a fake core (Playwright, screenshots): `npm run build:e2e`
-  (`vite build --mode e2e`, `.env.e2e` sets `VITE_MOCK_IPC=1`; open `/?fixture=empty|filled|over|corrupt|locked`).
+  (`vite build --mode e2e`, `.env.e2e` sets `VITE_MOCK_IPC=1`; open `/?fixture=empty|filled|over|corrupt|locked|live|live-done`;
+  the live fixtures are meant for a fixed clock, see `LIVE_TIMES` in `src/features/agenda/fixtures.ts`).
 - Layout:
   - `src/` — React UI. `src/i18n/de.json` + `en.json` (flat keys, de default), `src/features/<feature>/`,
     `src/ui/` shared components, `src/app/` shell, `src/lib/ipc.ts` the only module that calls Tauri

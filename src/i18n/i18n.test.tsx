@@ -1,11 +1,12 @@
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import de from "./de.json";
 import en from "./en.json";
 import { renderApp } from "../test/backend";
-import { filledMeeting } from "../features/agenda/fixtures";
-import { initials } from "../features/agenda/model";
+import { filledMeeting, LIVE_TIMES, liveDoneMeeting, liveMeeting } from "../features/agenda/fixtures";
+import { initials, type Meeting } from "../features/agenda/model";
+import { FakeClock } from "../lib/clock";
 
 const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
 
@@ -24,6 +25,66 @@ describe("AC6 catalogues", () => {
       expect(other.trim(), key).not.toBe("");
       expect(placeholders(other), key).toEqual(placeholders(text));
     }
+  });
+});
+
+function literalOffenders(container: HTMLElement, meeting: Meeting): string[] {
+  const userData = new Set<string>([
+    meeting.title,
+    ...meeting.participants.flatMap((p) => [p.name, initials(p.name)]),
+    ...meeting.items.flatMap((i) => [i.title, i.outcome]),
+  ]);
+  const allowed = (s: string) => {
+    const text = s.trim();
+    if (text === "") return true;
+    if (/^(⟦[\w.]+⟧\s*)+$/.test(text)) return true;
+    if (/^[\d\s:.\-–·]+$/.test(text)) return true;
+    return userData.has(text);
+  };
+  const offenders: string[] = [];
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!allowed(n.textContent ?? "")) offenders.push(`text: ${n.textContent}`);
+  }
+  for (const el of container.querySelectorAll("*")) {
+    for (const attr of ["aria-label", "aria-valuetext", "title", "placeholder", "alt"]) {
+      const v = el.getAttribute(attr);
+      if (v !== null && !allowed(v)) offenders.push(`${attr}: ${v}`);
+    }
+  }
+  return offenders;
+}
+
+describe("AC7 (job 002) no literal strings in the live view", () => {
+  it("timer, agenda, parking lot, overall line, nudge and End meeting come from keys", async () => {
+    const user = userEvent.setup();
+    const meeting = liveMeeting();
+    const clock = new FakeClock(LIVE_TIMES.nudge);
+    const { container, unmount } = await renderApp(
+      { meeting, error: null },
+      { keyMode: true, clock, view: "live" },
+    );
+    await user.click(screen.getByRole("button", { name: "⟦live.park⟧" }));
+    await user.click(screen.getByRole("button", { name: /⟦live.parking.title⟧/ }));
+    await user.click(screen.getByRole("button", { name: "⟦live.end⟧" }));
+    expect(container.querySelector(".nudge")).toBeNull();
+    act(() => clock.set(LIVE_TIMES.over + 30 * 60_000));
+    expect(screen.getByRole("group", { name: /⟦nudge/ })).toBeInTheDocument();
+    expect(literalOffenders(container, meeting)).toEqual([]);
+    unmount();
+
+    const done = liveDoneMeeting();
+    const r = await renderApp({ meeting: done, error: null }, { keyMode: true, clock, view: "live" });
+    expect(screen.getByRole("heading", { name: "⟦live.done.title⟧" })).toBeInTheDocument();
+    expect(literalOffenders(r.container, done)).toEqual([]);
+  });
+
+  it("the Start meeting button and its reason come from keys", async () => {
+    const meeting = { ...filledMeeting(), items: [] };
+    const { container } = await renderApp({ meeting, error: null }, { keyMode: true });
+    expect(screen.getByRole("button", { name: "⟦start.button⟧" })).toBeInTheDocument();
+    expect(screen.getByText("⟦start.reason.noItems⟧")).toBeInTheDocument();
+    expect(literalOffenders(container, meeting)).toEqual([]);
   });
 });
 
