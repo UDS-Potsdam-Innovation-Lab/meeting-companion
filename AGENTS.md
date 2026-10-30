@@ -49,7 +49,9 @@ STATUS: CONFIGURED
     `FileMeetingStore`, `MemoryMeetingStore`), `src/lib.rs` (Tauri commands), `src/engines/` (later
     engines, each behind a trait with a fake).
   - `e2e/` — Playwright specs (axe, keyboard, layout); `e2e/screenshots/` for `npm run screenshot`.
-  - `.github/workflows/ci.yml` — lint, test, compile and smoke test on ubuntu, macos and windows.
+  - `.github/workflows/ci.yml` — lint, test, compile and smoke test. Linux (`ubuntu-latest`) is the only
+    CI-tested target for now; macOS and Windows are deferred until the feature set is final (add them to
+    the matrix; OS-specific code stays in place).
 - Rules: no literal user-facing strings in JSX (ESLint `react/jsx-no-literals` and a key-mode test);
   user text is rendered as text only (`react/no-danger`); no Tauri HTTP/shell plugins and a CSP whose
   `connect-src` allows only IPC (`src/config.test.ts`).

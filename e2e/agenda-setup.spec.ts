@@ -131,7 +131,7 @@ test.describe("AC7 accessibility at 1280×800", () => {
     await page.keyboard.press("Tab"); // goal radios
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("Tab"); // minutes
-    await page.keyboard.press("Control+A");
+    await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.type("20");
     await page.keyboard.press("Escape");
     await expect(page.getByRole("button", { name: /^Kick-off/ })).toBeFocused();
