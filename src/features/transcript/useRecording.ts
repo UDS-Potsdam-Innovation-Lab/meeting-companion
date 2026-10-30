@@ -6,6 +6,7 @@ import {
   loadTranscript,
   onCaptureState,
   onTranscriptSegment,
+  onTranscriptVoice,
   pauseRecording,
   recordingStatus,
   startRecording,
@@ -31,7 +32,7 @@ function storedModel(): string | null {
 export interface Recording {
   /** The core's capture state; drives the REC chip. Never set from UI state alone. */
   capture: CaptureState;
-  /** Final lines, oldest first. */
+  /** Final lines, oldest first, each with its sequence number and (once known) its voice. */
   lines: TranscriptSegment[];
   /** Final lines that arrived while this view was open (not loaded from the store). */
   received: number;
@@ -96,16 +97,19 @@ export function useRecording(meetingId: string, onConsent: (at: number) => void)
         setPartial(segment);
       }
     });
+    const stopVoices = onTranscriptVoice((v) => {
+      if (cancelled || v.meetingId !== meetingId) return;
+      setLines((l) => l.map((line) => (line.seq === v.seq ? { ...line, voice: v.voice } : line)));
+    });
     void recordingStatus().then((s) => {
       if (!cancelled && ours(s.meetingId)) setCapture(s);
     });
     void loadTranscript(meetingId).then((t) => {
       if (cancelled) return;
-      // Lines that arrived by event while loading come after the stored ones.
-      setLines((live) => [
-        ...t.segments,
-        ...live.filter((l) => !t.segments.some((s) => s.startMs === l.startMs)),
-      ]);
+      // A stored line's sequence number is its position. Lines that arrived by event while loading
+      // come after the stored ones.
+      const stored = t.segments.map((s, i) => ({ ...s, seq: i }));
+      setLines((live) => [...stored, ...live.filter((l) => l.seq === undefined || l.seq >= stored.length)]);
       setTranscriptError(t.error);
     });
     void listSpeechModels().then((m) => {
@@ -115,6 +119,7 @@ export function useRecording(meetingId: string, onConsent: (at: number) => void)
       cancelled = true;
       stopCapture();
       stopSegments();
+      stopVoices();
     };
   }, [meetingId]);
 

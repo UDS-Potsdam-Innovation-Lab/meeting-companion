@@ -3,19 +3,33 @@ import { useI18n, type MessageKey } from "../../i18n";
 import { useClock } from "../../lib/clock";
 import type { RecordReason, SpeechModel } from "../../lib/ipc";
 import { MicIcon } from "../../ui/icons";
-import { formatClock, formatMegabytes } from "./format";
+import { LineSpeaker } from "../speakers/LineSpeaker";
+import { voiceCount } from "../speakers/model";
+import type { Speakers } from "../speakers/useSpeakers";
+import { formatMegabytes } from "./format";
 import { LevelMeter } from "./LevelMeter";
 import type { Recording } from "./useRecording";
 
 /** New final lines are announced at most this often, as a count, never line by line. */
 export const ANNOUNCE_EVERY_MS = 10_000;
 /** Distance from the bottom (px) that still counts as "at the newest line". */
-const AT_BOTTOM = 24;
+export const AT_BOTTOM = 24;
+
+/** Where the line list was scrolled to, kept while the speakers view is open. */
+export interface FeedScroll {
+  top: number;
+  pinned: boolean;
+}
 
 interface Props {
   recording: Recording;
   /** The stored meeting has the consent confirmation. */
   consented: boolean;
+  speakers: Speakers;
+  /** Opens the speakers view (frame 06) in place of the live view. */
+  onOpenSpeakers: () => void;
+  /** Where the list was when the speakers view opened: restored on return. */
+  initialScroll: FeedScroll | null;
 }
 
 /**
@@ -23,8 +37,8 @@ interface Props {
  * not modal), the speech model, the final lines with their time, the live partial line, and the
  * footer with the level meter. Transcript text is untrusted and rendered as plain text.
  */
-export function TranscriptPanel({ recording, consented }: Props) {
-  const { t } = useI18n();
+export function TranscriptPanel({ recording, consented, speakers, onOpenSpeakers, initialScroll }: Props) {
+  const { t, tp } = useI18n();
   const { capture, lines, partial } = recording;
   const active = capture.state === "recording" || capture.state === "paused";
   const error = capture.state === "error" ? capture.reason : null;
@@ -49,14 +63,28 @@ export function TranscriptPanel({ recording, consented }: Props) {
             {t("transcript.loadFailed")}
           </p>
         ) : null}
-        {lines.length > 0 || partial || active ? <Feed recording={recording} active={active} /> : null}
+        {lines.length > 0 || partial || active ? (
+          <Feed recording={recording} active={active} speakers={speakers} initialScroll={initialScroll} />
+        ) : null}
       </div>
-      {active ? (
+      {active || lines.length > 0 ? (
         <div className="transcript-card__footer">
           <LevelMeter level={capture.level} active={capture.state === "recording"} />
-          <span className="transcript-card__status">
-            {capture.state === "recording" ? t("transcript.listening") : t("transcript.paused")}
-          </span>
+          <button
+            type="button"
+            className="transcript-card__speakers"
+            onClick={onOpenSpeakers}
+            data-speakers-button=""
+          >
+            {tp(
+              capture.state === "recording"
+                ? "speakers.footer.listening"
+                : capture.state === "paused"
+                  ? "speakers.footer.paused"
+                  : "speakers.footer.off",
+              voiceCount(lines),
+            )}
+          </button>
         </div>
       ) : null}
       <Announcer received={recording.received} />
@@ -64,11 +92,29 @@ export function TranscriptPanel({ recording, consented }: Props) {
   );
 }
 
-function Feed({ recording, active }: { recording: Recording; active: boolean }) {
-  const { t, locale } = useI18n();
+function Feed({
+  recording,
+  active,
+  speakers,
+  initialScroll,
+}: {
+  recording: Recording;
+  active: boolean;
+  speakers: Speakers;
+  initialScroll: FeedScroll | null;
+}) {
+  const { t } = useI18n();
   const { lines, partial } = recording;
   const feedRef = useRef<HTMLOListElement>(null);
-  const [pinned, setPinned] = useState(true);
+  const [pinned, setPinned] = useState(() => initialScroll?.pinned ?? true);
+  const [picking, setPicking] = useState<number | null>(null);
+
+  // Back from the speakers view: the list is where the reader left it.
+  const [restore] = useState(initialScroll);
+  useLayoutEffect(() => {
+    const el = feedRef.current;
+    if (el && restore && !restore.pinned) el.scrollTop = restore.top;
+  }, [restore]);
 
   // Follow the newest line unless the reader scrolled up.
   useLayoutEffect(() => {
@@ -79,7 +125,8 @@ function Feed({ recording, active }: { recording: Recording; active: boolean }) 
   const onScroll = () => {
     const el = feedRef.current;
     if (!el) return;
-    setPinned(el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM);
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM;
+    setPinned(atBottom);
   };
 
   const jump = () => {
@@ -103,10 +150,13 @@ function Feed({ recording, active }: { recording: Recording; active: boolean }) 
           aria-label={t("transcript.heading")}
         >
           {lines.map((line, i) => (
-            <li className="transcript-line" key={`${line.startMs}-${i}`} lang={line.lang}>
-              <time className="transcript-line__meta" dateTime={new Date(line.at).toISOString()}>
-                {formatClock(line.at, locale)}
-              </time>
+            <li className="transcript-line" key={`${line.seq ?? "x"}-${line.startMs}-${i}`} lang={line.lang}>
+              <LineSpeaker
+                line={line}
+                speakers={speakers}
+                open={picking !== null && picking === line.seq}
+                onToggle={(open) => setPicking(open && line.seq !== undefined ? line.seq : null)}
+              />
               <p className="transcript-line__text">{line.text}</p>
             </li>
           ))}

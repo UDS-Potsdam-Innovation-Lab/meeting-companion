@@ -165,7 +165,7 @@ describe("AC2 recording indicator and pause", () => {
     await sendState({ state: "recording", elapsedMs: 23 * 60_000 + 41_000 });
     expect(chip()).toHaveTextContent("REC00:23:41");
     expect(chip()!.querySelector(".rec-chip__dot")).not.toBeNull();
-    expect(screen.getByText("Listening")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Listening · 0 speakers" })).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Pause" }));
     expect(core.calls.some((c) => c.cmd === "pause_recording")).toBe(true);
@@ -173,7 +173,7 @@ describe("AC2 recording indicator and pause", () => {
     expect(chip()).toHaveTextContent("Paused00:16:48");
     expect(chip()!.querySelector(".rec-chip__dot")).toBeNull();
     expect(screen.getByRole("button", { name: "Resume" })).toBeVisible();
-    expect(within(card()).getByText("Paused")).toBeVisible();
+    expect(within(card()).getByRole("button", { name: "Paused · 0 speakers" })).toBeVisible();
     // The agenda timer is not paused.
     act(() => clock.advance(30_000));
     expect(screen.getByRole("region", { name: "Current item" }).textContent).not.toBe(timerBefore);
@@ -261,7 +261,7 @@ describe("AC4 transcript column", () => {
     await openLive(liveConsentedMeeting(), { status: state({}) });
     expect(card().querySelector(".level-meter")).not.toBeNull();
     expect(card().querySelector(".level-meter--flat")).toBeNull();
-    expect(within(card()).getByText("Listening")).toBeVisible();
+    expect(within(card()).getByRole("button", { name: "Listening · 0 speakers" })).toBeVisible();
     await sendState({ state: "paused", level: 0 });
     expect(card().querySelector(".level-meter--flat")).not.toBeNull();
     await sendState({ state: "off", meetingId: null });

@@ -8,6 +8,8 @@ interface Props {
   busy: boolean;
   onPause: () => void;
   onResume: () => void;
+  /** Only the REC chip (the speakers view's top bar). */
+  chipOnly?: boolean;
 }
 
 /**
@@ -15,7 +17,7 @@ interface Props {
  * colour alone), the "On-device · DE/EN" chip, and "Pause" / "Resume". The chip follows the core's
  * capture state: shown while recording or paused, gone when recording is off or failed.
  */
-export function RecordingControls({ capture, busy, onPause, onResume }: Props) {
+export function RecordingControls({ capture, busy, onPause, onResume, chipOnly = false }: Props) {
   const { t } = useI18n();
   const recording = capture.state === "recording";
   const paused = capture.state === "paused";
@@ -29,8 +31,8 @@ export function RecordingControls({ capture, busy, onPause, onResume }: Props) {
           <span className="rec-chip__time">{time}</span>
         </span>
       ) : null}
-      <span className="device-chip">{t("recording.onDevice")}</span>
-      {recording || paused ? (
+      {chipOnly ? null : <span className="device-chip">{t("recording.onDevice")}</span>}
+      {!chipOnly && (recording || paused) ? (
         // One button that changes its label, so focus stays on it across Pause and Resume.
         <button
           type="button"

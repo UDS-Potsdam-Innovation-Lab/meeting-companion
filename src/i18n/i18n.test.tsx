@@ -6,6 +6,10 @@ import en from "./en.json";
 import { renderApp } from "../test/backend";
 import {
   filledMeeting,
+  FIXTURE_PARTICIPANTS,
+  liveConsentedMeeting,
+  SPEAKER_CHOICES,
+  SPEAKER_TRANSCRIPT,
   LIVE_PARTIAL,
   LIVE_TIMES,
   LIVE_TRANSCRIPT,
@@ -149,6 +153,68 @@ describe("AC7 (job 003) no literal strings in the transcript column and recordin
       },
     );
     await screen.findByText("⟦model.none.title⟧");
+    expect(literalOffenders(none.container, meeting, ["/x/models"])).toEqual([]);
+  });
+});
+
+describe("AC7 (job 004) no literal strings in the speakers view and the line picker", () => {
+  it("filled, guest input, line picker, empty and no-model states come from keys", async () => {
+    const user = userEvent.setup();
+    const meeting = liveConsentedMeeting();
+    const clock = new FakeClock(LIVE_TIMES.running);
+    const speakers = {
+      participants: FIXTURE_PARTICIPANTS,
+      voices: SPEAKER_CHOICES.voices,
+      lines: [{ seq: 9, participantId: "p-jr" }],
+      suggestions: [
+        { voice: "C", candidates: ["p-ls"], unsure: false },
+        { voice: "D", candidates: ["p-ya", "p-jr"], unsure: true },
+      ],
+    };
+    // Transcript text and voice labels are data, like names.
+    const data = [...SPEAKER_TRANSCRIPT.map((l) => l.text), "A", "B", "C", "D", "E"];
+    const { container, unmount } = await renderApp(
+      { meeting, error: null },
+      {
+        keyMode: true,
+        clock,
+        view: "live",
+        recording: {
+          status: { state: "recording", meetingId: meeting.id, elapsedMs: 1_000, level: 0.5, reason: null },
+          transcript: { segments: SPEAKER_TRANSCRIPT, error: null },
+          speakers,
+        },
+      },
+    );
+    const lineButtons = await screen.findAllByRole("button", { name: "⟦speakers.line.button⟧" });
+    await user.click(lineButtons[0]!);
+    await user.click(screen.getByRole("button", { name: "⟦speakers.addGuest⟧" }));
+    await user.click(screen.getByRole("button", { name: "⟦speakers.guest.add⟧" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("⟦speakers.guest.error.empty⟧");
+    expect(literalOffenders(container, meeting, data)).toEqual([]);
+    await user.keyboard("{Escape}");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: /⟦speakers.footer.listening/ }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("⟦speakers.title.other⟧");
+    await user.selectOptions(screen.getAllByRole("combobox")[4]!, "⟦speakers.addGuest⟧");
+    expect(literalOffenders(container, meeting, data)).toEqual([]);
+    unmount();
+
+    const none = await renderApp(
+      { meeting, error: null },
+      {
+        keyMode: true,
+        clock,
+        view: "live",
+        recording: {
+          status: { state: "paused", meetingId: meeting.id, elapsedMs: 1_000, level: 0, reason: null },
+          speakerModels: { models: [], searched: ["/x/models"] },
+        },
+      },
+    );
+    await user.click(await screen.findByRole("button", { name: /⟦speakers.footer.paused/ }));
+    expect(screen.getByText("⟦speakers.noModel.title⟧")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("⟦speakers.title.empty⟧");
     expect(literalOffenders(none.container, meeting, ["/x/models"])).toEqual([]);
   });
 });

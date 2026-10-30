@@ -73,3 +73,21 @@ export const MicIcon = () => (
     <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" />
   </svg>
 );
+
+export const ArrowRightIcon = () => (
+  <svg {...base}>
+    <path d="M3 8h10M8.5 3.5 13 8l-4.5 4.5" />
+  </svg>
+);
+
+export const WaveIcon = () => (
+  <svg {...base} width={24}>
+    <path d="M1 7v2M4 5v6M7 3v10M10 6v4M13 4v8" />
+  </svg>
+);
+
+export const ChevronDownIcon = () => (
+  <svg {...base} width={12} height={12}>
+    <path d="M4 6l4 4 4-4" />
+  </svg>
+);

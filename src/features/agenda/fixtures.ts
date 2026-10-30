@@ -168,3 +168,69 @@ export const LIVE_PARTIAL = {
 
 /** Recorded time at `LIVE_TIMES.running` (recording since 10:01, no pause): 16:48. */
 export const LIVE_ELAPSED_MS = (16 * 60 + 48) * 1000;
+
+// ---- speakers (frame 06, job 004) ---------------------------------------------------------------
+
+const voiced = (
+  h: number,
+  m: number,
+  s: number,
+  voice: string | null,
+  seconds: number,
+  text: string,
+  lang: "de" | "en" = "en",
+) => {
+  const l = line(h, m, s, text, lang);
+  return { ...l, endMs: l.startMs + seconds * 1000, voice };
+};
+
+/**
+ * Final lines with voices, recorded since 10:01: a name round in the first two minutes (A says
+ * Mara's name, B Tobias's, C Lena's, D both Yusuf's and Jana's, E nobody's), then the discussion.
+ */
+export const SPEAKER_TRANSCRIPT = [
+  voiced(10, 1, 5, "A", 6, "Okay. Let's start with a quick check-in. I'm Mara Klein."),
+  voiced(10, 1, 14, "B", 5, "Tobias Brandt, I keep the notes today."),
+  voiced(10, 1, 22, "C", 5, "Lena hier, ich bringe das Feedback der Pilotschulen mit.", "de"),
+  voiced(10, 1, 30, "D", 4, "Hi, this is Yusuf. Jana sends her regards."),
+  voiced(10, 1, 38, "E", 4, "Hi, I'm from the district office, just listening."),
+  voiced(
+    10,
+    9,
+    5,
+    "B",
+    9,
+    "If we keep the offline mode in scope, we can't make the 7th. Realistically it's the 14th.",
+  ),
+  voiced(
+    10,
+    10,
+    12,
+    "C",
+    10,
+    "Die Pilotschulen brauchen offline nicht für die Beta. Zwei von dreien haben stabiles WLAN.",
+    "de",
+  ),
+  voiced(10, 11, 3, "A", 7, "Then let's cut offline from the beta and go with the 14th. Any objections?"),
+  voiced(10, 11, 40, "D", 6, "Fine with me, as long as we tell the third school early."),
+  voiced(10, 12, 2, null, 1, "Same here."),
+  voiced(10, 12, 18, "A", 5, "Okay. Yusuf, can you write to them this week?"),
+];
+
+/** Choices stored for the `speakers` fixture: A by the name round, B by hand. */
+export const SPEAKER_CHOICES = {
+  voices: [
+    { voice: "A", participantId: "p-mk", source: "nameRound" as const, confirmed: true },
+    { voice: "B", participantId: "p-tb", source: "manual" as const, confirmed: true },
+  ],
+  lines: [] as { seq: number; participantId: string | null }[],
+};
+
+/** `live-speakers`: names on the live transcript, and one line ("Same here.") set to Jana by hand. */
+export const LIVE_SPEAKER_CHOICES = {
+  voices: [
+    ...SPEAKER_CHOICES.voices,
+    { voice: "C", participantId: "p-ls", source: "nameRound" as const, confirmed: true },
+  ],
+  lines: [{ seq: 9, participantId: "p-jr" }],
+};
