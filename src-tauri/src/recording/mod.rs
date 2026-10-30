@@ -9,6 +9,11 @@
 //!   the UI. Audio is never written anywhere.
 //! - A failing or silent device (no audio for [`STALL`]) ends the session with an error state within
 //!   2 s, and the source is closed.
+//! - The microphone is the system default or the device chosen in the settings ([`StartOptions`]).
+//!   A chosen device that is not connected is never replaced by another one at start: the start
+//!   fails with [`Reason::ChosenMicrophoneMissing`].
+//! - The microphone test ([`Recorder::start_test`], `mic_test.rs`) opens the chosen device for at
+//!   most 10 s to show its level. Its audio goes nowhere else and is dropped at once.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
@@ -17,8 +22,10 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use crate::engines::audio::{AudioError, AudioSink, AudioSource};
-use crate::engines::stt::{SpeechToText, SttError};
+use crate::engines::devices::{AudioDevices, NoAudioDevices};
+use crate::engines::stt::{Lang, SpeechToText, SttError};
 use crate::engines::{AudioFactory, SttProvider};
+use crate::settings::DeviceLost;
 use crate::store::{MeetingStore, StoreError};
 use crate::transcript::{Segment, Transcriber, TranscriptError, TranscriptStore, TranscriptWriter};
 
@@ -41,6 +48,8 @@ pub enum Capture {
 #[serde(rename_all = "camelCase")]
 pub enum Reason {
     NoMicrophone,
+    /// The microphone chosen in the settings is not connected; no other one was opened.
+    ChosenMicrophoneMissing,
     MicrophoneBlocked,
     MicrophoneLost,
     NoModel,
@@ -132,6 +141,21 @@ pub enum RecordError {
 pub trait EventSink: Send + Sync {
     fn capture(&self, state: &CaptureState);
     fn segment(&self, event: &SegmentEvent);
+    /// The microphone test's state (`mic-test` event).
+    fn mic_test(&self, _state: &MicTestState) {}
+}
+
+/// How a recording session runs, from the settings.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StartOptions {
+    /// Speech model id from the core's scan; `None` or an id no longer found: the preferred model.
+    pub model_id: Option<String>,
+    /// Input device by name; `None`: the system default.
+    pub device: Option<String>,
+    /// Language hint for speech-to-text; `None`: detected per line.
+    pub language: Option<Lang>,
+    /// What happens when the microphone disappears while recording.
+    pub on_lost: DeviceLost,
 }
 
 struct Shared {
@@ -187,6 +211,8 @@ struct Inner {
 
 pub struct Recorder {
     audio: AudioFactory,
+    devices: Arc<dyn AudioDevices>,
+    test: Mutex<Option<mic_test::Running>>,
     stt: Box<dyn SttProvider>,
     transcripts: Arc<dyn TranscriptStore>,
     now_ms: fn() -> u64,
@@ -204,6 +230,8 @@ impl Recorder {
     ) -> Self {
         Self {
             audio,
+            devices: Arc::new(NoAudioDevices),
+            test: Mutex::new(None),
             stt,
             transcripts,
             now_ms,
@@ -213,6 +241,29 @@ impl Recorder {
                 events,
             }),
             inner: Mutex::new(Inner::default()),
+        }
+    }
+
+    /// Named input devices can be chosen from `devices` (default: none, only the system default).
+    pub fn with_devices(mut self, devices: Arc<dyn AudioDevices>) -> Self {
+        self.devices = devices;
+        self
+    }
+
+    /// Names of the connected input devices.
+    pub fn input_devices(&self) -> Vec<String> {
+        self.devices.list()
+    }
+
+    /// A source for `device` (`None`: the system default), or why it cannot be opened: a chosen
+    /// device that is not connected is never replaced by another one.
+    fn open_source(&self, device: Option<&str>) -> Result<Box<dyn AudioSource>, Reason> {
+        match device {
+            None => Ok((self.audio)()),
+            Some(name) if self.devices.list().iter().any(|d| d == name) => {
+                Ok(self.devices.open(name))
+            }
+            Some(_) => Err(Reason::ChosenMicrophoneMissing),
         }
     }
 
@@ -240,6 +291,21 @@ impl Recorder {
         meeting_id: &str,
         model_id: Option<&str>,
     ) -> Result<CaptureState, RecordError> {
+        let opts = StartOptions {
+            model_id: model_id.map(str::to_owned),
+            ..StartOptions::default()
+        };
+        self.start_with(meetings, meeting_id, &opts)
+    }
+
+    /// [`Self::start`] with the device, language and model from the settings.
+    pub fn start_with(
+        &self,
+        meetings: &dyn MeetingStore,
+        meeting_id: &str,
+        opts: &StartOptions,
+    ) -> Result<CaptureState, RecordError> {
+        let model_id = opts.model_id.as_deref();
         let mut inner = self.inner();
         {
             let s = self.shared.status();
@@ -270,19 +336,32 @@ impl Recorder {
             }
         };
         let wanted = model_id.map(str::to_owned);
-        let engine = match inner.engine.take() {
+        let mut engine = match inner.engine.take() {
             Some((id, engine)) if id == wanted => engine,
             _ => match self.stt.load(model_id) {
                 Ok(e) => e,
                 Err(e) => return Err(self.refuse(meeting_id, e.into())),
             },
         };
+        engine.set_language(opts.language);
 
+        // A microphone test gives the device back before the meeting takes it.
+        self.stop_test();
         let sink = AudioSink::new();
-        let mut source = (self.audio)();
+        let mut source = match self.open_source(opts.device.as_deref()) {
+            Ok(s) => s,
+            Err(reason) => {
+                inner.engine = Some((wanted, engine));
+                return Err(self.refuse(meeting_id, reason));
+            }
+        };
         if let Err(e) = source.start(sink.clone()) {
             inner.engine = Some((wanted, engine));
-            return Err(self.refuse(meeting_id, e.into()));
+            let reason = match (e, &opts.device) {
+                (AudioError::NoMicrophone, Some(_)) => Reason::ChosenMicrophoneMissing,
+                (e, _) => e.into(),
+            };
+            return Err(self.refuse(meeting_id, reason));
         }
         *self.shared.source.lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
 
@@ -382,6 +461,7 @@ impl Recorder {
 
 impl Drop for Recorder {
     fn drop(&mut self) {
+        self.stop_test();
         let mut inner = self.inner();
         let _ = self.halt(&mut inner, Capture::Off, false);
     }
@@ -460,5 +540,10 @@ fn run(
     transcriber.into_engine()
 }
 
+mod mic_test;
+pub use mic_test::{MicTest, MicTestError, MicTestState, TEST_LIMIT};
+
+#[cfg(test)]
+mod device_tests;
 #[cfg(test)]
 mod tests;

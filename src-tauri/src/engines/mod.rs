@@ -5,6 +5,7 @@
 
 pub mod audio;
 pub mod cpal_source;
+pub mod devices;
 pub mod models;
 pub mod stt;
 pub mod whisper;
