@@ -29,6 +29,7 @@ design:
   in front of it.
 - Languages: every user-facing string in de and en, by key; de is the default.
 - Design: frames in `design/meeting-companion.figcraft`, PNG exports in `design/screens/<frame>.png`.
+  New screens are designed as FigCraft frames first (no HTML prototypes).
   The frame number in `docs/vision.md` names the screen a feature belongs to.
 - The assistant never decides: anything it produces is a suggestion until a person confirms it.
 
@@ -51,6 +52,9 @@ design:
 
 ## prototyper
 
+- Not used in this project: every prototype is a FigCraft frame in `design/meeting-companion.figcraft`,
+  built by a script in `design/build/` (`s<n>_<name>.py`, run via `run.py`) and exported to
+  `design/screens/`. The orchestrator takes the design gate's FigCraft route, never the HTML prototyper.
 - Reuse the FigCraft frames' style: warm neutral background, white cards, indigo accent `#4338CA`,
   Inter; decisions green, to-dos amber, questions indigo, overrun red.
 
