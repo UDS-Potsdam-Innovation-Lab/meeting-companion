@@ -31,6 +31,27 @@ export interface Meeting {
   participants: Participant[];
   items: AgendaItem[];
   updatedAt: number;
+  /** Timekeeping once the meeting has started; absent before. See `src/features/live/run.ts`. */
+  run?: Run | null;
+}
+
+/** When the meeting and each agenda item ran. Times are milliseconds since the Unix epoch. */
+export interface Run {
+  startedAt: number;
+  /** Set by "End meeting"; an ended meeting is never resumed. */
+  endedAt: number | null;
+  /** Started agenda items in the order they started. The one without `endedAt` is the current item. */
+  items: RunItem[];
+}
+
+export interface RunItem {
+  itemId: string;
+  startedAt: number;
+  endedAt: number | null;
+  /** Minutes added with "+5 min". */
+  extraMinutes: number;
+  /** Ended with "Park it" instead of "Next". */
+  parked: boolean;
 }
 
 export const LIMITS = {
@@ -41,6 +62,7 @@ export const LIMITS = {
   minutesMax: 240,
   participants: 100,
   items: 100,
+  extraMinutes: 240,
 } as const;
 
 export type ErrorCode =
@@ -129,7 +151,34 @@ export function isMeetingValid(m: Meeting): boolean {
   );
   if (!ok) return false;
   const ids = new Set(m.participants.map((p) => p.id));
-  return m.items.every((it) => !hasErrors(validateItem(it)) && (it.lead === null || ids.has(it.lead)));
+  const itemsOk = m.items.every(
+    (it) => !hasErrors(validateItem(it)) && (it.lead === null || ids.has(it.lead)),
+  );
+  return itemsOk && (!m.run || isRunValid(m, m.run));
+}
+
+/** The run rules the core enforces (src-tauri/src/model `validate_run`). */
+export function isRunValid(m: Pick<Meeting, "items">, run: Run): boolean {
+  if (m.items.length === 0) return false;
+  if (run.endedAt !== null && run.endedAt < run.startedAt) return false;
+  const known = new Set(m.items.map((it) => it.id));
+  const seen = new Set<string>();
+  let current = 0;
+  for (const r of run.items) {
+    if (!known.has(r.itemId) || seen.has(r.itemId)) return false;
+    seen.add(r.itemId);
+    if (r.startedAt < run.startedAt) return false;
+    if (r.endedAt === null) {
+      current += 1;
+      if (r.parked || run.endedAt !== null) return false;
+    } else if (r.endedAt < r.startedAt) {
+      return false;
+    }
+    if (!Number.isInteger(r.extraMinutes) || r.extraMinutes < 0 || r.extraMinutes > LIMITS.extraMinutes) {
+      return false;
+    }
+  }
+  return current <= 1;
 }
 
 // ---- derived values ---------------------------------------------------------------------------
