@@ -19,6 +19,6 @@
   "history": [],
   "decision": "ESCALATE",
   "waiting": null,
-  "note": "Approver: CI not yet verified on 3 OSes; participant names stored unencrypted needs human decision",
-  "updated": "2026-10-30T17:28:47Z"
+  "note": "ESCALATE; CI failed on macOS (keyboard e2e test uses Control+A); Linux and Windows pass",
+  "updated": "2026-10-30T17:59:48Z"
 }
