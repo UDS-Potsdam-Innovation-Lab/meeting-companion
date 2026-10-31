@@ -18,7 +18,7 @@
   },
   "history": [],
   "decision": null,
-  "waiting": "012 merge + design",
-  "note": "Spec revised after review 1 (split, legal agreed); depends on 012, needs FigCraft frames",
-  "updated": "2026-10-31T15:40:38Z"
+  "waiting": null,
+  "note": "Design approved",
+  "updated": "2026-10-31T17:45:02Z"
 }
