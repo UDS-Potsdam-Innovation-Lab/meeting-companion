@@ -221,5 +221,6 @@
   "speakers.footer.off.one": "{count} Stimme",
   "speakers.footer.off.other": "{count} Stimmen",
   "speakers.suggested.sub": "Vorschlag · Namensrunde",
-  "speakers.line.suffix": ", Person der Zeile um {time}"
+  "speakers.line.suffix": ", Person der Zeile um {time}",
+  "speakers.apply.none": "Nichts zu übernehmen: Keine Stimme hat einen Namen aus der Namensrunde, der auf Bestätigung wartet. Unsichere Stimmen wählt eine Person aus."
 }

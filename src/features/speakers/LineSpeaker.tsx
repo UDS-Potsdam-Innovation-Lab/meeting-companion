@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
 import { useI18n } from "../../i18n";
 import type { LineTarget, TranscriptSegment } from "../../lib/ipc";
 import { Avatar, avatarColor } from "../../ui/Avatar";
@@ -86,6 +94,40 @@ export function LineSpeaker({ line, speakers, open, onToggle }: Props) {
   );
 }
 
+/** Gap between the picker, its line and the window edge. */
+const MARGIN = 8;
+const PICKER_WIDTH = 300;
+
+export interface Placement {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number;
+  /** Opens above the line (not enough room below). */
+  above: boolean;
+}
+
+/**
+ * Where the "Who said this?" picker goes, in window coordinates: below its line if it fits, else on
+ * the side with more room, never past the window edges (it scrolls inside if even that is too
+ * small). It is placed with `position: fixed`, so the scrolling transcript cannot cut it off.
+ */
+export function placePicker(
+  anchor: DOMRect,
+  natural: number,
+  viewport: { width: number; height: number },
+): Placement {
+  const width = Math.min(PICKER_WIDTH, viewport.width - 2 * MARGIN);
+  const left = Math.min(Math.max(MARGIN, anchor.left), viewport.width - width - MARGIN);
+  const below = viewport.height - anchor.bottom - 2 * MARGIN;
+  const above = anchor.top - 2 * MARGIN;
+  if (natural <= below || below >= above) {
+    return { top: anchor.bottom + MARGIN, left, width, maxHeight: Math.max(below, 0), above: false };
+  }
+  const height = Math.min(natural, above);
+  return { top: anchor.top - MARGIN - height, left, width, maxHeight: above, above: true };
+}
+
 function LinePicker({
   line,
   seq,
@@ -108,6 +150,40 @@ function LinePicker({
   const { state } = speakers;
   const override = state.lines.find((l) => l.seq === seq);
   const current = override ? (override.participantId ?? "nobody") : "voice";
+
+  // Place it next to its line, inside the window; again when the line moves (the transcript scrolls
+  // or follows new lines), the window changes, or the guest form opens.
+  const [place, setPlace] = useState<Placement | null>(null);
+  useLayoutEffect(() => {
+    const update = () => {
+      const anchor = trigger.current?.getBoundingClientRect();
+      const el = box.current;
+      if (!anchor || !el) return;
+      const next = placePicker(anchor, el.scrollHeight, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+      setPlace((p) =>
+        p &&
+        p.top === next.top &&
+        p.left === next.left &&
+        p.maxHeight === next.maxHeight &&
+        p.width === next.width
+          ? p
+          : next,
+      );
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [trigger, guest, state.participants.length]);
+  const style: CSSProperties | undefined = place
+    ? { top: place.top, left: place.left, width: place.width, maxHeight: place.maxHeight }
+    : { visibility: "hidden" };
 
   // Focus the current choice when the picker opens.
   useEffect(() => {
@@ -132,7 +208,8 @@ function LinePicker({
   return (
     <div
       ref={box}
-      className="line-picker"
+      className={`line-picker${place?.above ? " line-picker--above" : ""}`}
+      style={style}
       role="dialog"
       aria-label={t("speakers.line.picker", { time })}
       aria-describedby={`${id}-title`}

@@ -149,3 +149,52 @@ test.describe("AC5 choices survive a reload", () => {
     await expect(page.getByRole("button", { name: line("Voice D", "10:01$") })).toBeVisible();
   });
 });
+
+test.describe("UI rework: the Who said this? picker is fully reachable", () => {
+  async function inViewport(page: Page, locator: ReturnType<Page["locator"]>) {
+    const box = await locator.boundingBox();
+    const vp = page.viewportSize()!;
+    expect(box, "on screen").not.toBeNull();
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(vp.height);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(vp.width);
+  }
+
+  for (const size of [
+    { width: 1280, height: 800 },
+    { width: 375, height: 812 },
+  ]) {
+    test(`every option and Add guest are visible and usable at ${size.width} px`, async ({ page }) => {
+      await page.setViewportSize(size);
+      await openAt(page, "live-speakers");
+      // The last line of the transcript: the one most often corrected, at the bottom of the pane.
+      const last = page.getByRole("button", { name: line("Mara Klein", "10:12$") });
+      await last.scrollIntoViewIfNeeded();
+      await last.click();
+      const picker = page.getByRole("dialog", { name: "Speaker of the line at 10:12" });
+      const options = picker.getByRole("button");
+      await expect(options).toHaveCount(8);
+      for (let i = 0; i < 8; i++) {
+        const option = options.nth(i);
+        await inViewport(page, option);
+        const box = (await option.boundingBox())!;
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        // Nothing covers it: it is the element at its own centre.
+        const top = await page.evaluate(
+          ({ x, y }) => document.elementFromPoint(x, y)?.closest("button")?.textContent ?? "",
+          { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+        );
+        expect(top).toBe(await option.textContent());
+      }
+      await picker.getByRole("button", { name: "Add guest…" }).click();
+      const input = picker.getByRole("textbox", { name: "Name of the guest" });
+      await expect(input).toBeFocused();
+      await inViewport(page, input);
+      await input.fill("Petra Sand");
+      await picker.getByRole("button", { name: "Add", exact: true }).click();
+      await expect(page.getByRole("button", { name: line("Petra Sand", "10:12$") })).toBeVisible();
+      await expectNoHorizontalScroll(page);
+    });
+  }
+});

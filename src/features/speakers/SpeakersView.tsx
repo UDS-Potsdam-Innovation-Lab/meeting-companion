@@ -99,12 +99,18 @@ export const SpeakersView = forwardRef<HTMLHeadingElement, Props>(function Speak
           type="button"
           className="button button--primary speakers__apply"
           aria-disabled={!applicable}
+          aria-describedby={applicable ? undefined : "speakers-apply-hint"}
           onClick={() => {
             if (applicable) void speakers.applyNames();
           }}
         >
           {t("speakers.apply")}
         </button>
+        {applicable ? null : (
+          <p className="speakers__apply-hint" id="speakers-apply-hint">
+            {t("speakers.apply.none")}
+          </p>
+        )}
       </aside>
     </main>
   );

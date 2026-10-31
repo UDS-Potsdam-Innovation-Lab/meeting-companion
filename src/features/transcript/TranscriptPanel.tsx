@@ -58,6 +58,11 @@ export function TranscriptPanel({ recording, consented, speakers, onOpenSpeakers
         ) : (
           <OffNotice recording={recording} />
         )}
+        {speakers.failed ? (
+          <p className="banner banner--error" role="alert">
+            {t("speakers.failed")}
+          </p>
+        ) : null}
         {recording.transcriptError ? (
           <p className="banner banner--error" role="alert">
             {t("transcript.loadFailed")}
@@ -117,10 +122,12 @@ function Feed({
   }, [restore]);
 
   // Follow the newest line unless the reader scrolled up.
+  // Follow the newest line unless the reader scrolled up, or is picking who said a line (the line
+  // would move away under the picker).
   useLayoutEffect(() => {
     const el = feedRef.current;
-    if (pinned && el) el.scrollTop = el.scrollHeight;
-  }, [pinned, lines.length, partial?.text]);
+    if (pinned && picking === null && el) el.scrollTop = el.scrollHeight;
+  }, [pinned, picking, lines.length, partial?.text]);
 
   const onScroll = () => {
     const el = feedRef.current;

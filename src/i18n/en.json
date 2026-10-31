@@ -221,5 +221,6 @@
   "speakers.footer.off.one": "{count} speaker",
   "speakers.footer.off.other": "{count} speakers",
   "speakers.suggested.sub": "Suggested · Name round",
-  "speakers.line.suffix": ", speaker of the line at {time}"
+  "speakers.line.suffix": ", speaker of the line at {time}",
+  "speakers.apply.none": "Nothing to apply: no voice has a name from the name round that waits for confirmation. Unsure voices need a person to pick."
 }

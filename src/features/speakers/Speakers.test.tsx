@@ -352,10 +352,9 @@ describe("AC5 choices", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("5 voices detected · 3 matched");
     expect(screen.getByRole("combobox", { name: "Person for Voice D" })).toHaveValue("");
     // Nothing unique is left: the button says so instead of doing nothing silently.
-    expect(screen.getByRole("button", { name: "Apply names to transcript" })).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
+    const apply = screen.getByRole("button", { name: "Apply names to transcript" });
+    expect(apply).toHaveAttribute("aria-disabled", "true");
+    expect(apply).toHaveAccessibleDescription(/^Nothing to apply/);
   });
 
   it("Who said this? is non-modal, overrides one line, closes on Escape and outside clicks, and can go back", async () => {
@@ -405,5 +404,19 @@ describe("AC5 choices", () => {
     expect(
       await screen.findByRole("button", { name: "Voice D, speaker of the line at 10:11" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("UI rework: a per-line choice that cannot be saved", () => {
+  it("says so in the live view", async () => {
+    const user = userEvent.setup();
+    // The fake core refuses speaker commands without a reply (storageFailed).
+    await filled();
+    await user.click(screen.getByRole("button", { name: "Voice D, speaker of the line at 10:11" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Yusuf Aydin/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The choice could not be saved on this device.",
+    );
+    expect(screen.getByRole("button", { name: "Voice D, speaker of the line at 10:11" })).toBeInTheDocument();
   });
 });

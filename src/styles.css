@@ -1539,15 +1539,15 @@ select {
 }
 
 /* "Who said this?": a white card anchored to the line, not modal. */
+/* Placed in window coordinates (placePicker), so the scrolling transcript cannot cut it off. */
 .line-picker {
-  position: absolute;
-  top: 34px;
-  left: 0;
-  z-index: 3;
+  position: fixed;
+  z-index: 30;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: min(300px, 100%);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -1568,16 +1568,15 @@ select {
   margin: 0;
   padding: 0;
   list-style: none;
-  max-height: 260px;
-  overflow-y: auto;
 }
 
+/* 44 px: the board is used by touch. */
 .line-picker__option {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 32px;
+  min-height: 44px;
   padding: 4px 8px;
   border: 0;
   border-radius: 8px;
@@ -1619,12 +1618,16 @@ select {
 .guest-form__input {
   flex: 1 1 140px;
   min-width: 0;
-  min-height: 32px;
+  min-height: 44px;
   padding: 4px 10px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--surface);
   font-size: 14px;
+}
+
+.guest-form .button {
+  min-height: 44px;
 }
 
 .guest-form__error {
@@ -2248,4 +2251,9 @@ select {
 
 .transcript-line--partial .transcript-line__meta {
   padding-left: 36px;
+}
+
+.speakers__apply-hint {
+  font-size: 13px;
+  color: var(--ink-2);
 }
