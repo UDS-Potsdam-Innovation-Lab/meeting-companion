@@ -10,8 +10,8 @@ import {
   type ThemeSetting,
 } from "../../lib/ipc";
 import { GearIcon, MicIcon, MonitorIcon, PlayIcon, StopIcon, WaveIcon } from "../../ui/icons";
+import { SoundWave, useNoSignal, type WaveState } from "../../ui/SoundWave";
 import { formatMegabytes } from "../transcript/format";
-import { LevelMeter } from "../transcript/LevelMeter";
 import { RecordingControls } from "../transcript/RecordingControls";
 import { THEMES } from "./theme";
 import { useCapture, useInputDevices, useMicTest } from "./useAudioState";
@@ -333,9 +333,20 @@ function AudioSection() {
       ? t("settings.test.disabledMissing", { name: chosen ?? "" })
       : null;
 
-  const level = meetingActive ? capture.level : test.state.level;
-  const meterActive = capture.state === "recording" || running;
   const testError = test.state.state === "error" && test.state.reason ? test.state.reason : null;
+  // The meter shows the running recording's level, or the test's; both come from the capture side.
+  const source = meetingActive ? capture.meetingId : null;
+  const listening = capture.state === "recording" || (!meetingActive && running);
+  const noSignal = useNoSignal(listening, source);
+  const wave: WaveState = listening
+    ? noSignal
+      ? "noSignal"
+      : "listening"
+    : capture.state === "paused"
+      ? "paused"
+      : testError === "microphoneLost" || testError === "noMicrophone"
+        ? "lost"
+        : "off";
 
   return (
     <>
@@ -415,13 +426,20 @@ function AudioSection() {
           }
         >
           <div className="meter-box" data-testid="settings-meter">
-            <LevelMeter level={level} active={meterActive} />
+            <SoundWave state={wave} source={source} size="settings" />
             <span className="meter-box__text">
-              {meetingActive
-                ? t("settings.test.recordingDevice", { name: deviceName })
-                : running
-                  ? deviceName
-                  : t("settings.test.none")}
+              {wave === "noSignal" || wave === "lost" ? (
+                <span className={`meter-box__status meter-box__status--${wave}`}>
+                  {t(wave === "noSignal" ? "wave.noSignal" : "wave.lost")}
+                </span>
+              ) : null}
+              {capture.state === "paused"
+                ? t("settings.test.pausedDevice", { name: deviceName })
+                : meetingActive
+                  ? t("settings.test.recordingDevice", { name: deviceName })
+                  : running || wave === "lost"
+                    ? deviceName
+                    : t("settings.test.none")}
             </span>
             {running ? (
               <span className="meter-box__left" aria-live="off">

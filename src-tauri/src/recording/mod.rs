@@ -36,6 +36,7 @@ use serde::Serialize;
 use crate::engines::audio::{AudioError, AudioSink, AudioSource};
 use crate::engines::devices::{AudioDevices, NoAudioDevices};
 use crate::engines::diarize::{Diarizer, VoiceTracker};
+use crate::engines::level::{Level, LevelPacer};
 use crate::engines::models::SpeakerModelList;
 use crate::engines::stt::{Lang, SpeechToText, SttError};
 use crate::engines::{AudioFactory, DiarizerProvider, NoSpeakerModelProvider, SttProvider};
@@ -167,6 +168,29 @@ pub struct VoiceEvent {
     pub voice: Voice,
 }
 
+/// The input level for the sound wave (`capture-level` event), sent every [`crate::engines::level::LEVEL_EVERY`] while
+/// audio arrives, from the capture side. Numbers only: never samples. `meeting_id` is `None` for the
+/// microphone test. The last event before capture stops has level 0.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LevelEvent {
+    pub meeting_id: Option<String>,
+    /// Scaled RMS 0..1 ([`crate::engines::level::scaled_rms`]).
+    pub level: f32,
+    /// Highest absolute sample of the block, 0..1.
+    pub peak: f32,
+}
+
+impl LevelEvent {
+    fn new(meeting_id: Option<&str>, l: Level) -> Self {
+        Self {
+            meeting_id: meeting_id.map(str::to_owned),
+            level: l.level,
+            peak: l.peak,
+        }
+    }
+}
+
 /// Why a recording command was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -193,6 +217,8 @@ pub trait EventSink: Send + Sync {
     fn switched(&self, _event: &SwitchedEvent) {}
     /// The microphone test's state (`mic-test` event).
     fn mic_test(&self, _state: &MicTestState) {}
+    /// The input level of the recording or the microphone test (`capture-level` event).
+    fn level(&self, _event: &LevelEvent) {}
 }
 
 /// Recording switched to the system default microphone after the chosen one was lost.
@@ -292,7 +318,8 @@ struct Returned {
 /// What the halt and the worker both see of one session.
 #[derive(Default)]
 struct Session {
-    /// A halt began: the monitor stops ticking, switching and reporting.
+    /// A halt began: the monitor stops ticking, switching, reporting and sending levels (the level
+    /// stream stops before the device is closed).
     stopping: AtomicBool,
     /// The halt stopped waiting for this worker: it changes no state and closes no source any more.
     abandoned: AtomicBool,
@@ -1131,9 +1158,17 @@ fn run(
         let mut last_tick = Instant::now();
         let mut lost_since: Option<Instant> = None;
         let mut fallback = fallback;
+        // The sound wave's level, from the capture side: it keeps coming while the engine works.
+        let mut pacer = LevelPacer::new();
+        let send_level = |l: Level| shared.events.level(&LevelEvent::new(Some(&meeting_id), l));
         while !done.load(SeqCst) && !stt.is_finished() && !session.stopping.load(SeqCst) {
-            std::thread::sleep(Duration::from_millis(25));
+            std::thread::sleep(pacer.due_in(Duration::from_millis(25)));
             let (failed, ended) = sink.peek();
+            let live = failed.is_none()
+                && !ended
+                && !reported.load(SeqCst)
+                && !session.stopping.load(SeqCst);
+            pacer.step(&sink, live, send_level);
             let reason = failed.map(Reason::from).or_else(|| {
                 (!ended && sink.since_last_push() >= STALL).then_some(Reason::MicrophoneLost)
             });
@@ -1167,6 +1202,8 @@ fn run(
                 );
             }
         }
+        // The last level is 0, also when the engine never returns.
+        pacer.finish(send_level);
         // A halt may stop waiting for this join (the engine may never return).
         if stt.join().is_err() {
             crate::log!("speech-to-text stopped unexpectedly");
@@ -1206,6 +1243,9 @@ fn run(
 
 mod mic_test;
 pub use mic_test::{MicTest, MicTestError, MicTestState, TEST_LIMIT};
+
+#[cfg(test)]
+mod level_tests;
 
 #[cfg(test)]
 mod device_tests;

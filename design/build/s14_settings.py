@@ -116,7 +116,9 @@ def info(b, parent, icon, text, z, tone="neutral", sub=None, name="Notice"):
 
 
 def card_head(b, card, title, hint, z, right=None):
-    h = b.row(card, "Head", gap=12, sizingH="fill", cross="min")
+    stack = right is not None and z.size == "phone"  # 375 px: the chip goes under the text, not beside it
+    h = (b.col(card, "Head", gap=8, sizingH="fill") if stack
+         else b.row(card, "Head", gap=12, sizingH="fill", cross="min"))
     c = b.col(h, "Title", gap=3, sizingH="fill")
     b.txt(c, title, size=z.f(16), style="SemiBold", fillW=True)
     if hint:

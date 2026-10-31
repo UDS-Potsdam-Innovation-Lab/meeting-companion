@@ -239,15 +239,15 @@ describe("AC4 transcript column", () => {
     expect(card().querySelector("b")).toBeNull();
   });
 
-  it("shows Listening with the level meter while recording and Paused with flat bars", async () => {
+  it("shows Listening with the sound wave while recording and Paused with a flat line", async () => {
     await openLive(liveConsentedMeeting(), { status: state({}) });
-    expect(card().querySelector(".level-meter")).not.toBeNull();
-    expect(card().querySelector(".level-meter--flat")).toBeNull();
+    expect(card().querySelector('.sound-wave[data-state="listening"]')).not.toBeNull();
     expect(within(card()).getByRole("button", { name: "Listening · 0 speakers" })).toBeVisible();
     await sendState({ state: "paused", level: 0 });
-    expect(card().querySelector(".level-meter--flat")).not.toBeNull();
+    expect(card().querySelector('.sound-wave[data-state="paused"]')).not.toBeNull();
+    expect(card().querySelector(".sound-wave__bar")).toBeNull();
     await sendState({ state: "off", meetingId: null });
-    expect(card().querySelector(".level-meter")).toBeNull();
+    expect(card().querySelector(".sound-wave")).toBeNull();
   });
 
   it("announces new lines politely, at most once every 10 s", async () => {

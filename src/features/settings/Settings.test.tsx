@@ -338,9 +338,9 @@ describe("AC4 microphone test", () => {
     expect(await screen.findByTestId("mic-test-running")).toHaveTextContent("Microphone test running");
     await sendTest({ remainingMs: 6_400, level: 0.7 });
     expect(screen.getByText("0:07 left")).toBeVisible();
-    const bars = screen.getByTestId("settings-meter").querySelectorAll(".level-meter__bar");
-    expect(bars).toHaveLength(12);
-    expect(screen.getByTestId("settings-meter").querySelector(".level-meter--flat")).toBeNull();
+    const wave = screen.getByTestId("settings-meter").querySelector(".sound-wave--settings");
+    expect(wave).toHaveAttribute("data-state", "listening");
+    expect(wave!.querySelectorAll(".sound-wave__bar")).toHaveLength(31);
     await user.click(screen.getByRole("button", { name: "Stop test" }));
     expect(calls(core, "stop_mic_test")).toHaveLength(1);
     expect(screen.queryByTestId("mic-test-running")).toBeNull();
@@ -378,8 +378,16 @@ describe("AC4 microphone test", () => {
     expect(screen.getByText("Not available while the meeting records or is paused.")).toBeVisible();
     expect(button).toHaveAccessibleDescription("Not available while the meeting records or is paused.");
     expect(screen.getByText("Recording · System default")).toBeVisible();
-    expect(screen.getByTestId("settings-meter").querySelector(".level-meter--flat")).toBeNull();
+    expect(screen.getByTestId("settings-meter").querySelector(".sound-wave")).toHaveAttribute(
+      "data-state",
+      "listening",
+    );
     await act(() => emit(EVENT_CAPTURE, recordingState({ state: "paused", level: 0 })));
+    expect(screen.getByTestId("settings-meter").querySelector(".sound-wave")).toHaveAttribute(
+      "data-state",
+      "paused",
+    );
+    expect(screen.getByText("Recording paused · System default")).toBeVisible();
     expect(button).toBeDisabled();
     expect(calls(core, "start_mic_test")).toHaveLength(0);
   });
