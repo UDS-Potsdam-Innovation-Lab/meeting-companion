@@ -323,5 +323,52 @@
  "s19s_entry": {
   "screen": 18543,
   "back": 18951
+ },
+ "s20_voices": {
+  "screen": 19424
+ },
+ "s20b_live": {
+  "screen": 21016
+ },
+ "s20c_off": {
+  "screen": 20026
+ },
+ "s20i_settings": {
+  "screen": 21248,
+  "back": 21270
+ },
+ "s20j_empty": {
+  "screen": 21380,
+  "back": 21402
+ },
+ "s20k_disallowed": {
+  "screen": 21472,
+  "back": 21494
+ },
+ "s20l_dark": {
+  "screen": 21610,
+  "back": 21632
+ },
+ "s20d_pick": {
+  "screen": 20762
+ },
+ "s20e_consent": {
+  "screen": 21826
+ },
+ "s20f_consent_de": {
+  "screen": 21871
+ },
+ "s20g_saved": {
+  "screen": 20888
+ },
+ "s20h_delete": {
+  "screen": 21916
+ },
+ "s20m_375": {
+  "screen": 21937,
+  "back": 21945
+ },
+ "s20s_states": {
+  "screen": 22023
  }
 }

@@ -172,7 +172,7 @@ def screen(prefix, name, x, y, content, w=1440, h=900, size="wide", origin="setu
         if topbar:
             topbar(b, s, z)
         elif size == "phone":
-            bar_phone(b, s, z, origin)
+            bar_phone(b, s, z, origin, help_btn=help_link)
         elif origin == "live":
             S.bar_live(b, s, z, title or ("Product sync · Beta launch" if not z.narrow else "Product sync"))
         else:
