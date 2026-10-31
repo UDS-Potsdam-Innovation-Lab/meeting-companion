@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "needs-human",
+  "stage": "approve",
   "round": 3,
   "max_round": 3,
   "reviews": {
@@ -36,8 +36,8 @@
       }
     }
   ],
-  "decision": "ESCALATE (human gate)",
-  "waiting": "human approval",
-  "note": "Round 3 all PASS, CI green; human gate",
-  "updated": "2026-10-31T10:15:48Z"
+  "decision": "APPROVE (human)",
+  "waiting": null,
+  "note": "Human approved; merging",
+  "updated": "2026-10-31T10:17:54Z"
 }
