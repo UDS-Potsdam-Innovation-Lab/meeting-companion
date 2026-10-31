@@ -4,6 +4,7 @@ import { invalidProps, errorId } from "../../ui/Field";
 import { PlusIcon } from "../../ui/icons";
 import { LIMITS, validateTitle, type ErrorCode } from "../agenda/model";
 import type { TopicRow } from "./free";
+import { matches } from "../../app/shortcuts";
 
 interface Props {
   topics: TopicRow[];
@@ -165,7 +166,7 @@ function AddTopicForm({ onAdd, onCancel }: { onAdd: (title: string) => void; onC
       className="add-topic"
       onSubmit={submit}
       onKeyDown={(e) => {
-        if (e.key === "Escape") {
+        if (matches("back", e)) {
           e.preventDefault();
           onCancel();
         }

@@ -14,6 +14,7 @@ import { formatClock } from "../transcript/format";
 import { GuestForm } from "./GuestForm";
 import { lineSpeaker } from "./model";
 import type { Speakers } from "./useSpeakers";
+import { matches } from "../../app/shortcuts";
 
 interface Props {
   line: TranscriptSegment;
@@ -214,7 +215,7 @@ function LinePicker({
       aria-label={t("speakers.line.picker", { time })}
       aria-describedby={`${id}-title`}
       onKeyDown={(e) => {
-        if (e.key === "Escape") {
+        if (matches("back", e)) {
           e.stopPropagation();
           onClose(true);
         }

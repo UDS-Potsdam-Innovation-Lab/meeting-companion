@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
+import { matches } from "../../app/shortcuts";
 
 /** How long the inline confirmation stays armed. */
 export const CONFIRM_MS = 6000;
@@ -40,7 +41,7 @@ export function EndMeeting({ onEnd }: { onEnd: () => void }) {
     <div
       className="end-meeting"
       onKeyDown={(e) => {
-        if (e.key === "Escape" && armed && !ended) disarm();
+        if (matches("back", e) && armed && !ended) disarm();
       }}
     >
       {armed && !ended ? (

@@ -12,6 +12,7 @@ import {
   type ItemErrors,
   type Participant,
 } from "./model";
+import { matches } from "../../app/shortcuts";
 
 interface Props {
   id: string;
@@ -66,7 +67,7 @@ export function ItemEditor({ id, item, participants, onCommit, onDone, onValidit
   }
 
   function onKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
+    if (matches("back", e)) {
       e.stopPropagation();
       onDone();
     }

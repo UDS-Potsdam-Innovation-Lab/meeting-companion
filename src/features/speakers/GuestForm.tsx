@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useI18n, type MessageKey } from "../../i18n";
 import type { GuestNameCode, SpeakerError } from "../../lib/ipc";
+import { matches } from "../../app/shortcuts";
 
 /** Longest guest name (as in the core). */
 export const GUEST_NAME_MAX = 80;
@@ -42,7 +43,7 @@ export function GuestForm({ onAdd, onCancel }: Props) {
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
+    if (matches("back", e)) {
       e.stopPropagation();
       onCancel();
     }
