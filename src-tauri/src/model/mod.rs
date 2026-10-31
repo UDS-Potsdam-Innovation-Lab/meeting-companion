@@ -24,6 +24,17 @@ pub const EXTRA_MINUTES_MAX: i64 = 240;
 pub const GUEST_NAME_MAX: usize = 80;
 /// Most line choices ("Who said this?") one meeting keeps.
 pub const MAX_LINE_CHOICES: usize = 20_000;
+/// Most topics one agenda-free meeting keeps (the same limit as agenda items).
+pub const MAX_TOPICS: usize = 100;
+/// Most time spans one topic keeps (each tap on the topic opens one).
+pub const MAX_SPANS: usize = 1_000;
+
+/// `mode` of a meeting with an agenda; also what a meeting without `mode` is.
+pub const MODE_AGENDA: &str = "agenda";
+/// `mode` of an agenda-free meeting: a whole-meeting timer and topics added by hand.
+pub const MODE_FREE: &str = "free";
+/// `source` of a topic a person typed in. Detected topics (a later job) get their own value.
+pub const SOURCE_MANUAL: &str = "manual";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +50,11 @@ pub struct Meeting {
     pub end: String,
     pub participants: Vec<Participant>,
     pub items: Vec<AgendaItem>,
+    /// `agenda` or `free` (agenda-free). Optional and left out of the JSON while unset, so files
+    /// without it load unchanged as agenda meetings. A string, not an enum, so that an unknown value
+    /// from the UI is reported as a field error instead of failing to parse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     /// Milliseconds since the Unix epoch of the last save; set by the app, not by the UI.
     #[serde(default)]
     pub updated_at: u64,
@@ -111,8 +127,42 @@ pub struct Run {
     #[serde(default)]
     pub ended_at: Option<u64>,
     /// The agenda items that have started, in the order they started. At most one has no end: the
-    /// current item.
+    /// current item. Always empty in an agenda-free meeting.
     pub items: Vec<RunItem>,
+    /// Agenda-free meetings only: the topics added during the meeting, in the order they were added.
+    /// At most one span of all topics is open: the topic "talking now". Left out of the JSON while
+    /// empty, so agenda runs are stored unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub topics: Vec<Topic>,
+}
+
+/// A topic of an agenda-free meeting. The title is typed by a person and untrusted like any text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Topic {
+    pub id: String,
+    pub title: String,
+    /// Only `manual` for now. A string so that another value is reported as a field error.
+    pub source: String,
+    /// When the topic was "talking now", in order. Its minutes are the sum of the spans.
+    #[serde(default)]
+    pub spans: Vec<Span>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Span {
+    pub started_at: u64,
+    /// None while the topic is "talking now".
+    #[serde(default)]
+    pub ended_at: Option<u64>,
+}
+
+impl Meeting {
+    /// An agenda-free meeting. A meeting without `mode` is an agenda meeting.
+    pub fn is_free(&self) -> bool {
+        self.mode.as_deref() == Some(MODE_FREE)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -274,6 +324,12 @@ pub fn validate(m: &Meeting) -> Vec<FieldError> {
         _ => {}
     }
 
+    if let Some(mode) = &m.mode {
+        if mode != MODE_AGENDA && mode != MODE_FREE {
+            errs.push(FieldError::new("mode", "unknown"));
+        }
+    }
+
     if m.participants.len() > MAX_PARTICIPANTS {
         errs.push(FieldError::new("participants", "tooMany"));
     }
@@ -379,8 +435,19 @@ fn validate_speakers(m: &Meeting, s: &Speakers, errs: &mut Vec<FieldError>) {
 
 /// The run state comes from the UI over IPC and is checked like any other input.
 fn validate_run(m: &Meeting, run: &Run, errs: &mut Vec<FieldError>) {
-    if m.items.is_empty() {
-        errs.push(FieldError::new("run", "noItems"));
+    if m.is_free() {
+        // An agenda-free meeting keeps the typed agenda items in its draft, but its run ignores them.
+        if !run.items.is_empty() {
+            errs.push(FieldError::new("run.items", "notInFreeMode"));
+        }
+        validate_topics(run, errs);
+    } else {
+        if m.items.is_empty() {
+            errs.push(FieldError::new("run", "noItems"));
+        }
+        if !run.topics.is_empty() {
+            errs.push(FieldError::new("run.topics", "notInAgendaMode"));
+        }
     }
     if let Some(end) = run.ended_at {
         if end < run.started_at {
@@ -423,6 +490,56 @@ fn validate_run(m: &Meeting, run: &Run, errs: &mut Vec<FieldError>) {
     }
 }
 
+/// The topics of an agenda-free run: titles as agenda item titles, unique ids, typed by a person, and
+/// spans inside the run with at most one open ("talking now") and none once the run has ended.
+fn validate_topics(run: &Run, errs: &mut Vec<FieldError>) {
+    if run.topics.len() > MAX_TOPICS {
+        errs.push(FieldError::new("run.topics", "tooMany"));
+    }
+    let mut ids = std::collections::HashSet::new();
+    let mut open = 0;
+    for (i, t) in run.topics.iter().enumerate() {
+        let at = |f: &str| format!("run.topics[{i}].{f}");
+        if !is_valid_id(&t.id) {
+            errs.push(FieldError::new(at("id"), "invalid"));
+        } else if !ids.insert(t.id.as_str()) {
+            errs.push(FieldError::new(at("id"), "duplicate"));
+        }
+        if t.title.trim().is_empty() {
+            errs.push(FieldError::new(at("title"), "empty"));
+        } else if char_len(&t.title) > TITLE_MAX {
+            errs.push(FieldError::new(at("title"), "tooLong"));
+        }
+        if t.source != SOURCE_MANUAL {
+            errs.push(FieldError::new(at("source"), "unknown"));
+        }
+        if t.spans.len() > MAX_SPANS {
+            errs.push(FieldError::new(at("spans"), "tooMany"));
+        }
+        for (j, s) in t.spans.iter().enumerate() {
+            let at = |f: &str| format!("run.topics[{i}].spans[{j}].{f}");
+            if s.started_at < run.started_at {
+                errs.push(FieldError::new(at("startedAt"), "beforeRunStart"));
+            }
+            match s.ended_at {
+                Some(end) if end < s.started_at => {
+                    errs.push(FieldError::new(at("endedAt"), "beforeStart"));
+                }
+                Some(_) => {}
+                None => {
+                    open += 1;
+                    if run.ended_at.is_some() {
+                        errs.push(FieldError::new(at("endedAt"), "openAfterEnd"));
+                    }
+                }
+            }
+        }
+    }
+    if open > 1 {
+        errs.push(FieldError::new("run.topics", "multipleCurrent"));
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -455,6 +572,7 @@ pub(crate) mod tests {
                 goal: Goal::Inform,
                 minutes: 5,
             }],
+            mode: None,
             updated_at: 0,
             run: None,
             recording_consent_at: None,
@@ -492,6 +610,7 @@ pub(crate) mod tests {
                     parked: false,
                 },
             ],
+            topics: vec![],
         });
         m
     }
@@ -714,6 +833,7 @@ pub(crate) mod tests {
             started_at: 1,
             ended_at: None,
             items: vec![],
+            topics: vec![],
         });
         assert_eq!(codes(&m), vec![("run".into(), "noItems")]);
     }
@@ -749,6 +869,217 @@ pub(crate) mod tests {
         run.items[1].ended_at = Some(400_000);
         run.ended_at = Some(400_000);
         assert!(validate(&m).is_empty());
+    }
+
+    // ---- agenda-free mode (job 009) -------------------------------------------------------------
+
+    fn topic(id: &str, spans: &[(u64, Option<u64>)]) -> Topic {
+        Topic {
+            id: id.into(),
+            title: format!("Topic {id}"),
+            source: SOURCE_MANUAL.into(),
+            spans: spans
+                .iter()
+                .map(|&(started_at, ended_at)| Span {
+                    started_at,
+                    ended_at,
+                })
+                .collect(),
+        }
+    }
+
+    /// An agenda-free meeting started at 1000 with two topics; t-2 is "talking now". The typed
+    /// agenda item of `sample()` stays in the draft.
+    pub fn free_running() -> Meeting {
+        let mut m = sample();
+        m.mode = Some(MODE_FREE.into());
+        m.run = Some(Run {
+            started_at: 1_000,
+            ended_at: None,
+            items: vec![],
+            topics: vec![
+                topic("t-1", &[(1_000, Some(61_000))]),
+                topic("t-2", &[(61_000, None)]),
+            ],
+        });
+        m
+    }
+
+    #[test]
+    fn free_running_meeting_is_valid_and_round_trips_in_camel_case() {
+        let m = free_running();
+        assert!(validate(&m).is_empty(), "{:?}", validate(&m));
+        let json = serde_json::to_value(&m).unwrap();
+        assert_eq!(json["mode"], "free");
+        assert_eq!(json["run"]["topics"][1]["source"], "manual");
+        assert_eq!(json["run"]["topics"][0]["spans"][0]["endedAt"], 61_000);
+        assert!(json["run"]["topics"][1]["spans"][0]["endedAt"].is_null());
+        let back: Meeting = serde_json::from_value(json).unwrap();
+        assert_eq!(back, m);
+    }
+
+    #[test]
+    fn a_file_without_mode_loads_as_an_agenda_meeting_and_is_written_back_without_it() {
+        let json = serde_json::to_value(running()).unwrap();
+        assert!(json.get("mode").is_none());
+        assert!(json["run"].get("topics").is_none());
+        let back: Meeting = serde_json::from_value(json).unwrap();
+        assert_eq!(back.mode, None);
+        assert!(!back.is_free());
+        assert!(back.run.unwrap().topics.is_empty());
+        let mut m = running();
+        m.mode = Some(MODE_AGENDA.into());
+        assert!(validate(&m).is_empty());
+    }
+
+    #[test]
+    fn rejects_an_unknown_mode() {
+        let mut m = sample();
+        for bad in ["", "Free", "auto", "<script>"] {
+            m.mode = Some(bad.into());
+            assert_eq!(codes(&m), vec![("mode".into(), "unknown")], "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_free_run_without_agenda_items_is_accepted() {
+        let mut m = free_running();
+        m.items.clear();
+        assert!(validate(&m).is_empty());
+        run_mut(&mut m).topics.clear();
+        assert!(validate(&m).is_empty());
+    }
+
+    #[test]
+    fn an_agenda_run_without_items_is_still_rejected() {
+        let mut m = free_running();
+        m.items.clear();
+        m.mode = Some(MODE_AGENDA.into());
+        run_mut(&mut m).topics.clear();
+        assert_eq!(codes(&m), vec![("run".into(), "noItems")]);
+    }
+
+    #[test]
+    fn rejects_a_free_run_with_run_items() {
+        let mut m = free_running();
+        run_mut(&mut m).items.push(RunItem {
+            item_id: "i-1".into(),
+            started_at: 1_000,
+            ended_at: Some(2_000),
+            extra_minutes: 0,
+            parked: false,
+        });
+        assert_eq!(codes(&m), vec![("run.items".into(), "notInFreeMode")]);
+    }
+
+    #[test]
+    fn rejects_topics_on_an_agenda_run() {
+        let mut m = running();
+        run_mut(&mut m)
+            .topics
+            .push(topic("t-1", &[(1_000, Some(2_000))]));
+        assert_eq!(codes(&m), vec![("run.topics".into(), "notInAgendaMode")]);
+    }
+
+    #[test]
+    fn topic_titles_are_1_to_200_characters() {
+        let mut m = free_running();
+        run_mut(&mut m).topics[0].title = "ä".repeat(200);
+        assert!(validate(&m).is_empty());
+        run_mut(&mut m).topics[0].title.push('x');
+        assert_eq!(codes(&m), vec![("run.topics[0].title".into(), "tooLong")]);
+        run_mut(&mut m).topics[0].title = "  ".into();
+        assert_eq!(codes(&m), vec![("run.topics[0].title".into(), "empty")]);
+    }
+
+    #[test]
+    fn rejects_more_than_100_topics() {
+        let mut m = free_running();
+        let run = run_mut(&mut m);
+        run.topics = (0..100)
+            .map(|i| topic(&format!("t-{i}"), &[(2_000, Some(3_000))]))
+            .collect();
+        assert!(validate(&m).is_empty());
+        run_mut(&mut m)
+            .topics
+            .push(topic("t-100", &[(2_000, Some(3_000))]));
+        assert_eq!(codes(&m), vec![("run.topics".into(), "tooMany")]);
+    }
+
+    #[test]
+    fn rejects_a_duplicate_or_malformed_topic_id() {
+        let mut m = free_running();
+        run_mut(&mut m).topics[1].id = "t-1".into();
+        assert_eq!(codes(&m), vec![("run.topics[1].id".into(), "duplicate")]);
+        run_mut(&mut m).topics[1].id = "../x".into();
+        assert_eq!(codes(&m), vec![("run.topics[1].id".into(), "invalid")]);
+    }
+
+    #[test]
+    fn rejects_a_topic_source_other_than_manual() {
+        let mut m = free_running();
+        for bad in ["detected", "", "Manual"] {
+            run_mut(&mut m).topics[0].source = bad.into();
+            assert_eq!(
+                codes(&m),
+                vec![("run.topics[0].source".into(), "unknown")],
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_a_span_before_the_run_or_ending_before_it_starts() {
+        let mut m = free_running();
+        run_mut(&mut m).topics[0].spans[0].started_at = 999;
+        assert_eq!(
+            codes(&m),
+            vec![("run.topics[0].spans[0].startedAt".into(), "beforeRunStart")]
+        );
+        let mut m = free_running();
+        run_mut(&mut m).topics[0].spans[0].ended_at = Some(500);
+        assert_eq!(
+            codes(&m),
+            vec![("run.topics[0].spans[0].endedAt".into(), "beforeStart")]
+        );
+    }
+
+    #[test]
+    fn rejects_more_than_one_open_span() {
+        let mut m = free_running();
+        run_mut(&mut m).topics[0].spans[0].ended_at = None;
+        assert_eq!(codes(&m), vec![("run.topics".into(), "multipleCurrent")]);
+        // Also two open spans of the same topic.
+        let mut m = free_running();
+        run_mut(&mut m).topics[1].spans.push(Span {
+            started_at: 70_000,
+            ended_at: None,
+        });
+        assert_eq!(codes(&m), vec![("run.topics".into(), "multipleCurrent")]);
+    }
+
+    #[test]
+    fn rejects_an_open_span_after_the_run_has_ended() {
+        let mut m = free_running();
+        run_mut(&mut m).ended_at = Some(100_000);
+        assert_eq!(
+            codes(&m),
+            vec![("run.topics[1].spans[0].endedAt".into(), "openAfterEnd")]
+        );
+        run_mut(&mut m).topics[1].spans[0].ended_at = Some(100_000);
+        assert!(validate(&m).is_empty());
+    }
+
+    #[test]
+    fn rejects_a_topic_with_too_many_spans() {
+        let mut m = free_running();
+        run_mut(&mut m).topics[0].spans = (0..=MAX_SPANS as u64)
+            .map(|i| Span {
+                started_at: 1_000 + i,
+                ended_at: Some(1_000 + i),
+            })
+            .collect();
+        assert_eq!(codes(&m), vec![("run.topics[0].spans".into(), "tooMany")]);
     }
 
     // ---- speakers (job 004) -----------------------------------------------------------------------
