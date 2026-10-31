@@ -16,7 +16,7 @@ while running and `[x] … → <job-id> (<stage>)` when done.
 - [ ] Team review (frame 08): notes with suggested edits, owners accept / re-date / hand over their to-dos; on a phone via QR code over the local network
 - [ ] Export connectors (frame 04): Jira, Microsoft Planner, Teams channel post, Confluence, email recap
 - [ ] Smart board mode (frame 05): full-screen touch layout at 1920×1080, big targets, voice cue "Companion, …"
-- [ ] Agenda-free mode (frame 13): start without topics, whole-meeting timer, half-time nudge, topics by hand → 009-agenda-free-mode
+- [x] Agenda-free mode (frame 13): start without topics, whole-meeting timer, half-time nudge, topics by hand → 009-agenda-free-mode (merged)
 - [ ] Agenda-free mode: detected topics (after Language model engine): topic detection as suggestions a person confirms, half-time text naming topics without an outcome, "Go back to…" / "Park both"
 - [ ] Slides (frame 07): follow a deck from HDMI/screen share or an uploaded PPTX/PDF, notes and captures per slide, pace check
 - [ ] Proactive AI participant, visual (opt-in): listens along and contributes on screen without being asked — relevant facts from earlier meetings and documents, a missing perspective, an open question nobody answered, a check of numbers that were just said; each contribution as a card the room can take up or wave away, with how often it may speak set by the facilitator

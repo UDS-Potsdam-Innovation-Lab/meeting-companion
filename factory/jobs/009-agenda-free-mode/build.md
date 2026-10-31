@@ -58,3 +58,10 @@ f506f44 feat(core): validate agenda-free mode and manual topics
 - The free live view uses the shared `TranscriptPanel`, so it shows 007's SoundWave footer as frame 16 draws it (see `screenshots/live-free-half-1280.png`). No code change was needed for that.
 - After the merge: `npm run lint` exit 0; vitest 229 passed (19 files); cargo test 184 passed, 3 ignored; `npx playwright test` 148 passed; `npm run screenshot` 208 passed; gitleaks exit 0. Playwright was started again once port 4173 was free (other worktrees share it).
 - Not pushed.
+
+## Merge with main (008)
+I ran `git fetch origin && git merge origin/main` with no rebase. The merge commit is listed in `git log` as "merge: main (008 End meeting fix) into 009 agenda-free mode".
+- Conflict: `src/features/live/LiveView.tsx` only. I kept both sides: 009's `onDismissHalf`/`onAddTopic`/`onTapTopic` and 008's `ended` guard and immediate `onEnd`. `onEnd` no longer awaits `recording.stop()`; it saves `endRun` at once and opens a new meeting. The free view has the same `EndMeeting`/`onEnd` as the agenda view, so it uses 008's path. 009's `endRun` closes the open topic span on that path.
+- The Rust core: `save_meeting` now goes through 008's `save_from_ui` → `save` → `store.save` → `validate`, so the mode and topic rules still run. New test: `recording::tests::stop::saves_from_the_ui_still_validate_agenda_free_meetings_and_end_them_with_their_topics`. It checks that `save_from_ui` rejects an unknown `mode` and two open spans, and that it saves an ended free run with its closed spans.
+- After the merge: `npm run lint` exit 0; vitest 233 passed (19 files); cargo test 190 passed, 3 ignored; `npx playwright test` 149 passed; `npm run screenshot` 208 passed; gitleaks exit 0.
+- Not pushed.
