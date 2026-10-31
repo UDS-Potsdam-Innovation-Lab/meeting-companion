@@ -53,13 +53,33 @@ describe("AC5 no network: Tauri configuration", () => {
     expect(conf.app.security.dangerousDisableAssetCspModification).toBeUndefined();
   });
 
-  it("the Rust core opens no socket", () => {
-    const sources = readdirSync(join(root, "src-tauri/src"), { recursive: true })
+  it("the Rust core opens no socket outside the opt-in phone view (job 012)", () => {
+    const files = readdirSync(join(root, "src-tauri/src"), { recursive: true })
       .map(String)
-      .filter((f) => f.endsWith(".rs"))
-      .map((f) => readFileSync(join(root, "src-tauri/src", f), "utf8"))
+      .filter((f) => f.endsWith(".rs"));
+    const read = (f: string) => readFileSync(join(root, "src-tauri/src", f), "utf8");
+    const elsewhere = files
+      .filter((f) => !f.startsWith("phone_view"))
+      .map(read)
       .join("\n");
-    expect(sources).not.toMatch(/TcpListener|UdpSocket|TcpStream|reqwest|hyper::/);
+    expect(elsewhere).not.toMatch(/TcpListener|UdpSocket|TcpStream|SocketAddr|reqwest|hyper::|axum::/);
+    // In the phone view (tests aside): one listener, bound to one address of the chosen interface; no
+    // UDP, no outgoing connection, no wildcard address.
+    const phone = files.filter((f) => f.startsWith("phone_view") && !f.endsWith("tests.rs"));
+    expect(phone.length).toBeGreaterThan(0);
+    for (const f of phone) {
+      // Without comments and the inline test module at the end of a file.
+      const src = read(f)
+        .replace(/#\[cfg\(test\)\]\s*(pub )?mod tests \{[\s\S]*$/, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      expect(src, f).not.toMatch(
+        /UdpSocket|TcpStream::connect|TcpSocket|reqwest|hyper::client|0\.0\.0\.0|UNSPECIFIED|Ipv6Addr|::bind\(\(?"/,
+      );
+    }
+    const binds = phone.flatMap((f) =>
+      [...read(f).matchAll(/TcpListener::bind\(([^)]*)\)/g)].map((m) => m[1]),
+    );
+    expect(binds).toEqual(["SocketAddrV4::new(ip, 0"]);
   });
 });
 
@@ -93,9 +113,16 @@ describe("AC6 (job 003) recording adds no network and declares the microphone", 
   const conf = JSON.parse(read("src-tauri/tauri.conf.json"));
 
   it("adds no HTTP client crate and no Tauri plugin for the engines", () => {
-    for (const crate of ["reqwest", "ureq", "hyper", "curl", "isahc", "attohttpc", "tauri-plugin-"]) {
+    for (const crate of ["reqwest", "ureq", "curl", "isahc", "attohttpc", "tauri-plugin-"]) {
       expect(cargo).not.toContain(crate);
     }
+    // The phone view (job 012) is the only HTTP code: server side only, HTTP/1, no client features.
+    const httpDeps = cargo.split("\n").filter((l) => /^(hyper|hyper-util|axum)\s*=/.test(l));
+    expect(httpDeps).toEqual([
+      'axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }',
+      'hyper = { version = "1", features = ["server", "http1"] }',
+      'hyper-util = { version = "0.1", features = ["tokio", "server", "http1", "service"] }',
+    ]);
     // Neither engine crate pulls one in, directly or through its dependencies.
     const deps = new Map<string, string[]>();
     for (const block of lock.split("[[package]]").slice(1)) {
@@ -244,6 +271,7 @@ describe("AC7 (job 007) the level event adds nothing beyond one listed core even
       "capture-state",
       "mic-test",
       "microphone-switched",
+      "phone-view-state",
       "settings-changed",
       "transcript-segment",
       "transcript-voice",
