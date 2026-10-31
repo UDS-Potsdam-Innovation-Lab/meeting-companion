@@ -70,6 +70,8 @@ const SPEAKER_MODELS_KEY = "mock-backend.speakerModels";
 const SETTINGS_KEY = "mock-backend.settings";
 /** `fixed`: the microphone test shows a still state (screenshots). */
 const MIC_TEST_KEY = "mock-backend.mic-test";
+/** Milliseconds `stop_recording` takes to answer (a core whose engine is slow to stop). */
+export const STOP_DELAY_KEY = "mock-backend.stop-delay-ms";
 /** The level the fake microphone delivers: `speech` (default), `silence` or `none` (no events). */
 const LEVEL_KEY = "mock-backend.level";
 
@@ -645,10 +647,21 @@ export function installMockBackend() {
           stopScript();
           setCapture({ ...capture, state: "paused", level: 0 });
           return capture;
-        case "stop_recording":
+        case "stop_recording": {
+          // Like the core: the microphone closes at once; the answer may take a while.
           stopScript();
+          const delay = Number(localStorage.getItem(STOP_DELAY_KEY) ?? 0);
+          if (delay > 0) {
+            return new Promise<CaptureState>((done) =>
+              setTimeout(() => {
+                setCapture(CAPTURE_OFF);
+                done(capture);
+              }, delay),
+            );
+          }
           setCapture(CAPTURE_OFF);
           return capture;
+        }
         case "recording_status": {
           // A fixture's partial line arrives once the view listens.
           const partial = pendingPartial;
