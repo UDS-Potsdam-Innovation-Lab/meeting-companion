@@ -258,5 +258,26 @@
  },
  "s17s_states": {
   "screen": 15261
+ },
+ "s18_phone": {
+  "screen": 15802
+ },
+ "s18b_de": {
+  "screen": 15819
+ },
+ "s18c_closed": {
+  "screen": 15836
+ },
+ "s18d_closed_de": {
+  "screen": 15857
+ },
+ "s18e_dark": {
+  "screen": 15878
+ },
+ "s18f_dark_closed": {
+  "screen": 15895
+ },
+ "s18s_anatomy": {
+  "screen": 15916
  }
 }
