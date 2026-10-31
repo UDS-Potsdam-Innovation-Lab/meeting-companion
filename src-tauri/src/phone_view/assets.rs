@@ -94,9 +94,8 @@ mod tests {
         let Some(page) = EmbeddedAssets.page() else {
             return;
         };
-        let html = std::str::from_utf8(page.bytes)
-            .unwrap()
-            .to_ascii_lowercase();
+        let original = std::str::from_utf8(page.bytes).unwrap();
+        let html = original.to_ascii_lowercase();
         assert!(!html.contains("<style"));
         assert!(!html.contains(" style="));
         for script in html.split("<script").skip(1) {
@@ -105,7 +104,7 @@ mod tests {
             let body = script.split('>').nth(1).unwrap();
             assert!(body.starts_with("</script"), "inline script body");
         }
-        for name in html.split("./assets/").skip(1) {
+        for name in original.split("./assets/").skip(1) {
             let name = name.split('"').next().unwrap();
             assert!(EmbeddedAssets.asset(name).is_some(), "{name}");
         }
