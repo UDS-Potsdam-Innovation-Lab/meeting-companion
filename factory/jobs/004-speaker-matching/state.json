@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "approve",
+  "stage": "merged",
   "round": 3,
   "max_round": 3,
   "reviews": {
@@ -34,10 +34,19 @@
         "ui": "PASS",
         "code": "PASS"
       }
+    },
+    {
+      "round": 3,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "PASS",
+        "code": "PASS"
+      }
     }
   ],
   "decision": "APPROVE (human)",
   "waiting": null,
-  "note": "Human approved; merging",
-  "updated": "2026-10-31T10:17:54Z"
+  "note": "Merged into main after round 3 (human gate approved; speaker model in Settings included)",
+  "updated": "2026-10-31T10:18:07Z"
 }
