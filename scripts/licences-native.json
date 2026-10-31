@@ -1,0 +1,70 @@
+{
+  "_comment": "Native code compiled or linked into the app that is not a Rust crate or an npm package. whisper.cpp's licence text is read from the whisper-rs-sys crate it is built from; the libraries of the pinned sherpa-onnx static archive ship no licence files, so their licence and copyright line are recorded here (versions read from the libraries where they carry one) and filled into the standard texts in scripts/licence-texts/. Check these against the upstream projects when the archive changes.",
+  "components": [
+    {
+      "name": "whisper.cpp",
+      "version": "from:whisper-rs-sys",
+      "licence": "MIT",
+      "textFrom": "whisper-rs-sys:whisper.cpp/LICENSE",
+      "via": "whisper-rs"
+    },
+    {
+      "name": "sherpa-onnx (C++ library)",
+      "version": "2.0.1",
+      "licence": "Apache-2.0",
+      "copyright": "Copyright (c) 2022-2025 Xiaomi Corporation and the k2-fsa authors",
+      "via": "sherpa-onnx"
+    },
+    {
+      "name": "ONNX Runtime",
+      "version": "1.28.2",
+      "licence": "MIT",
+      "copyright": "Copyright (c) Microsoft Corporation",
+      "via": "sherpa-onnx"
+    },
+    {
+      "name": "kaldi-native-fbank",
+      "licence": "Apache-2.0",
+      "copyright": "Copyright (c) 2022 Xiaomi Corporation",
+      "via": "sherpa-onnx"
+    },
+    {
+      "name": "kaldi-decoder",
+      "licence": "Apache-2.0",
+      "copyright": "Copyright (c) 2023 Xiaomi Corporation",
+      "via": "sherpa-onnx"
+    },
+    {
+      "name": "OpenFst",
+      "licence": "Apache-2.0",
+      "copyright": "Copyright 2005-2018 Google LLC",
+      "via": "sherpa-onnx"
+    },
+    {
+      "name": "SentencePiece",
+      "licence": "Apache-2.0",
+      "copyright": "Copyright 2016 Google Inc.",
+      "via": "sherpa-onnx"
+    },
+    {
+      "name": "KISS FFT",
+      "licence": "BSD-3-Clause",
+      "copyright": "Copyright (c) 2003-2010, Mark Borgerding",
+      "via": "sherpa-onnx"
+    },
+    {
+      "name": "PortAudio",
+      "version": "19.7.0",
+      "licence": "MIT",
+      "copyright": "Copyright (c) 1999-2006 Ross Bencina and Phil Burk",
+      "via": "sherpa-onnx"
+    },
+    {
+      "name": "utf8proc",
+      "version": "2.12.0",
+      "licence": "MIT",
+      "copyright": "Copyright (c) 2014-2021 Steven G. Johnson, Jiahao Chen, Tony Kelman, Jonas Fonseca, and other contributors.\nCopyright (c) 2009 Public Software Group e. V., Berlin, Germany",
+      "via": "sherpa-onnx"
+    }
+  ]
+}
