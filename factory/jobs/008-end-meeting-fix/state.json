@@ -8,7 +8,7 @@
   "targets": null,
   "external": null,
   "stage": "needs-human",
-  "round": 1,
+  "round": 2,
   "max_round": 3,
   "reviews": {
     "security": "PASS",
@@ -16,9 +16,19 @@
     "ui": "PASS",
     "code": "PASS"
   },
-  "history": [],
+  "history": [
+    {
+      "round": 1,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "PASS",
+        "code": "PASS"
+      }
+    }
+  ],
   "decision": "ESCALATE (human gate)",
   "waiting": "merge approval",
-  "note": "All reviews PASS, CI green; human gate",
-  "updated": "2026-10-31T11:46:03Z"
+  "note": "Round 2 PASS, CI green after merging 007; human gate",
+  "updated": "2026-10-31T12:29:37Z"
 }

@@ -39,3 +39,23 @@ No `docs.secure_coding` in the profile. NFR Privacy: the microphone still closes
 5bd1482 fix(live): end the meeting at once, without waiting for stop_recording
 3472f99 fix(recording): bound stop and pause; never wait on a stuck engine
 ```
+
+## Merge with main (007)
+`git fetch origin && git merge origin/main` (no rebase; merge commit 6569e8a). Conflicts and how they were resolved:
+- `src-tauri/src/recording/mod.rs`:
+  - 007 added its own `Worker.stopping: Arc<AtomicBool>` and passed it into `run`, to stop the level stream before the device closes. I merged it into this job's `Session::stopping`, which `halt` sets before it closes the source. There is one flag; the `Worker` field and the extra `run` parameter are removed.
+  - The monitor loop keeps 007's `LevelPacer`. It runs as `while !done && !stt.is_finished() && !session.stopping` and sleeps for `pacer.due_in(25 ms)`. `live` still includes `!session.stopping`.
+  - `pacer.finish(send_level)` runs right after the loop and before the speech thread is joined. The final zero level is therefore sent even when the engine never returns.
+  - The join keeps this job's handling: on a panic it reports `EngineFailed` and does not hand the engine back, instead of `expect`. The bounded diarizer return is also kept.
+  - The doc comments from both sides are kept.
+- `src/lib/mockBackend.ts`: both constants are kept (`STOP_DELAY_KEY` from this job, `LEVEL_KEY` from 007).
+- `src-tauri/src/lib.rs` merged without conflicts. `save_meeting` is still `async` and goes through `save_from_ui`.
+
+After the merge: `npm test` gave Vitest 197 passed (17 files), cargo 173 passed with 3 ignored (including 007's `level_tests` and this job's `stop` tests), and Playwright 128 passed. Playwright was re-run alone after port 4173, held by another process, became free. `npm run lint` is clean and gitleaks exits 0.
+
+Commits now (main..HEAD, own commits):
+```
+6569e8a Merge origin/main (007-sound-wave) into factory/008-end-meeting-fix
+5bd1482 fix(live): end the meeting at once, without waiting for stop_recording
+3472f99 fix(recording): bound stop and pause; never wait on a stuck engine
+```

@@ -51,3 +51,10 @@ f0695ef feat(ui): free fixtures, screenshots, and a two-row top bar below 1200 p
 88e2c0e feat(ui): agenda-free mode switch, whole-meeting timer, half-time nudge and manual topics
 f506f44 feat(core): validate agenda-free mode and manual topics
 ```
+
+## Merge with main (007)
+`git fetch origin && git merge origin/main` (no rebase; the branch is pushed) → merge commit `89ec48a`.
+- Conflicts: `e2e/helpers.ts` and `src/lib/mockBackend.ts` (fixture name unions: 007's `live-level-speech|live-level-silence|live-no-signal` plus 009's `free|live-free|live-free-empty`, and their seeds), `src/i18n/de.json`/`en.json` (007's `wave.*` keys plus 009's `free.*`/`half.*`/`setup.free.*`), and `AGENTS.md` (fixture list, both kept). All were resolved by keeping both sides. Nothing else conflicted. `styles.css`, `lib.rs` and the screenshot and responsive specs merged on their own.
+- The free live view uses the shared `TranscriptPanel`, so it shows 007's SoundWave footer as frame 16 draws it (see `screenshots/live-free-half-1280.png`). No code change was needed for that.
+- After the merge: `npm run lint` exit 0; vitest 229 passed (19 files); cargo test 184 passed, 3 ignored; `npx playwright test` 148 passed; `npm run screenshot` 208 passed; gitleaks exit 0. Playwright was started again once port 4173 was free (other worktrees share it).
+- Not pushed.
