@@ -141,14 +141,14 @@ test.describe("AC1–AC5 recording with the mock core", () => {
     await expect(
       card(page).locator('.transcript-line[lang="en"]:not(.transcript-line--partial)').first(),
     ).toBeVisible();
-    await expect(card(page).getByText("Listening")).toBeVisible();
+    await expect(card(page).locator("[data-speakers-button]")).toContainText("Listening");
 
     await page.getByRole("button", { name: "Pause" }).click();
     await expect(chip(page)).toContainText("Paused");
     const frozen = await chip(page).textContent();
     await page.waitForTimeout(1_000);
     await expect(chip(page)).toHaveText(frozen!);
-    await expect(card(page).getByText("Paused")).toBeVisible();
+    await expect(card(page).locator("[data-speakers-button]")).toContainText("Paused");
     await page.getByRole("button", { name: "Resume" }).click();
     await expect(chip(page)).toContainText("REC");
     await page.getByRole("button", { name: "Pause" }).click();
