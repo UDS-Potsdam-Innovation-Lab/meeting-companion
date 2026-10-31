@@ -42,10 +42,12 @@ interface ProviderProps {
   children: ReactNode;
   /** Test aid: every string renders as `⟦key⟧`, so text that bypasses the catalogue stands out. */
   keyMode?: boolean;
+  /** A locale chosen by the caller (the phone page follows the phone); nothing is read from storage. */
+  fixedLocale?: Locale;
 }
 
-export function I18nProvider({ children, keyMode = false }: ProviderProps) {
-  const [locale, setLocaleState] = useState<Locale>(readStoredLocale);
+export function I18nProvider({ children, keyMode = false, fixedLocale }: ProviderProps) {
+  const [locale, setLocaleState] = useState<Locale>(() => fixedLocale ?? readStoredLocale());
 
   useEffect(() => {
     document.documentElement.lang = locale;
