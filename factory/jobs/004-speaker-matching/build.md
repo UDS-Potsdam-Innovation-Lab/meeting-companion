@@ -134,3 +134,37 @@ test result: ok. 133 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; fi
 dc9ab54 fix(speakers): Who said this? stays inside the window; 44 px options
 ce74f59 Merge branch 'main' into factory/004-speaker-matching
 ```
+
+## Round 2 response
+
+All round 2 reviews passed. This round handles round-2/ci.md and the coordinator's notes. The branch is pushed, so main came in with a merge (`218f04b`); nothing was rebased.
+
+| Item | What I did |
+|---|---|
+| main moved: 006-settings-panel conflicts (recording/mod.rs and others) | Merged main and resolved 18 files. **Recording:** `run()` now holds all three parts. It keeps 005's speech thread and monitor thread. It keeps 006's `Fallback` (the "switch to the system default" runs on the monitor side and sends `microphone-switched`). It keeps the diarizer thread fed from the speech side. `StartOptions` and the device choice come from 006. A failed source start or open restores the engine, diarizer and voices. `EventSink::voice` is now a default method, like 006's `switched`/`mic_test`. **Log capture:** `log.rs` uses main's mechanism; my tests call it the same way. **UI:** `TranscriptPanel` takes both the speakers props and 006's `onOpenSettings`/`hidden`. The `Feed` keeps the scroll position for both the speakers view and the settings view. `RecordingControls` takes 006's optional callbacks and `DeviceChip`, plus `chipOnly` for the speakers top bar. `useRecording` subscribes to both voice and microphone-switched events. ipc, mock backend, fake core, fixtures and i18n are the union of both sides. **Styles:** I took main's styles.css and appended my rules. 006's style test forbids hex literals outside the token blocks, so I replaced mine with tokens: a new `--green-ink` in light and dark, plus `--line-strong`, `--shadow-small` and `--warn-line`. |
+| Wire the speaker model into 006's settings (if small) | It was small, so it is done. **Core:** `Settings.speaker_model` / key `speakerModel` is accepted only if it is in the core's own speaker-model scan (`Catalog::speaker_models`). Stored files without the key load with the preferred model. **Recording:** the recorder loads the chosen model through `StartOptions.speaker_model`; a gone or unset id falls back to the preferred one through `choose_speaker`. The loaded diarizer is kept with its id and reloaded only when the choice changes. **UI:** "On this device" has the Speaker model card from frame 14d: a picker with size and source, "None found" with the folders searched, and "Not found any more" with the model used instead. **Tests:** `settings/tests.rs::the_speaker_model_is_accepted_only_from_the_scan_and_can_go_back_to_preferred`; `recording/tests.rs::the_speaker_model_from_the_settings_is_loaded_and_reloaded_only_when_it_changes`; `Settings.test.tsx › Job 004: the speaker model in On this device (frame 14d)` (3 tests); the existing settings round-trip, defaults, keyMode and axe tests now include the key and the card. |
+| CI: "Post Run Swatinem/rust-cache@v2" failed with "No space left on device" | **First step:** "Free disk space (Linux)" removes toolchains this project never uses (dotnet, Android, GHC, CodeQL, PowerShell, Swift) and prunes Docker images; it prints `df` before and after. **Last step:** "Free disk space before the cache is saved" (`if: always()`) deletes what is rebuilt every run anyway: the app's own binary, deps, incremental and bundle output, `dist*`, the unpacked `src-tauri/native/lib`, and Playwright reports. The dependency cache is untouched. **Checksum steps:** unchanged, with the same archive cache, `fetch`, and the corrupted-archive check. No step uses `|| true` or `continue-on-error` (the config test still passes). |
+| review-code [note]: duplicated comment in TranscriptPanel.tsx (~124) | Removed. |
+
+### Test run (round 2)
+- `npm run lint` → clean.
+- `npx vitest run` → 170 passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml` → 160 passed, 3 ignored.
+- `npx playwright test` with the committed config (port 4173 was free this time) → 117 passed.
+- `npm run screenshot -g "settings|speakers"` → 48 passed.
+- `npm run tauri build -- --no-bundle` → built.
+- Smoke run: left to CI (no `xvfb-run` here).
+- Secret scan: no leaks.
+
+```
+      Tests  170 passed (170)
+test result: ok. 160 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 21.23s
+  117 passed (26.4s)
+    Finished `release` profile [optimized] target(s) in 15.81s
+```
+
+### Commits (round 2)
+```
+e8dcc26 feat(speakers): choose the speaker model in the settings; CI leaves disk for the cache
+218f04b Merge branch 'main' into factory/004-speaker-matching
+```
