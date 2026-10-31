@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "review",
+  "stage": "merged",
   "round": 1,
   "max_round": 3,
   "reviews": {
@@ -17,8 +17,8 @@
     "code": "PASS"
   },
   "history": [],
-  "decision": null,
+  "decision": "APPROVE",
   "waiting": null,
-  "note": "All reviews PASS; waiting for CI",
-  "updated": "2026-10-31T12:00:25Z"
+  "note": "Merged",
+  "updated": "2026-10-31T12:12:24Z"
 }
