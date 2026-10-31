@@ -7,14 +7,14 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "build",
+  "stage": "review",
   "round": 2,
   "max_round": 3,
   "reviews": {
     "security": "pending",
-    "ux": "pending",
+    "ux": "PASS",
     "ui": "pending",
-    "code": "pending"
+    "code": "PASS"
   },
   "history": [
     {
@@ -29,6 +29,6 @@
   ],
   "decision": null,
   "waiting": null,
-  "note": "Round 1 ui CHANGES (picker clipped); rework round 2",
-  "updated": "2026-10-31T08:50:31Z"
+  "note": "Round 2: ux, code PASS; security, ui and CI running",
+  "updated": "2026-10-31T08:55:17Z"
 }
