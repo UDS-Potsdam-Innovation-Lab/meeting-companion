@@ -1,0 +1,591 @@
+{
+  "about": "Test meetings for the speaker-accuracy tests, mixed in memory from the clips in manifest.json. Built by tools/make_scenes.py; see there for the fields.",
+  "sampleRate": 16000,
+  "turnRmsDbfs": -26.0,
+  "scenes": [
+    {
+      "id": "de-name-round",
+      "lang": "de",
+      "about": "Check-in with a name round, six speakers, then a discussion with mixed turn gaps.",
+      "seed": 11,
+      "noiseSnrDb": null,
+      "tailMs": 1500,
+      "participants": [
+        {
+          "speaker": "de-f1",
+          "name": "Mara Klein"
+        },
+        {
+          "speaker": "de-m1",
+          "name": "Tobias Brandt"
+        },
+        {
+          "speaker": "de-f2",
+          "name": "Jana Roth"
+        },
+        {
+          "speaker": "de-m2",
+          "name": "Yusuf Aydin"
+        },
+        {
+          "speaker": "de-f3",
+          "name": "Svenja Weiß"
+        },
+        {
+          "speaker": "de-m3",
+          "name": "Jürgen Groß"
+        },
+        {
+          "speaker": null,
+          "name": "Petra Sand"
+        }
+      ],
+      "turns": [
+        {
+          "speaker": "de-f1",
+          "clip": "de-f1-1",
+          "atMs": 500,
+          "fromMs": 0,
+          "lenMs": 6000,
+          "text": "Hallo, ich bin Mara Klein und leite das Produktteam."
+        },
+        {
+          "speaker": "de-m1",
+          "clip": "de-m1-1",
+          "atMs": 7400,
+          "fromMs": 0,
+          "lenMs": 6000,
+          "text": "Guten Morgen, Tobias Brandt hier, ich kümmere mich um die Technik."
+        },
+        {
+          "speaker": "de-f2",
+          "clip": "de-f2-1",
+          "atMs": 14300,
+          "fromMs": 0,
+          "lenMs": 6000,
+          "text": "Ich bin Jana Roth aus der Schulverwaltung."
+        },
+        {
+          "speaker": "de-m2",
+          "clip": "de-m2-1",
+          "atMs": 21200,
+          "fromMs": 0,
+          "lenMs": 6000,
+          "text": "Yusuf Aydin, ich schreibe heute das Protokoll."
+        },
+        {
+          "speaker": "de-f3",
+          "clip": "de-f3-1",
+          "atMs": 28100,
+          "fromMs": 0,
+          "lenMs": 6000,
+          "text": "Svenja Weiß, ich bin für die Pilotschulen zuständig."
+        },
+        {
+          "speaker": "de-m3",
+          "clip": "de-m3-1",
+          "atMs": 35000,
+          "fromMs": 0,
+          "lenMs": 6000,
+          "text": "Und ich bin Jürgen Groß vom Medienzentrum."
+        },
+        {
+          "speaker": "de-m2",
+          "clip": "de-m2-2",
+          "atMs": 42200,
+          "fromMs": 0,
+          "lenMs": 6479,
+          "text": "Wir werden die Klimaziele von Paris nicht erfüllen können, wenn wir die europäische Landwirtschaft nicht ökologisieren."
+        },
+        {
+          "speaker": "de-f1",
+          "clip": "de-f1-2",
+          "atMs": 49079,
+          "fromMs": 0,
+          "lenMs": 7000,
+          "text": "Sie alle fliegen als Mitglieder dieses Hauses wahrscheinlich deutlich häufiger als der EU Durchschnittsbürger."
+        },
+        {
+          "speaker": "de-m3",
+          "clip": "de-m3-2",
+          "atMs": 56979,
+          "fromMs": 0,
+          "lenMs": 8200,
+          "text": "Das war ein Fehler, denn die Mitgliedstaaten haben inzwischen viel Zeit vergeudet und sich in nationalen Kompetenzfragen verheddert."
+        },
+        {
+          "speaker": "de-f2",
+          "clip": "de-f2-2",
+          "atMs": 65479,
+          "fromMs": 0,
+          "lenMs": 8698,
+          "text": "Ich danke Ihnen, verehrter Herr Kommissar, vor allem für Ihre sehr ausführliche Antwort zu Beginn dieser Diskussionsrunde hier im Parlament."
+        },
+        {
+          "speaker": "de-m1",
+          "clip": "de-m1-2",
+          "atMs": 75277,
+          "fromMs": 0,
+          "lenMs": 7299,
+          "text": "Ich möchte zunächst den Berichterstattern für ihre Arbeit danken und dann ein Kompliment an die italienische Ratspräsidentschaft aussprechen."
+        },
+        {
+          "speaker": "de-f3",
+          "clip": "de-f3-2",
+          "atMs": 83076,
+          "fromMs": 0,
+          "lenMs": 9738,
+          "text": "Auch ich möchte mich zunächst ganz herzlich beim Herrn Berichterstatter Omarjee für die ausgezeichnete Zusammenarbeit beim Bericht zur Förderung von Kohäsion und Entwicklung in den Gebieten in äußerster Randlage bedanken."
+        },
+        {
+          "speaker": "de-f1",
+          "clip": "de-f1-3",
+          "atMs": 93614,
+          "fromMs": 0,
+          "lenMs": 11158,
+          "text": "Wir müssen europäische Perspektiven für die Beschäftigten schaffen, und dieses Gesetz ist ein solcher Schritt, weil wir endlich die Anerkennung der Qualifikationen ermöglichen."
+        },
+        {
+          "speaker": "de-m2",
+          "clip": "de-m2-3",
+          "atMs": 105172,
+          "fromMs": 0,
+          "lenMs": 10278,
+          "text": "Es ist für mich als Biobauer durchaus wohltuend, hier zu hören zumindest von den Fraktionen, die anwesend sind dass alle den biologischen Landbau unterstützen, so auch der Herr Kommissar."
+        },
+        {
+          "speaker": "de-f3",
+          "clip": "de-f3-3",
+          "atMs": 116450,
+          "fromMs": 0,
+          "lenMs": 7290,
+          "text": "Auch die nationalen Parlamente müssen zum Verhandlungsmandat Stellung nehmen können, bevor der Rat der Kommission das Mandat erteilt."
+        },
+        {
+          "speaker": "de-m3",
+          "clip": "de-m3-3",
+          "atMs": 124040,
+          "fromMs": 0,
+          "lenMs": 8459,
+          "text": "Wir haben im Kompromiss eine ganze Reihe Punkte gefunden und gemeinsam ausgehandelt, damit das Programm attraktiver wird."
+        },
+        {
+          "speaker": "de-f2",
+          "clip": "de-f2-3",
+          "atMs": 133199,
+          "fromMs": 0,
+          "lenMs": 6559,
+          "text": "Wir haben hier einen großen Verlust an Biodiversität und wir müssen uns da alle gemeinsam anstrengen."
+        },
+        {
+          "speaker": "de-m1",
+          "clip": "de-m1-3",
+          "atMs": 140658,
+          "fromMs": 0,
+          "lenMs": 10699,
+          "text": "Die TAXE Berichte haben ganz eindeutig gezeigt Seit vielen Jahren ist bekannt, wo Steuerschlupflöcher herkommen durch die Kombination von überkomplexen nationalen Steuersystemen."
+        }
+      ]
+    },
+    {
+      "id": "en-overlap",
+      "lang": "en",
+      "about": "Three speakers who talk over each other at every change of turn.",
+      "seed": 22,
+      "noiseSnrDb": null,
+      "tailMs": 1500,
+      "participants": [
+        {
+          "speaker": "en-f1",
+          "name": "Alice Morgan"
+        },
+        {
+          "speaker": "en-m1",
+          "name": "Ben Carter"
+        },
+        {
+          "speaker": "en-f2",
+          "name": "Carol Hughes"
+        }
+      ],
+      "turns": [
+        {
+          "speaker": "en-f1",
+          "clip": "en-f1-1",
+          "atMs": 500,
+          "fromMs": 0,
+          "lenMs": 12840,
+          "text": "We have to be more responsible, more ecological, more social, more effective, and we need a common asylum system in order to be better in all these questions of refugees and migrants."
+        },
+        {
+          "speaker": "en-m1",
+          "clip": "en-m1-3",
+          "atMs": 11840,
+          "fromMs": 0,
+          "lenMs": 10420,
+          "text": "It enables European consumers who subscribe to online contact services acquired legally in their Member State of residence to continue to access the service when they are temporarily in another Member State."
+        },
+        {
+          "speaker": "en-f2",
+          "clip": "en-f2-2",
+          "atMs": 20460,
+          "fromMs": 0,
+          "lenMs": 11778,
+          "text": "My own first language, Welsh, has a long history, over centuries, of not being allowed to be used in public discourse, yet has always managed to survive and indeed is now used with equivalent status to English in the Welsh Assembly."
+        },
+        {
+          "speaker": "en-f1",
+          "clip": "en-f1-2",
+          "atMs": 31038,
+          "fromMs": 0,
+          "lenMs": 8360,
+          "text": "The fact that young people are ready to do that, and that we enable them to do it and to develop their capacities, reflects a good European attitude."
+        },
+        {
+          "speaker": "en-m1",
+          "clip": "en-m1-4",
+          "atMs": 37398,
+          "fromMs": 0,
+          "lenMs": 11059,
+          "text": "We need to see the EU playing a more prominent role in shaping education policy, and the first step could be to see better cooperation and coordination among Member States on how to deal with the current crisis."
+        },
+        {
+          "speaker": "en-f2",
+          "clip": "en-f2-3",
+          "atMs": 46957,
+          "fromMs": 0,
+          "lenMs": 12498,
+          "text": "However, I personally believe that we could have been even more ambitious in this proposal and, indeed, with the Capital Markets Union project as a whole, as this is an area in which our level of achievement does not so far seem to match up to our rhetoric."
+        },
+        {
+          "speaker": "en-f1",
+          "clip": "en-f1-3",
+          "atMs": 57855,
+          "fromMs": 0,
+          "lenMs": 8540,
+          "text": "As in seeking to regulate Uber, when the Socialists wanted, for good reasons, to ensure that workers were paid, we want cultural workers to be paid as well."
+        }
+      ]
+    },
+    {
+      "id": "en-short-turns",
+      "lang": "en",
+      "about": "Two speakers; one talks, the other answers with short turns under one second.",
+      "seed": 33,
+      "noiseSnrDb": null,
+      "tailMs": 1500,
+      "participants": [
+        {
+          "speaker": "en-m2",
+          "name": "David Price"
+        },
+        {
+          "speaker": "en-f2",
+          "name": "Carol Hughes"
+        }
+      ],
+      "turns": [
+        {
+          "speaker": "en-m2",
+          "clip": "en-m2-1",
+          "atMs": 500,
+          "fromMs": 0,
+          "lenMs": 8279,
+          "text": "aggravating circumstances will apply to cases linked to criminal organisations or for offences conducted in the exercise of certain professional activities"
+        },
+        {
+          "speaker": "en-f2",
+          "clip": "en-f2-1",
+          "atMs": 9179,
+          "fromMs": 500,
+          "lenMs": 800,
+          "text": "Yes, exactly."
+        },
+        {
+          "speaker": "en-m2",
+          "clip": "en-m2-2",
+          "atMs": 10579,
+          "fromMs": 0,
+          "lenMs": 6179,
+          "text": "In the final text, thanks to our work, many safeguards have been added and fundamental rights will be fully protected."
+        },
+        {
+          "speaker": "en-f2",
+          "clip": "en-f2-4",
+          "atMs": 18258,
+          "fromMs": 1200,
+          "lenMs": 700,
+          "text": "Right."
+        },
+        {
+          "speaker": "en-m2",
+          "clip": "en-m2-3",
+          "atMs": 19458,
+          "fromMs": 0,
+          "lenMs": 6000,
+          "text": "Although vocational education and training plays a vital economic and social role in Europe, leading to equal opportunities and social inclusion for all citizens, it is still not sufficiently developed in our Union."
+        },
+        {
+          "speaker": "en-f2",
+          "clip": "en-f2-2",
+          "atMs": 25758,
+          "fromMs": 2000,
+          "lenMs": 900,
+          "text": "Okay, agreed."
+        },
+        {
+          "speaker": "en-f2",
+          "clip": "en-f2-2",
+          "atMs": 28058,
+          "fromMs": 6000,
+          "lenMs": 4500,
+          "text": "My own first language, Welsh, has a long history, over centuries, of not being allowed to be used in public discourse, yet has always managed to survive and indeed is now used with equivalent status to English in the Welsh Assembly."
+        },
+        {
+          "speaker": "en-m2",
+          "clip": "en-m2-4",
+          "atMs": 33758,
+          "fromMs": 300,
+          "lenMs": 650,
+          "text": "Sure."
+        },
+        {
+          "speaker": "en-f2",
+          "clip": "en-f2-3",
+          "atMs": 35108,
+          "fromMs": 0,
+          "lenMs": 5000,
+          "text": "However, I personally believe that we could have been even more ambitious in this proposal and, indeed, with the Capital Markets Union project as a whole, as this is an area in which our level of achievement does not so far seem to match up to our rhetoric."
+        },
+        {
+          "speaker": "en-m2",
+          "clip": "en-m2-4",
+          "atMs": 41608,
+          "fromMs": 2000,
+          "lenMs": 850,
+          "text": "Fine by me."
+        },
+        {
+          "speaker": "en-m2",
+          "clip": "en-m2-3",
+          "atMs": 43558,
+          "fromMs": 6500,
+          "lenMs": 5000,
+          "text": "Although vocational education and training plays a vital economic and social role in Europe, leading to equal opportunities and social inclusion for all citizens, it is still not sufficiently developed in our Union."
+        },
+        {
+          "speaker": "en-f2",
+          "clip": "en-f2-3",
+          "atMs": 49358,
+          "fromMs": 5500,
+          "lenMs": 600,
+          "text": "Yes."
+        }
+      ]
+    },
+    {
+      "id": "en-return",
+      "lang": "en",
+      "about": "en-m2 speaks, is silent for over a minute, and speaks again; en-f1 says only a few words.",
+      "seed": 44,
+      "noiseSnrDb": null,
+      "tailMs": 1500,
+      "participants": [
+        {
+          "speaker": "en-m1",
+          "name": "Ben Carter"
+        },
+        {
+          "speaker": "en-f2",
+          "name": "Carol Hughes"
+        },
+        {
+          "speaker": "en-m2",
+          "name": "David Price"
+        },
+        {
+          "speaker": "en-f1",
+          "name": "Alice Morgan"
+        }
+      ],
+      "turns": [
+        {
+          "speaker": "en-m2",
+          "clip": "en-m2-1",
+          "atMs": 500,
+          "fromMs": 0,
+          "lenMs": 8279,
+          "text": "aggravating circumstances will apply to cases linked to criminal organisations or for offences conducted in the exercise of certain professional activities"
+        },
+        {
+          "speaker": "en-m1",
+          "clip": "en-m1-1",
+          "atMs": 9579,
+          "fromMs": 0,
+          "lenMs": 7600,
+          "text": "This pillar goes beyond political interest, and it reminds us that the European Union is here to bring improvements in living and working conditions in Europe."
+        },
+        {
+          "speaker": "en-f2",
+          "clip": "en-f2-1",
+          "atMs": 17879,
+          "fromMs": 0,
+          "lenMs": 6179,
+          "text": "I am aware of all the different systems, but I guess my real concern here is that there is not one size that has to fit all."
+        },
+        {
+          "speaker": "en-m1",
+          "clip": "en-m1-2",
+          "atMs": 25058,
+          "fromMs": 0,
+          "lenMs": 6310,
+          "text": "Not because it is not a classical European document, but simply because it is not responding to what Europeans are requesting today."
+        },
+        {
+          "speaker": "en-f2",
+          "clip": "en-f2-4",
+          "atMs": 31968,
+          "fromMs": 0,
+          "lenMs": 10639,
+          "text": "We can find different ways of doing this, and where Member States have got effective systems in place and there are many Member States which do we need to take into account the fact that their systems work effectively."
+        },
+        {
+          "speaker": "en-m1",
+          "clip": "en-m1-3",
+          "atMs": 43507,
+          "fromMs": 0,
+          "lenMs": 10420,
+          "text": "It enables European consumers who subscribe to online contact services acquired legally in their Member State of residence to continue to access the service when they are temporarily in another Member State."
+        },
+        {
+          "speaker": "en-f2",
+          "clip": "en-f2-2",
+          "atMs": 54627,
+          "fromMs": 0,
+          "lenMs": 11778,
+          "text": "My own first language, Welsh, has a long history, over centuries, of not being allowed to be used in public discourse, yet has always managed to survive and indeed is now used with equivalent status to English in the Welsh Assembly."
+        },
+        {
+          "speaker": "en-m1",
+          "clip": "en-m1-4",
+          "atMs": 67205,
+          "fromMs": 0,
+          "lenMs": 11059,
+          "text": "We need to see the EU playing a more prominent role in shaping education policy, and the first step could be to see better cooperation and coordination among Member States on how to deal with the current crisis."
+        },
+        {
+          "speaker": "en-f1",
+          "clip": "en-f1-4",
+          "atMs": 79464,
+          "fromMs": 1000,
+          "lenMs": 1700,
+          "text": "Can I just add one thing?"
+        },
+        {
+          "speaker": "en-m2",
+          "clip": "en-m2-3",
+          "atMs": 82664,
+          "fromMs": 0,
+          "lenMs": 11550,
+          "text": "Although vocational education and training plays a vital economic and social role in Europe, leading to equal opportunities and social inclusion for all citizens, it is still not sufficiently developed in our Union."
+        },
+        {
+          "speaker": "en-f2",
+          "clip": "en-f2-3",
+          "atMs": 95114,
+          "fromMs": 0,
+          "lenMs": 7000,
+          "text": "However, I personally believe that we could have been even more ambitious in this proposal and, indeed, with the Capital Markets Union project as a whole, as this is an area in which our level of achievement does not so far seem to match up to our rhetoric."
+        }
+      ]
+    },
+    {
+      "id": "de-noise",
+      "lang": "de",
+      "about": "Three speakers with generated background noise at 10 dB SNR.",
+      "seed": 55,
+      "noiseSnrDb": 10.0,
+      "tailMs": 1500,
+      "participants": [
+        {
+          "speaker": "de-f2",
+          "name": "Jana Roth"
+        },
+        {
+          "speaker": "de-m3",
+          "name": "Jürgen Groß"
+        },
+        {
+          "speaker": "de-f3",
+          "name": "Svenja Weiß"
+        }
+      ],
+      "turns": [
+        {
+          "speaker": "de-f2",
+          "clip": "de-f2-3",
+          "atMs": 500,
+          "fromMs": 0,
+          "lenMs": 6559,
+          "text": "Wir haben hier einen großen Verlust an Biodiversität und wir müssen uns da alle gemeinsam anstrengen."
+        },
+        {
+          "speaker": "de-m3",
+          "clip": "de-m3-2",
+          "atMs": 7959,
+          "fromMs": 0,
+          "lenMs": 8200,
+          "text": "Das war ein Fehler, denn die Mitgliedstaaten haben inzwischen viel Zeit vergeudet und sich in nationalen Kompetenzfragen verheddert."
+        },
+        {
+          "speaker": "de-f3",
+          "clip": "de-f3-3",
+          "atMs": 16859,
+          "fromMs": 0,
+          "lenMs": 7290,
+          "text": "Auch die nationalen Parlamente müssen zum Verhandlungsmandat Stellung nehmen können, bevor der Rat der Kommission das Mandat erteilt."
+        },
+        {
+          "speaker": "de-m3",
+          "clip": "de-m3-3",
+          "atMs": 25249,
+          "fromMs": 0,
+          "lenMs": 8459,
+          "text": "Wir haben im Kompromiss eine ganze Reihe Punkte gefunden und gemeinsam ausgehandelt, damit das Programm attraktiver wird."
+        },
+        {
+          "speaker": "de-f2",
+          "clip": "de-f2-2",
+          "atMs": 34308,
+          "fromMs": 0,
+          "lenMs": 8698,
+          "text": "Ich danke Ihnen, verehrter Herr Kommissar, vor allem für Ihre sehr ausführliche Antwort zu Beginn dieser Diskussionsrunde hier im Parlament."
+        },
+        {
+          "speaker": "de-f3",
+          "clip": "de-f3-2",
+          "atMs": 43806,
+          "fromMs": 0,
+          "lenMs": 9738,
+          "text": "Auch ich möchte mich zunächst ganz herzlich beim Herrn Berichterstatter Omarjee für die ausgezeichnete Zusammenarbeit beim Bericht zur Förderung von Kohäsion und Entwicklung in den Gebieten in äußerster Randlage bedanken."
+        },
+        {
+          "speaker": "de-m3",
+          "clip": "de-m3-1",
+          "atMs": 54444,
+          "fromMs": 0,
+          "lenMs": 7959,
+          "text": "Uns geht es dabei nicht um zusätzliche Einnahmequellen, sondern um eine stärkere Verkehrslenkung durch Preissignale."
+        },
+        {
+          "speaker": "de-f2",
+          "clip": "de-f2-1",
+          "atMs": 63103,
+          "fromMs": 0,
+          "lenMs": 6300,
+          "text": "Ich danke der Berichterstatterin auch ganz herzlich für die gute gemeinsame Arbeit im Vorfeld."
+        }
+      ]
+    }
+  ]
+}

@@ -13,5 +13,7 @@
 //! temp folder that is removed. Nothing is downloaded.
 
 mod corpus;
+mod measures;
+mod scene;
 mod sha256;
 mod wav;
