@@ -18,7 +18,7 @@
   },
   "history": [],
   "decision": null,
-  "waiting": "legal check + stack decision",
-  "note": "Spec written; waits for GDPR Art. 9 legal check, stack (axum, qrcodegen) and FigCraft design",
-  "updated": "2026-10-31T14:30:55Z"
+  "waiting": "012 merge + design",
+  "note": "Spec revised after review 1 (split, legal agreed); depends on 012, needs FigCraft frames",
+  "updated": "2026-10-31T15:40:38Z"
 }
