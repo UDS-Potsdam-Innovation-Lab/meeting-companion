@@ -46,8 +46,9 @@ STATUS: CONFIGURED
   `settings|settings-no-model|settings-mic-test|settings-recording|settings-dark|settings-missing` (they open the
   settings view) and `live-mic-missing|live-switched`, the sound-wave fixtures `live-level-speech|live-level-silence|live-no-signal`
   (the mock core sends a fixed level sequence by the clock; wave screenshots install Playwright's clock and run the last 3 s on it),
-  and the speaker fixtures `speakers|speakers-empty|speakers-no-model|live-speakers` (open frame 06 with the footer button);
-  the live fixtures are meant for a fixed clock, see `LIVE_TIMES` in `src/features/agenda/fixtures.ts`).
+  and the speaker fixtures `speakers|speakers-empty|speakers-no-model|live-speakers` (open frame 06 with the footer button),
+  and the agenda-free fixtures `free` (setup) and `live-free|live-free-empty` (frame 16);
+  the live fixtures are meant for a fixed clock, see `LIVE_TIMES` and `FREE_TIMES` in `src/features/agenda/fixtures.ts`).
 - Layout:
   - `src/` — React UI. `src/i18n/de.json` + `en.json` (flat keys, de default), `src/features/<feature>/`,
     `src/ui/` shared components (`SoundWave.tsx`: the level wave of frame 02 and the settings meter, drawn through refs

@@ -24,6 +24,9 @@ export type Fixture =
   | "settings-missing"
   | "live-mic-missing"
   | "live-switched"
+  | "free"
+  | "live-free-empty"
+  | "live-free"
   | "live-level-speech"
   | "live-level-silence"
   | "live-no-signal";

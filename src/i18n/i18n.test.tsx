@@ -15,6 +15,10 @@ import {
   LIVE_TRANSCRIPT,
   liveDoneMeeting,
   liveMeeting,
+  FREE_TIMES,
+  freeSetupMeeting,
+  liveFreeEmptyMeeting,
+  liveFreeMeeting,
 } from "../features/agenda/fixtures";
 import { emit } from "@tauri-apps/api/event";
 import { EVENT_CAPTURE, EVENT_SEGMENT, type CaptureState, type SegmentEvent } from "../lib/ipc";
@@ -315,5 +319,42 @@ describe("AC6 no literal user-facing strings", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("AC7 (job 009) no literal strings in agenda-free mode", () => {
+  it("the mode switch and the free setup come from keys", async () => {
+    const meeting = freeSetupMeeting();
+    const { container } = await renderApp({ meeting, error: null }, { keyMode: true });
+    expect(screen.getByRole("group", { name: "⟦setup.mode.label⟧" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "⟦setup.free.title⟧" })).toBeInTheDocument();
+    expect(literalOffenders(container, meeting)).toEqual([]);
+  });
+
+  it("timer card, topics, add field with an error, the half-time nudge and the over state come from keys", async () => {
+    const user = userEvent.setup();
+    const meeting = liveFreeMeeting();
+    const clock = new FakeClock(FREE_TIMES.half);
+    const { container, unmount } = await renderApp(
+      { meeting, error: null },
+      { keyMode: true, clock, view: "live", recording: { transcript: { segments: [], error: null } } },
+    );
+    const topics = meeting.run!.topics!.map((t) => t.title);
+    expect(screen.getByRole("group", { name: "⟦half.title⟧" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "⟦free.topics.add⟧" }));
+    await user.click(screen.getByRole("button", { name: "⟦free.topics.confirm⟧" }));
+    expect(screen.getByText("⟦error.topicTitle.empty⟧")).toBeInTheDocument();
+    expect(literalOffenders(container, meeting, topics)).toEqual([]);
+    await act(() => clock.set(FREE_TIMES.over));
+    expect(literalOffenders(container, meeting, topics)).toEqual([]);
+    unmount();
+
+    const empty = liveFreeEmptyMeeting();
+    const r = await renderApp(
+      { meeting: empty, error: null },
+      { keyMode: true, clock: new FakeClock(FREE_TIMES.early), view: "live" },
+    );
+    expect(screen.getByText("⟦free.topics.empty.title⟧")).toBeInTheDocument();
+    expect(literalOffenders(r.container, empty)).toEqual([]);
   });
 });

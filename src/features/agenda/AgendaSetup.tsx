@@ -5,13 +5,19 @@ import { viewReady, type LoadError } from "../../lib/ipc";
 import { CloseIcon } from "../../ui/icons";
 import { startRun } from "../live/run";
 import { AgendaList } from "./AgendaList";
+import { FreeExplainer } from "./FreeExplainer";
 import { MeetingCard } from "./MeetingCard";
+import { isFree, setMode, type MeetingMode } from "./model";
+import { ModeSwitch } from "./ModeSwitch";
 import { StartMeeting, type StartBlocker } from "./StartMeeting";
 import type { MeetingState } from "./useMeeting";
 
 export const AGENDA_SETUP_VIEW = "agenda-setup";
 
-/** Frame 01 "Agenda setup", without the assistant parts (later jobs). */
+/**
+ * Frame 01 "Agenda setup", without the assistant parts (later jobs). In agenda-free mode (frame 16a)
+ * the agenda list gives way to a short explanation; typed items stay in the meeting.
+ */
 export function AgendaSetup({ state }: { state: MeetingState }) {
   const { t } = useI18n();
   const { meeting, loadError, saveFailed, update, dismissLoadError } = state;
@@ -23,10 +29,16 @@ export function AgendaSetup({ state }: { state: MeetingState }) {
   const onMeetingValidity = useCallback((bad: boolean) => setInvalidMeeting(bad), []);
   const onItemValidity = useCallback((bad: boolean) => setInvalidItem(bad), []);
 
+  const free = meeting !== null && isFree(meeting);
+  const onMode = (mode: MeetingMode) => {
+    // The agenda list (and an open editor with invalid input) goes away with the switch.
+    if (update((m) => setMode(m, mode))) setInvalidItem(false);
+  };
+
   let blocker: StartBlocker | null = null;
   if (loadError === "keyUnavailable") blocker = "locked";
-  else if (invalidMeeting || invalidItem) blocker = "invalid";
-  else if (!meeting || meeting.items.length === 0) blocker = "noItems";
+  else if (invalidMeeting || (!free && invalidItem)) blocker = "invalid";
+  else if (!meeting || (!free && meeting.items.length === 0)) blocker = "noItems";
 
   useEffect(() => {
     if (ready) void viewReady(AGENDA_SETUP_VIEW);
@@ -36,9 +48,12 @@ export function AgendaSetup({ state }: { state: MeetingState }) {
     <main className="setup" id="main" data-view={AGENDA_SETUP_VIEW} aria-busy={!ready}>
       <div className="setup__left">
         <div className="setup__heading">
-          <p className="setup__step">{t("setup.step")}</p>
-          <h1 className="setup__title">{t("setup.title")}</h1>
-          <p className="setup__subtitle">{t("setup.subtitle")}</p>
+          <div className="setup__step-row">
+            <p className="setup__step">{t("setup.step")}</p>
+            {meeting ? <ModeSwitch mode={free ? "free" : "agenda"} onChange={onMode} /> : null}
+          </div>
+          <h1 className="setup__title">{free ? t("setup.free.title") : t("setup.title")}</h1>
+          <p className="setup__subtitle">{free ? t("setup.free.subtitle") : t("setup.subtitle")}</p>
         </div>
 
         {loadError ? <LoadErrorBanner error={loadError} onDismiss={dismissLoadError} /> : null}
@@ -48,7 +63,8 @@ export function AgendaSetup({ state }: { state: MeetingState }) {
           </div>
         ) : null}
 
-        {meeting ? (
+        {meeting && free ? <FreeExplainer meeting={meeting} /> : null}
+        {meeting && !free ? (
           <AgendaList key={meeting.id} meeting={meeting} onChange={update} onValidity={onItemValidity} />
         ) : null}
       </div>

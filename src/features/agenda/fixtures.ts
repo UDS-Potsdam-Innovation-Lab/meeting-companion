@@ -234,3 +234,62 @@ export const LIVE_SPEAKER_CHOICES = {
   ],
   lines: [{ seq: 9, participantId: "p-jr" }],
 };
+
+// ---- agenda-free mode (frame 16, job 009) ---------------------------------------------------------
+
+/** Frame 16a: "Agenda-free" chosen for the filled meeting; its five typed items are kept. */
+export function freeSetupMeeting(): Meeting {
+  const m = filledMeeting();
+  m.id = "fixture-free";
+  m.title = "Quick sync";
+  m.mode = "free";
+  return m;
+}
+
+/**
+ * Fixed clock times for the free live fixtures (local time on the fixture date). The meeting runs
+ * 10:00–11:00 and started on time: 60 min available, half time at 10:30.
+ */
+export const FREE_TIMES = {
+  start: at(10, 0),
+  /** Start of the meeting, nothing added yet: 58 min left. */
+  early: at(10, 1, 12),
+  /** 48 %: 31 min left, no nudge yet. */
+  running: at(10, 29, 0),
+  /** Just past half time: the nudge, 29 min left. */
+  half: at(10, 30, 5),
+  /** 6 min past the scheduled end. */
+  over: at(11, 6, 0),
+} as const;
+
+/** A free meeting started at 10:00 with no topics and no recording consent (frame 16c). */
+export function liveFreeEmptyMeeting(): Meeting {
+  const m = freeSetupMeeting();
+  m.id = "fixture-live-free-empty";
+  m.run = { startedAt: FREE_TIMES.start, endedAt: null, items: [], topics: [] };
+  return m;
+}
+
+const span = (from: [number, number], to: [number, number] | null) => ({
+  startedAt: at(...from),
+  endedAt: to ? at(...to) : null,
+});
+
+/** Frame 16b: four topics added by hand; "Interview recruiting" is talking now since 10:27. */
+export function liveFreeMeeting(): Meeting {
+  const m = freeSetupMeeting();
+  m.id = "fixture-live-free";
+  m.recordingConsentAt = at(10, 1);
+  m.run = {
+    startedAt: FREE_TIMES.start,
+    endedAt: null,
+    items: [],
+    topics: [
+      { id: "t-1", title: "Offline mode for the beta", source: "manual", spans: [span([10, 0], [10, 14])] },
+      { id: "t-2", title: "Teacher onboarding", source: "manual", spans: [span([10, 14], [10, 23])] },
+      { id: "t-3", title: "Release notes language", source: "manual", spans: [span([10, 23], [10, 27])] },
+      { id: "t-4", title: "Interview recruiting", source: "manual", spans: [span([10, 27], null)] },
+    ],
+  };
+  return m;
+}

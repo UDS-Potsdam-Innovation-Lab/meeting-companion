@@ -727,6 +727,29 @@ mod tests {
     }
 
     #[test]
+    fn a_free_meeting_from_the_ui_is_saved_with_its_topics_and_bad_ones_get_field_errors() {
+        let store = MemoryMeetingStore::new();
+        let m = crate::model::tests::free_running();
+        // As it arrives over IPC: JSON from the UI.
+        let json = serde_json::to_value(&m).unwrap();
+        save(&store, serde_json::from_value(json.clone()).unwrap(), 5).unwrap();
+        let back = store.load("m-1").unwrap().unwrap();
+        assert!(back.is_free());
+        assert_eq!(back.run.unwrap().topics, m.run.unwrap().topics);
+
+        let mut bad = json;
+        bad["mode"] = "auto".into();
+        match save(&store, serde_json::from_value(bad).unwrap(), 6) {
+            Err(SaveError::Invalid { fields }) => {
+                assert_eq!(fields[0].field, "mode");
+                assert_eq!(fields[0].code, "unknown");
+            }
+            other => panic!("expected Invalid, got {other:?}"),
+        }
+        assert_eq!(store.load("m-1").unwrap().unwrap().updated_at, 5);
+    }
+
+    #[test]
     fn consent_is_stored_by_the_core_only_and_kept_by_later_saves() {
         let store = MemoryMeetingStore::new();
         let m = crate::model::tests::running();
