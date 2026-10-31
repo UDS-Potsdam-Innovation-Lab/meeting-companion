@@ -125,3 +125,24 @@ export const SlidersIcon = () => (
     <circle cx="6" cy="11.5" r="1.5" />
   </svg>
 );
+
+export const CheckIcon = () => (
+  <svg {...base}>
+    <path d="M3.5 8.5 6.5 11.5 12.5 4.5" />
+  </svg>
+);
+
+export const StopwatchIcon = () => (
+  <svg {...base}>
+    <circle cx="8" cy="9" r="5" />
+    <path d="M8 6.5V9l1.5 1M6.5 2h3" />
+  </svg>
+);
+
+/** A circle with its left half filled: half time. */
+export const HalfIcon = () => (
+  <svg {...base}>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor" />
+  </svg>
+);

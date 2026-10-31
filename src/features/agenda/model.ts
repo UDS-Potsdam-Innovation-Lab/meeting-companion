@@ -20,6 +20,10 @@ export interface AgendaItem {
   minutes: number;
 }
 
+/** `agenda`: timekeeping per agenda item. `free`: agenda-free, a whole-meeting timer and topics. */
+export type MeetingMode = "agenda" | "free";
+export const MODES: readonly MeetingMode[] = ["agenda", "free"];
+
 export interface Meeting {
   version: 1;
   id: string;
@@ -32,6 +36,8 @@ export interface Meeting {
   end: string;
   participants: Participant[];
   items: AgendaItem[];
+  /** Missing in files from before job 009: those are agenda meetings. */
+  mode?: MeetingMode;
   updatedAt: number;
   /** Timekeeping once the meeting has started; absent before. See `src/features/live/run.ts`. */
   run?: Run | null;
@@ -49,6 +55,26 @@ export interface Run {
   endedAt: number | null;
   /** Started agenda items in the order they started. The one without `endedAt` is the current item. */
   items: RunItem[];
+  /**
+   * Agenda-free meetings only: topics added by hand, in the order they were added. The topic with an
+   * open span is "talking now". Absent in agenda runs. See `src/features/live/free.ts`.
+   */
+  topics?: Topic[];
+}
+
+/** A topic of an agenda-free meeting, typed by a person. */
+export interface Topic {
+  id: string;
+  title: string;
+  /** Detected topics come with a later job. */
+  source: "manual";
+  /** When the topic was "talking now"; at most one span of all topics is open. */
+  spans: Span[];
+}
+
+export interface Span {
+  startedAt: number;
+  endedAt: number | null;
 }
 
 export interface RunItem {
@@ -70,6 +96,8 @@ export const LIMITS = {
   participants: 100,
   items: 100,
   extraMinutes: 240,
+  topics: 100,
+  spans: 1000,
 } as const;
 
 export type ErrorCode =
@@ -164,10 +192,19 @@ export function isMeetingValid(m: Meeting): boolean {
   return itemsOk && (!m.run || isRunValid(m, m.run));
 }
 
+export const isFree = (m: Pick<Meeting, "mode">) => m.mode === "free";
+
+/** Agenda or agenda-free. Typed agenda items stay in the meeting either way. */
+export function setMode(m: Meeting, mode: MeetingMode): Meeting {
+  return (m.mode ?? "agenda") === mode || m.run ? m : { ...m, mode };
+}
+
 /** The run rules the core enforces (src-tauri/src/model `validate_run`). */
-export function isRunValid(m: Pick<Meeting, "items">, run: Run): boolean {
-  if (m.items.length === 0) return false;
+export function isRunValid(m: Pick<Meeting, "items" | "mode">, run: Run): boolean {
+  if (m.mode !== undefined && !MODES.includes(m.mode)) return false;
   if (run.endedAt !== null && run.endedAt < run.startedAt) return false;
+  if (isFree(m)) return run.items.length === 0 && areTopicsValid(run);
+  if (m.items.length === 0 || (run.topics?.length ?? 0) > 0) return false;
   const known = new Set(m.items.map((it) => it.id));
   const seen = new Set<string>();
   let current = 0;
@@ -186,6 +223,32 @@ export function isRunValid(m: Pick<Meeting, "items">, run: Run): boolean {
     }
   }
   return current <= 1;
+}
+
+const ID_RE = /^[A-Za-z0-9-]{1,64}$/;
+
+/** The topic rules the core enforces (src-tauri/src/model `validate_topics`). */
+function areTopicsValid(run: Run): boolean {
+  const topics = run.topics ?? [];
+  if (topics.length > LIMITS.topics) return false;
+  const ids = new Set<string>();
+  let open = 0;
+  for (const topic of topics) {
+    if (!ID_RE.test(topic.id) || ids.has(topic.id)) return false;
+    ids.add(topic.id);
+    if (validateTitle(topic.title) || topic.source !== "manual") return false;
+    if (topic.spans.length > LIMITS.spans) return false;
+    for (const s of topic.spans) {
+      if (s.startedAt < run.startedAt) return false;
+      if (s.endedAt === null) {
+        open += 1;
+        if (run.endedAt !== null) return false;
+      } else if (s.endedAt < s.startedAt) {
+        return false;
+      }
+    }
+  }
+  return open <= 1;
 }
 
 // ---- derived values ---------------------------------------------------------------------------

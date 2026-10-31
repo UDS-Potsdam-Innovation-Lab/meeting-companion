@@ -2,9 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { TopBar } from "../../app/TopBar";
 import { useI18n } from "../../i18n";
 import { useClock, useNow } from "../../lib/clock";
-import type { Meeting } from "../agenda/model";
+import { isFree, type Meeting } from "../agenda/model";
 import type { MeetingState } from "../agenda/useMeeting";
 import { EndMeeting } from "./EndMeeting";
+import { addTopic, canAddTopic, freeSnapshot, halfTimeKey, tapTopic } from "./free";
+import { FreeTimerCard } from "./FreeTimerCard";
+import { HalfTimeNudge, halfTimeText } from "./HalfTimeNudge";
+import { TopicsCard } from "./TopicsCard";
 import { LiveAgenda, OverallLine } from "./LiveAgenda";
 import { Nudge, nudgeTitle } from "./Nudge";
 import { advance, canExtend, endRun, extend, liveSnapshot, nudgeDue, nudgeKey } from "./run";
@@ -30,6 +34,10 @@ interface Props {
  * Frame 02 "Live meeting": top bar with the recording indicator, the left column (timer, agenda,
  * parking lot, overall line), the centre column (transcript), the time nudge over it and "End meeting"
  * at the bottom right. The right column (captures) comes with a later job.
+ *
+ * An agenda-free meeting (frame 16) has the same top bar (plus "Free mode"), centre column and
+ * recording; its left column is the whole-meeting timer and "Topics so far", and its nudge comes at
+ * half time.
  */
 export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Props) {
   const i18n = useI18n();
@@ -38,7 +46,10 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
   const now = useNow();
   const { update, startNew, saveFailed } = state;
   const run = meeting.run!;
+  const free = isFree(meeting);
   const snapshot = liveSnapshot(meeting, run, now);
+  const freeSnap = free ? freeSnapshot(meeting, run, now) : null;
+  const title = free ? t("free.title", { title: meeting.title }) : meeting.title;
   const { current } = snapshot;
   const extendable = canExtend(meeting);
   const onConsent = useCallback((at: number) => update((m) => ({ ...m, recordingConsentAt: at })), [update]);
@@ -94,17 +105,26 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
   // once per item and budget. Dismissals last for this session.
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
   const key = current ? nudgeKey(current) : null;
-  const showNudge = current !== null && key !== null && nudgeDue(current) && !dismissed.has(key);
+  const showNudge = !free && current !== null && key !== null && nudgeDue(current) && !dismissed.has(key);
+
+  // Half-time nudge of an agenda-free meeting: from 50 % of the time available, at most once per run
+  // while the view is open. Dismissing it lasts for this session.
+  const halfKey = halfTimeKey(run);
+  const [halfDismissed, setHalfDismissed] = useState(false);
+  const showHalf = !!freeSnap?.halfTimeDue && !halfDismissed;
 
   // Announced once per nudge through the polite live region, which always exists. The text is set
   // when a nudge appears (state adjusted during render), not on every change of its countdown.
   const [announced, setAnnounced] = useState<{ key: string | null; text: string }>({ key: null, text: "" });
-  const visibleKey = showNudge ? key : null;
+  const visibleKey = showNudge ? key : showHalf ? halfKey : null;
   if (visibleKey !== announced.key) {
-    setAnnounced({
-      key: visibleKey,
-      text: visibleKey && current ? `${nudgeTitle(i18n, current)} ${t("nudge.body")}` : "",
-    });
+    let text = "";
+    if (showNudge && current) text = `${nudgeTitle(i18n, current)} ${t("nudge.body")}`;
+    else if (showHalf && freeSnap) {
+      const half = halfTimeText(i18n, freeSnap);
+      text = `${half.title}. ${half.body}`;
+    }
+    setAnnounced({ key: visibleKey, text });
   }
 
   // Focus: when the last item ends, move to "Agenda done"; when the nudge closes while it had focus,
@@ -116,7 +136,9 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
   useEffect(() => {
     if (!refocus.current) return;
     refocus.current = false;
-    const next = leftRef.current?.querySelector<HTMLButtonElement>('[data-action="next"]');
+    const next = leftRef.current?.querySelector<HTMLButtonElement>(
+      '[data-action="next"], [data-action="add-topic"]:not(:disabled)',
+    );
     (next ?? doneRef.current)?.focus();
   });
 
@@ -135,6 +157,12 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
     if (nudgeHasFocus()) refocus.current = true;
     setDismissed((d) => new Set(d).add(key));
   };
+  const onDismissHalf = () => {
+    if (nudgeHasFocus()) refocus.current = true;
+    setHalfDismissed(true);
+  };
+  const onAddTopic = (topicTitle: string) => update((m) => addTopic(m, topicTitle, clock.now()));
+  const onTapTopic = (id: string) => update((m) => tapTopic(m, id, clock.now()));
   const onEnd = () => {
     // Capture stops before the meeting ends.
     void recording.stop().then(() => {
@@ -148,7 +176,7 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
     return (
       <div className="live-view" ref={viewRef}>
         <TopBar
-          meetingTitle={meeting.title}
+          meetingTitle={title}
           actions={
             <>
               <RecordingControls
@@ -179,18 +207,21 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
   return (
     <div className="live-view" ref={viewRef}>
       <TopBar
-        meetingTitle={meeting.title}
+        meetingTitle={title}
         onOpenSettings={onOpenSettings}
         actions={
-          <RecordingControls
-            capture={recording.capture}
-            busy={recording.busy}
-            onPause={() => void recording.pause()}
-            onResume={() => void recording.start()}
-          />
+          <>
+            {free ? <span className="mode-chip">{t("free.chip")}</span> : null}
+            <RecordingControls
+              capture={recording.capture}
+              busy={recording.busy}
+              onPause={() => void recording.pause()}
+              onResume={() => void recording.start()}
+            />
+          </>
         }
       />
-      <main className="live" id="main" data-view={LIVE_VIEW}>
+      <main className="live" id="main" data-view={LIVE_VIEW} data-mode={free ? "free" : "agenda"}>
         <h1 className="visually-hidden">{t("live.heading")}</h1>
         <div className="live__left" ref={leftRef}>
           {saveFailed ? (
@@ -198,16 +229,30 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
               {t("store.saveFailed")}
             </div>
           ) : null}
-          <TimerCard
-            ref={doneRef}
-            current={current}
-            canExtend={extendable}
-            onExtend={onExtend}
-            onPark={() => onAdvance(true)}
-            onNext={() => onAdvance(false)}
-          />
-          <LiveAgenda snapshot={snapshot} />
-          <OverallLine snapshot={snapshot} />
+          {freeSnap ? (
+            <>
+              <FreeTimerCard snapshot={freeSnap} />
+              <TopicsCard
+                topics={freeSnap.topics}
+                canAdd={canAddTopic(meeting)}
+                onAdd={onAddTopic}
+                onTap={onTapTopic}
+              />
+            </>
+          ) : (
+            <>
+              <TimerCard
+                ref={doneRef}
+                current={current}
+                canExtend={extendable}
+                onExtend={onExtend}
+                onPark={() => onAdvance(true)}
+                onNext={() => onAdvance(false)}
+              />
+              <LiveAgenda snapshot={snapshot} />
+              <OverallLine snapshot={snapshot} />
+            </>
+          )}
         </div>
         <div className="live__centre">
           <TranscriptPanel
@@ -221,6 +266,9 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
           />
         </div>
         <div className="live__stage">
+          {showHalf && freeSnap ? (
+            <HalfTimeNudge ref={nudgeRef} snapshot={freeSnap} onDismiss={onDismissHalf} />
+          ) : null}
           {showNudge && current ? (
             <Nudge
               ref={nudgeRef}

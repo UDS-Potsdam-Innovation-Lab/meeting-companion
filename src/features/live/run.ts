@@ -1,6 +1,7 @@
 // Timekeeping of a running meeting: pure edits of the run state and the values the live view shows.
 // Every value is computed from stored timestamps and a `now` the caller reads from its Clock.
 import {
+  isFree,
   LIMITS,
   parseTime,
   slotMinutes,
@@ -41,10 +42,15 @@ const startRecord = (itemId: string, now: number): RunItem => ({
 
 // ---- edits (pure; each returns `m` unchanged when it does not apply) --------------------------------
 
-/** Records the start time and starts the first item. */
+/**
+ * Records the start time and starts the first item. An agenda-free meeting starts with no items and no
+ * topics, whatever agenda items were typed.
+ */
 export function startRun(m: Meeting, now: number): Meeting {
+  if (m.run) return m;
+  if (isFree(m)) return { ...m, run: { startedAt: now, endedAt: null, items: [], topics: [] } };
   const first = m.items[0];
-  if (m.run || !first) return m;
+  if (!first) return m;
   return { ...m, run: { startedAt: now, endedAt: null, items: [startRecord(first.id, now)] } };
 }
 
@@ -84,15 +90,26 @@ export function extend(m: Meeting): Meeting {
   };
 }
 
-/** "End meeting": ends the current item, if any, and records the end time. */
+/** "End meeting": ends the current item or the open topic span, if any, and records the end time. */
 export function endRun(m: Meeting, now: number): Meeting {
   const run = m.run;
   if (!run || run.endedAt !== null) return m;
   const items = run.items.map((r) =>
     r.endedAt === null ? { ...r, endedAt: Math.max(now, r.startedAt) } : r,
   );
-  const last = Math.max(run.startedAt, ...items.map((r) => r.endedAt ?? 0));
-  return { ...m, run: { ...run, items, endedAt: Math.max(now, last) } };
+  const topics = run.topics?.map((topic) => ({
+    ...topic,
+    spans: topic.spans.map((s) => (s.endedAt === null ? { ...s, endedAt: Math.max(now, s.startedAt) } : s)),
+  }));
+  const last = Math.max(
+    run.startedAt,
+    ...items.map((r) => r.endedAt ?? 0),
+    ...(topics ?? []).flatMap((topic) => topic.spans.map((s) => s.endedAt ?? 0)),
+  );
+  return {
+    ...m,
+    run: { ...run, items, ...(topics ? { topics } : {}), endedAt: Math.max(now, last) },
+  };
 }
 
 // ---- derived values --------------------------------------------------------------------------------
