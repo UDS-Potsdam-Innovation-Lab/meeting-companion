@@ -33,6 +33,7 @@ use serde::Serialize;
 use crate::engines::audio::{AudioError, AudioSink, AudioSource};
 use crate::engines::devices::{AudioDevices, NoAudioDevices};
 use crate::engines::diarize::{Diarizer, VoiceTracker};
+use crate::engines::level::{Level, LevelPacer};
 use crate::engines::models::SpeakerModelList;
 use crate::engines::stt::{Lang, SpeechToText, SttError};
 use crate::engines::{AudioFactory, DiarizerProvider, NoSpeakerModelProvider, SttProvider};
@@ -153,6 +154,29 @@ pub struct VoiceEvent {
     pub voice: Voice,
 }
 
+/// The input level for the sound wave (`capture-level` event), sent every [`crate::engines::level::LEVEL_EVERY`] while
+/// audio arrives, from the capture side. Numbers only: never samples. `meeting_id` is `None` for the
+/// microphone test. The last event before capture stops has level 0.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LevelEvent {
+    pub meeting_id: Option<String>,
+    /// Scaled RMS 0..1 ([`crate::engines::level::scaled_rms`]).
+    pub level: f32,
+    /// Highest absolute sample of the block, 0..1.
+    pub peak: f32,
+}
+
+impl LevelEvent {
+    fn new(meeting_id: Option<&str>, l: Level) -> Self {
+        Self {
+            meeting_id: meeting_id.map(str::to_owned),
+            level: l.level,
+            peak: l.peak,
+        }
+    }
+}
+
 /// Why a recording command was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -179,6 +203,8 @@ pub trait EventSink: Send + Sync {
     fn switched(&self, _event: &SwitchedEvent) {}
     /// The microphone test's state (`mic-test` event).
     fn mic_test(&self, _state: &MicTestState) {}
+    /// The input level of the recording or the microphone test (`capture-level` event).
+    fn level(&self, _event: &LevelEvent) {}
 }
 
 /// Recording switched to the system default microphone after the chosen one was lost.
@@ -260,6 +286,8 @@ struct Worker {
     /// The speaker model id its diarizer was loaded for.
     speaker_model: Option<String>,
     meeting_id: String,
+    /// Set as soon as a halt begins: the level stream stops before the device is closed.
+    stopping: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -495,6 +523,8 @@ impl Recorder {
         let shared = self.shared.clone();
         let worker_sink = sink.clone();
         let id = meeting_id.to_owned();
+        let stopping = Arc::new(AtomicBool::new(false));
+        let worker_stopping = stopping.clone();
         // "Switch to the system default" applies to a chosen device; losing the default stops.
         let fallback =
             (opts.on_lost == DeviceLost::SwitchToDefault && opts.device.is_some()).then(|| {
@@ -514,6 +544,7 @@ impl Recorder {
                     id,
                     speakers,
                     fallback,
+                    worker_stopping,
                 )
             })
             .map_err(|_| self.refuse(meeting_id, Reason::EngineFailed))?;
@@ -523,6 +554,7 @@ impl Recorder {
             model: wanted,
             speaker_model,
             meeting_id: meeting_id.to_owned(),
+            stopping,
         });
         Ok(state)
     }
@@ -563,6 +595,9 @@ impl Recorder {
     }
 
     fn halt(&self, inner: &mut Inner, next: Capture, emit: bool) -> CaptureState {
+        if let Some(w) = &inner.worker {
+            w.stopping.store(true, Ordering::SeqCst);
+        }
         self.shared.close_source();
         if let Some(w) = inner.worker.take() {
             w.sink.end();
@@ -831,6 +866,7 @@ const FLUSH_GRACE: Duration = Duration::from_millis(250);
 /// ticks, so a busy engine neither looks like a lost microphone nor freezes the state. Speaker
 /// detection hangs off the speech side: the speech thread hands clips to the diarizer's own thread
 /// and stores lines as their voices arrive, so neither capture nor loss detection waits for it.
+#[allow(clippy::too_many_arguments)]
 fn run(
     shared: Arc<Shared>,
     sink: AudioSink,
@@ -839,6 +875,7 @@ fn run(
     meeting_id: String,
     speakers: Option<(Box<dyn Diarizer>, VoiceTracker)>,
     fallback: Option<Fallback>,
+    stopping: Arc<AtomicBool>,
 ) -> Returned {
     use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::SeqCst};
     let speakers = speakers.and_then(|(diarizer, tracker)| {
@@ -931,9 +968,15 @@ fn run(
         let mut last_tick = Instant::now();
         let mut lost_since: Option<Instant> = None;
         let mut fallback = fallback;
+        // The sound wave's level, from the capture side: it keeps coming while the engine works.
+        let mut pacer = LevelPacer::new();
+        let send_level = |l: Level| shared.events.level(&LevelEvent::new(Some(&meeting_id), l));
         while !done.load(SeqCst) {
-            std::thread::sleep(Duration::from_millis(25));
+            std::thread::sleep(pacer.due_in(Duration::from_millis(25)));
             let (failed, ended) = sink.peek();
+            let live =
+                failed.is_none() && !ended && !reported.load(SeqCst) && !stopping.load(SeqCst);
+            pacer.step(&sink, live, send_level);
             let reason = failed.map(Reason::from).or_else(|| {
                 (!ended && sink.since_last_push() >= STALL).then_some(Reason::MicrophoneLost)
             });
@@ -967,6 +1010,7 @@ fn run(
                 );
             }
         }
+        pacer.finish(send_level);
         stt.join().expect("speech-to-text thread panicked");
     });
     let speakers = delivery.close();
@@ -978,6 +1022,9 @@ fn run(
 
 mod mic_test;
 pub use mic_test::{MicTest, MicTestError, MicTestState, TEST_LIMIT};
+
+#[cfg(test)]
+mod level_tests;
 
 #[cfg(test)]
 mod device_tests;
