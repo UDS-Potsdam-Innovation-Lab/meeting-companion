@@ -17,13 +17,13 @@ T = {
                foot="Local network only. This page shows nothing from the meeting.",
                foot_closed="Nothing from this page was kept on your phone."),
     "de": dict(app="Meeting Companion", connected="Verbunden", closed="Geschlossen",
-               wait_t="Mit dem Besprechungsbildschirm verbunden",
-               wait_s="Gerade gibt es nichts zu tun. Wenn die Besprechung Sie um etwas bittet, erscheint es hier.",
+               wait_t="Mit dem Meeting-Bildschirm verbunden",
+               wait_s="Gerade gibt es nichts zu tun. Wenn das Meeting dich um etwas bittet, erscheint es hier.",
                closed_t="Diese Seite ist geschlossen",
-               closed_s="Der Besprechungsbildschirm hat sie geschlossen, oder die Aufnahme wurde beendet.",
-               closed_h="Um wieder teilzunehmen, scannen Sie den QR-Code auf dem Besprechungsbildschirm erneut.",
-               foot="Nur im lokalen Netzwerk. Diese Seite zeigt nichts aus der Besprechung.",
-               foot_closed="Von dieser Seite bleibt nichts auf Ihrem Telefon."),
+               closed_s="Der Meeting-Bildschirm hat sie geschlossen, oder die Aufnahme wurde beendet.",
+               closed_h="Um wieder mitzumachen, scanne den QR-Code auf dem Meeting-Bildschirm erneut.",
+               foot="Nur im lokalen Netzwerk. Diese Seite zeigt nichts aus dem Meeting.",
+               foot_closed="Von dieser Seite bleibt nichts auf deinem Telefon."),
 }
 
 
