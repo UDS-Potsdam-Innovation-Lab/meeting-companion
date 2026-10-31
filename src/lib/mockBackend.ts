@@ -43,6 +43,8 @@ import {
   type SettingsLoad,
   type SwitchedEvent,
   type LoadResult,
+  type Organisation,
+  type OrganisationLoad,
   type ModelList,
   type RecordReason,
   type SegmentEvent,
@@ -72,6 +74,27 @@ const SETTINGS_KEY = "mock-backend.settings";
 const MIC_TEST_KEY = "mock-backend.mic-test";
 /** Milliseconds `stop_recording` takes to answer (a core whose engine is slow to stop). */
 export const STOP_DELAY_KEY = "mock-backend.stop-delay-ms";
+/** `found`, `invalid` or `markup`: what the fake core's `organisation.json` holds (none if unset). */
+const ORGANISATION_KEY = "mock-backend.organisation";
+const ORGANISATION_PATH = "/home/user/.local/share/de.udspotsdam.meetingcompanion/organisation.json";
+/** A filled-in organisation file (frame 19d). */
+export const FIXTURE_ORGANISATION: Organisation = {
+  name: "Grundschule am Lindenpark",
+  address: "Lindenstraße 12, 14467 Potsdam",
+  controller: "Dr. Sabine Hartmann, Schulleitung",
+  dpoContact: "datenschutz@schulamt-potsdam.example",
+  contact: "sekretariat@lindenpark-schule.example · 0331 289 4410",
+  imprintUrl: "lindenpark-schule.example/impressum",
+};
+/** Values that would run script or open a link if they were rendered as HTML. */
+export const MARKUP_ORGANISATION: Organisation = {
+  name: "<img src=x onerror=alert(1)>",
+  address: "<b>Lindenstraße</b> 12",
+  controller: null,
+  dpoContact: '<a href="javascript:alert(1)">Datenschutz</a>',
+  contact: null,
+  imprintUrl: "javascript:alert(1)",
+};
 /** The level the fake microphone delivers: `speech` (default), `silence` or `none` (no events). */
 const LEVEL_KEY = "mock-backend.level";
 
@@ -104,7 +127,11 @@ type Fixture =
   | "live-free"
   | "live-level-speech"
   | "live-level-silence"
-  | "live-no-signal";
+  | "live-no-signal"
+  | "help"
+  | "help-no-org"
+  | "help-bad-org"
+  | "help-markup";
 
 const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   filled: filledMeeting,
@@ -133,6 +160,10 @@ const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   "live-level-speech": liveConsentedMeeting,
   "live-level-silence": liveConsentedMeeting,
   "live-no-signal": liveConsentedMeeting,
+  help: filledMeeting,
+  "help-no-org": filledMeeting,
+  "help-bad-org": filledMeeting,
+  "help-markup": filledMeeting,
 };
 
 /** Input devices of the fake core: the system default is not one of them. */
@@ -221,6 +252,7 @@ function seed(fixture: Fixture) {
     MIC_TEST_KEY,
     SPEAKER_MODELS_KEY,
     LEVEL_KEY,
+    ORGANISATION_KEY,
   ]) {
     localStorage.removeItem(k);
   }
@@ -247,6 +279,9 @@ function seed(fixture: Fixture) {
     localStorage.setItem("meeting-companion.theme", settings.theme);
   }
   if (fixture === "settings-mic-test") localStorage.setItem(MIC_TEST_KEY, "fixed");
+  if (fixture === "help") localStorage.setItem(ORGANISATION_KEY, "found");
+  if (fixture === "help-bad-org") localStorage.setItem(ORGANISATION_KEY, "invalid");
+  if (fixture === "help-markup") localStorage.setItem(ORGANISATION_KEY, "markup");
 
   const id = meetings[0]?.id ?? null;
   if (fixture === "live-switched") {
@@ -788,6 +823,15 @@ export function installMockBackend() {
           stopTest();
           emitTest(MIC_TEST_OFF);
           return null;
+        case "load_organisation": {
+          const org = localStorage.getItem(ORGANISATION_KEY);
+          return {
+            status: org === "invalid" ? "invalid" : org ? "found" : "missing",
+            organisation:
+              org === "found" ? FIXTURE_ORGANISATION : org === "markup" ? MARKUP_ORGANISATION : null,
+            path: ORGANISATION_PATH,
+          } satisfies OrganisationLoad;
+        }
         default:
           throw new Error(`mock backend: unknown command ${cmd}`);
       }

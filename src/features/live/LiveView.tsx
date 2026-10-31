@@ -26,7 +26,9 @@ interface Props {
   meeting: Meeting;
   state: MeetingState;
   onOpenSettings: () => void;
-  /** The settings view covers this one; recording and the transcript carry on underneath. */
+  /** Opens "Help & legal" over this view; recording carries on. */
+  onOpenHelp?: (opener: HTMLElement) => void;
+  /** The settings view or Help & legal covers this one; recording and the transcript carry on underneath. */
   hidden?: boolean;
 }
 
@@ -39,7 +41,7 @@ interface Props {
  * recording; its left column is the whole-meeting timer and "Topics so far", and its nudge comes at
  * half time.
  */
-export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Props) {
+export function LiveView({ meeting, state, onOpenSettings, onOpenHelp, hidden = false }: Props) {
   const i18n = useI18n();
   const { t } = i18n;
   const clock = useClock();
@@ -208,6 +210,7 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
     <div className="live-view" ref={viewRef}>
       <TopBar
         meetingTitle={title}
+        onOpenHelp={onOpenHelp}
         onOpenSettings={onOpenSettings}
         actions={
           <>

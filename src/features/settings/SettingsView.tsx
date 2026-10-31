@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { matches, tabTarget } from "../../app/shortcuts";
 import { TopBar } from "../../app/TopBar";
 import { LOCALES, useI18n, type Locale, type MessageKey } from "../../i18n";
 import {
@@ -9,7 +10,16 @@ import {
   type SpeakerModelList,
   type ThemeSetting,
 } from "../../lib/ipc";
-import { GearIcon, MicIcon, MonitorIcon, PlayIcon, StopIcon, WaveIcon } from "../../ui/icons";
+import {
+  ChevronRightIcon,
+  GearIcon,
+  HelpIcon,
+  MicIcon,
+  MonitorIcon,
+  PlayIcon,
+  StopIcon,
+  WaveIcon,
+} from "../../ui/icons";
 import { SoundWave, useNoSignal, type WaveState } from "../../ui/SoundWave";
 import { formatMegabytes } from "../transcript/format";
 import { RecordingControls } from "../transcript/RecordingControls";
@@ -35,6 +45,12 @@ interface Props {
   meetingTitle?: string;
   onBack: () => void;
   initialSection?: Section;
+  /** Focus the section's tab on open (opened at a section from Help & legal). */
+  focusSection?: boolean;
+  /** Opens "Help & legal" (top-bar button and the link under the sections). */
+  onOpenHelp?: (opener: HTMLElement) => void;
+  /** False while Help & legal covers the settings: Escape is then Help's. */
+  active?: boolean;
 }
 
 /**
@@ -42,7 +58,15 @@ interface Props {
  * one section's cards on the right. Every change goes to the core at once; there is no "Save". The
  * REC chip stays in the top bar, and recording carries on while the settings are open.
  */
-export function SettingsView({ origin, meetingTitle, onBack, initialSection = "audio" }: Props) {
+export function SettingsView({
+  origin,
+  meetingTitle,
+  onBack,
+  initialSection = "audio",
+  focusSection = false,
+  onOpenHelp,
+  active = true,
+}: Props) {
   const { t } = useI18n();
   const { notSaved, status } = useSettings();
   const capture = useCapture();
@@ -51,28 +75,23 @@ export function SettingsView({ origin, meetingTitle, onBack, initialSection = "a
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   useEffect(() => {
+    if (!active) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       // An open native select handles Escape itself.
-      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (!matches("back", e) || e.defaultPrevented) return;
       e.preventDefault();
       onBack();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onBack]);
+  }, [onBack, active]);
+
+  useEffect(() => {
+    if (focusSection) tabRefs.current[initialSection]?.focus();
+  }, [focusSection, initialSection]);
 
   const onTabKey = (e: KeyboardEvent<HTMLButtonElement>) => {
-    const i = SECTIONS.indexOf(section);
-    const next =
-      e.key === "ArrowDown" || e.key === "ArrowRight"
-        ? SECTIONS[(i + 1) % SECTIONS.length]
-        : e.key === "ArrowUp" || e.key === "ArrowLeft"
-          ? SECTIONS[(i + SECTIONS.length - 1) % SECTIONS.length]
-          : e.key === "Home"
-            ? SECTIONS[0]
-            : e.key === "End"
-              ? SECTIONS[SECTIONS.length - 1]
-              : null;
+    const next = tabTarget(e, SECTIONS, section);
     if (!next) return;
     e.preventDefault();
     setSection(next);
@@ -84,6 +103,7 @@ export function SettingsView({ origin, meetingTitle, onBack, initialSection = "a
       <TopBar
         meetingTitle={meetingTitle ?? ""}
         actions={<RecordingControls capture={capture} />}
+        onOpenHelp={onOpenHelp}
         onOpenSettings={() => tabRefs.current[section]?.focus()}
         settingsOpen
         onBack={onBack}
@@ -124,6 +144,7 @@ export function SettingsView({ origin, meetingTitle, onBack, initialSection = "a
               );
             })}
           </div>
+          {onOpenHelp ? <HelpLink onOpen={onOpenHelp} placement="nav" /> : null}
         </div>
         <div
           className="settings__panel"
@@ -139,6 +160,7 @@ export function SettingsView({ origin, meetingTitle, onBack, initialSection = "a
           {section === "audio" ? <AudioSection /> : null}
           {section === "device" ? <DeviceSection /> : null}
           {section === "general" ? <GeneralSection /> : null}
+          {onOpenHelp ? <HelpLink onOpen={onOpenHelp} placement="panel" /> : null}
         </div>
       </main>
     </div>
@@ -146,6 +168,39 @@ export function SettingsView({ origin, meetingTitle, onBack, initialSection = "a
 }
 
 // ---- shared pieces ------------------------------------------------------------------------------
+
+/**
+ * The link to "Help & legal" (frame 19s): under the section list when wide, after the section's cards
+ * when narrow (CSS shows one of the two). Not a section: it leaves the settings, so it has a "›".
+ */
+function HelpLink({
+  onOpen,
+  placement,
+}: {
+  onOpen: (opener: HTMLElement) => void;
+  placement: "nav" | "panel";
+}) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      className={`settings-help-link settings-help-link--${placement}`}
+      onClick={(e) => onOpen(e.currentTarget)}
+      data-help-link=""
+    >
+      <span className="settings-help-link__icon" aria-hidden="true">
+        <HelpIcon />
+      </span>
+      <span className="settings-help-link__text">
+        <span className="settings-help-link__label">{t("settings.helpLink")}</span>
+        <span className="settings-help-link__sub">{t("settings.helpLink.sub")}</span>
+      </span>
+      <span className="settings-help-link__chevron" aria-hidden="true">
+        <ChevronRightIcon />
+      </span>
+    </button>
+  );
+}
 
 function Card({
   title,

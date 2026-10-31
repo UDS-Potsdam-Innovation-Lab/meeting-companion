@@ -146,3 +146,37 @@ export const HalfIcon = () => (
     <path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor" />
   </svg>
 );
+
+/** "?" in a circle: Help & legal. */
+export const HelpIcon = () => (
+  <svg {...base}>
+    <circle cx="8" cy="8" r="6.2" />
+    <path d="M6.3 6.3a1.8 1.8 0 1 1 2.4 1.7c-.5.2-.7.6-.7 1.1v.3" />
+    <circle cx="8" cy="11.4" r=".5" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+export const ChevronRightIcon = () => (
+  <svg {...base} width={12} height={12}>
+    <path d="M6 4l4 4-4 4" />
+  </svg>
+);
+
+export const ListIcon = () => (
+  <svg {...base}>
+    <path d="M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.01M2.5 8h.01M2.5 12h.01" />
+  </svg>
+);
+
+export const RecordIcon = () => (
+  <svg {...base}>
+    <circle cx="8" cy="8" r="4" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+export const PersonIcon = () => (
+  <svg {...base}>
+    <circle cx="8" cy="5.5" r="2.5" />
+    <path d="M3 13.5c.6-2.4 2.6-3.8 5-3.8s4.4 1.4 5 3.8" />
+  </svg>
+);

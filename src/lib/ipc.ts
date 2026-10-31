@@ -546,3 +546,45 @@ function subscribe<T>(event: string, handler: (payload: T) => void): () => void 
     unlisten?.();
   };
 }
+
+// ---- organisation (Help & legal) ------------------------------------------------------------------
+
+/** The fields of `<app_data>/organisation.json`, checked by the core; all optional. */
+export interface Organisation {
+  name: string | null;
+  address: string | null;
+  controller: string | null;
+  dpoContact: string | null;
+  contact: string | null;
+  imprintUrl: string | null;
+}
+
+export const ORGANISATION_FIELDS = [
+  "name",
+  "address",
+  "controller",
+  "dpoContact",
+  "contact",
+  "imprintUrl",
+] as const satisfies readonly (keyof Organisation)[];
+
+/**
+ * `found`: the checked details. `missing`: no file (the placeholder). `invalid`: the core rejected the
+ * file (too large, not JSON, unknown keys, non-string or too long values); the UI never sees why in
+ * detail and never sees the file's content.
+ */
+export interface OrganisationLoad {
+  status: "found" | "missing" | "invalid";
+  organisation: Organisation | null;
+  path: string;
+}
+
+/** The organisation's details for the imprint block; `invalid` if the core could not be asked. */
+export async function loadOrganisation(): Promise<OrganisationLoad> {
+  try {
+    const r = await invoke<OrganisationLoad>("load_organisation");
+    return { status: r.status, organisation: r.organisation, path: r.path };
+  } catch {
+    return { status: "invalid", organisation: null, path: "" };
+  }
+}

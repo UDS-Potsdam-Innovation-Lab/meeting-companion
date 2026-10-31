@@ -29,7 +29,11 @@ export type Fixture =
   | "live-free"
   | "live-level-speech"
   | "live-level-silence"
-  | "live-no-signal";
+  | "live-no-signal"
+  | "help"
+  | "help-no-org"
+  | "help-bad-org"
+  | "help-markup";
 
 /** Fixtures whose meeting is running: they open in the live view (the settings ones on top of it). */
 const LIVE_UNDER: Fixture[] = ["settings-recording", "settings-dark"];
@@ -55,6 +59,11 @@ export async function openApp(page: Page, fixture: Fixture, locale: "de" | "en" 
     await page.locator('main[data-view="settings"]').waitFor();
     // The device list has arrived from the core.
     await page.locator(".device-select__select option").nth(1).waitFor({ state: "attached" });
+  }
+  // The help fixtures open "Help & legal" from setup, as a person would.
+  if (fixture.startsWith("help")) {
+    await page.locator("[data-help-button]").first().click();
+    await page.locator('main[data-view="help"]').waitFor();
   }
   if (fixture === "settings-mic-test") {
     await page.locator(".settings button", { hasText: /Test microphone|Mikrofon testen/ }).click();

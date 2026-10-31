@@ -16,6 +16,7 @@ import {
   type Settings,
   type SettingsLoad,
   type LoadResult,
+  type OrganisationLoad,
   type ModelList,
   type RecordError,
   type SpeakerModelList,
@@ -40,6 +41,8 @@ export interface FakeRecording {
   settingsStatus?: SettingsLoad["status"];
   devices?: string[];
   micTestError?: MicTestError;
+  /** What `load_organisation` returns (default: no file). */
+  organisation?: OrganisationLoad;
   /** Answers `stop_recording` (default: off at once); may never settle, settle late or reject. */
   stop?: () => Promise<CaptureState>;
 }
@@ -170,6 +173,14 @@ export function fakeCore(
           };
         case "stop_recording":
           return rec.stop ? rec.stop() : CAPTURE_OFF;
+        case "load_organisation":
+          return (
+            rec.organisation ?? {
+              status: "missing",
+              organisation: null,
+              path: "/home/u/.local/share/de.udspotsdam.meetingcompanion/organisation.json",
+            }
+          );
         case "list_speaker_models":
           return rec.speakerModels ?? FAKE_SPEAKER_MODELS;
         case "load_speakers":

@@ -194,6 +194,77 @@ const VIEWS: View[] = [
   },
   { name: "live-free-half-de", fixture: "live-free", time: FREE_TIMES.half, act: waitFor(".nudge") },
   { name: "free-de", fixture: "free" },
+  // Frame 19 Help & legal (job 014): help, troubleshooting, legal notes (filled organisation, an open
+  // licence), the placeholder and the could-not-read notice, opened during a meeting, dark, German.
+  { name: "help", fixture: "help" },
+  {
+    name: "help-trouble",
+    fixture: "help",
+    act: async (page) => {
+      await page.getByRole("navigation", { name: "On this page" }).locator("visible=true").first().waitFor();
+      await page.locator("#troubleshooting").scrollIntoViewIfNeeded();
+    },
+  },
+  {
+    name: "legal",
+    fixture: "help",
+    act: async (page) => {
+      await page.getByRole("tab", { name: "Legal notes" }).click();
+      await page.locator('[data-component="whisper.cpp"] summary').click();
+      await page.locator('[data-component="whisper.cpp"] pre').waitFor();
+    },
+  },
+  {
+    name: "legal-no-org",
+    fixture: "help-no-org",
+    act: async (page) => {
+      await page.getByRole("tab", { name: "Legal notes" }).click();
+      await page.getByTestId("org-placeholder").waitFor();
+    },
+  },
+  {
+    name: "legal-bad-org",
+    fixture: "help-bad-org",
+    act: async (page) => {
+      await page.getByRole("tab", { name: "Legal notes" }).click();
+      await page.locator("#organisation .settings-notice--warn").waitFor();
+    },
+  },
+  {
+    name: "help-live",
+    fixture: "live-transcript",
+    time: LIVE_TIMES.running,
+    act: async (page) => {
+      await page.locator("[data-help-button]").click();
+      await page.locator('main[data-view="help"]').waitFor();
+    },
+  },
+  {
+    name: "help-live-dark",
+    fixture: "settings-dark",
+    time: LIVE_TIMES.running,
+    act: async (page) => {
+      await page.locator(".settings-view [data-help-button]").click();
+      await page.getByRole("tab", { name: "Legal notes" }).click();
+      await page.locator("#licences .licence").first().waitFor();
+    },
+  },
+  {
+    name: "settings-help-link",
+    fixture: "settings",
+    act: async (page) => {
+      await page.locator("[data-help-link]").locator("visible=true").scrollIntoViewIfNeeded();
+    },
+  },
+  { name: "help-de", fixture: "help" },
+  {
+    name: "legal-de",
+    fixture: "help",
+    act: async (page) => {
+      await page.getByRole("tab", { name: "Rechtliche Hinweise" }).click();
+      await page.locator("#licences .licence").first().waitFor();
+    },
+  },
 ];
 
 async function open(page: Page, view: View, locale: "de" | "en") {
@@ -249,6 +320,8 @@ const RESPONSIVE_VIEWS = [
   "live-free",
   "live-free-half",
   "live-free-adding",
+  "help",
+  "help-live",
 ];
 
 const sized = [

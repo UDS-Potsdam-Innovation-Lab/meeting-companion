@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { LOCALES, useI18n, type Locale, type MessageKey } from "../i18n";
 import { useSettings } from "../features/settings/useSettings";
-import { BackIcon, GearIcon, LogoMark, PlusIcon } from "../ui/icons";
+import { BackIcon, GearIcon, HelpIcon, LogoMark, PlusIcon } from "../ui/icons";
+import { OPEN_SETTINGS_ARIA } from "./shortcuts";
 
 interface Props {
   /** Setup: the "New meeting" button. */
@@ -10,6 +11,13 @@ interface Props {
   meetingTitle?: string;
   /** Live meeting: recording indicator and controls, before the language switch. */
   actions?: ReactNode;
+  /**
+   * Opens "Help & legal"; the button between the language switch and Settings. It gets the button,
+   * so focus can return to it.
+   */
+  onOpenHelp?: (opener: HTMLElement) => void;
+  /** "Help & legal" is open: the button shows it. */
+  helpOpen?: boolean;
   /** Opens the settings view; the "Settings" button after the language switch. */
   onOpenSettings?: () => void;
   /** The settings view is open: the button shows it, and "Back" returns. */
@@ -20,11 +28,15 @@ interface Props {
 
 /** The attribute focus returns to when the settings view closes. */
 export const SETTINGS_BUTTON = "data-settings-button";
+/** The "Help & legal" button. */
+export const HELP_BUTTON = "data-help-button";
 
 export function TopBar({
   onNewMeeting,
   meetingTitle,
   actions,
+  onOpenHelp,
+  helpOpen = false,
   onOpenSettings,
   settingsOpen = false,
   onBack,
@@ -66,13 +78,28 @@ export function TopBar({
           </button>
         ))}
       </div>
+      {onOpenHelp ? (
+        <button
+          type="button"
+          className={`button button--outline top-bar__help${helpOpen ? " top-bar__help--open" : ""}`}
+          onClick={(e) => onOpenHelp(e.currentTarget)}
+          aria-current={helpOpen ? "page" : undefined}
+          // The label hides on narrow bars; the name stays.
+          aria-label={t("topbar.help")}
+          title={t("topbar.help")}
+          {...{ [HELP_BUTTON]: "" }}
+        >
+          <HelpIcon />
+          <span className="top-bar__help-label">{t("topbar.help")}</span>
+        </button>
+      ) : null}
       {onOpenSettings ? (
         <button
           type="button"
           className={`button button--outline top-bar__settings${settingsOpen ? " top-bar__settings--open" : ""}`}
           onClick={onOpenSettings}
           aria-current={settingsOpen ? "page" : undefined}
-          aria-keyshortcuts="Control+Comma Meta+Comma"
+          aria-keyshortcuts={OPEN_SETTINGS_ARIA}
           {...{ [SETTINGS_BUTTON]: "" }}
         >
           <GearIcon />
