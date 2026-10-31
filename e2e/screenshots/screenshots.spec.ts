@@ -1,5 +1,5 @@
 import { test, type Page } from "@playwright/test";
-import { LIVE_TIMES } from "../../src/features/agenda/fixtures";
+import { FREE_TIMES, LIVE_TIMES } from "../../src/features/agenda/fixtures";
 import { openApp, type Fixture } from "../helpers";
 
 // One PNG per state and width: screenshots/<view>-<width>.png.
@@ -140,6 +140,24 @@ const VIEWS: View[] = [
       await page.getByRole("button", { name: "Back to meeting" }).click();
       await page.locator(".transcript-line--partial").waitFor();
     } },
+  // Frame 16 agenda-free mode (job 009): setup, the live view at 48 %, the half-time nudge, overrun,
+  // the start with no topics, adding a topic, and German.
+  { name: "free", fixture: "free" },
+  { name: "live-free", fixture: "live-free", time: FREE_TIMES.running, act: waitFor(".transcript-line--partial") },
+  { name: "live-free-half", fixture: "live-free", time: FREE_TIMES.half, act: waitFor(".nudge") },
+  { name: "live-free-over", fixture: "live-free", time: FREE_TIMES.over, act: waitFor(".transcript-line--partial") },
+  { name: "live-free-empty", fixture: "live-free-empty", time: FREE_TIMES.early, act: waitFor(".consent-check") },
+  {
+    name: "live-free-adding",
+    fixture: "live-free",
+    time: FREE_TIMES.running,
+    act: async (page) => {
+      await page.getByRole("button", { name: "Add topic" }).click();
+      await page.getByRole("button", { name: "Add", exact: true }).click();
+    },
+  },
+  { name: "live-free-half-de", fixture: "live-free", time: FREE_TIMES.half, act: waitFor(".nudge") },
+  { name: "free-de", fixture: "free" },
 ];
 
 for (const width of WIDTHS) {
@@ -177,6 +195,10 @@ const RESPONSIVE_VIEWS = [
   "speakers",
   "settings",
   "settings-recording",
+  "free",
+  "live-free",
+  "live-free-half",
+  "live-free-adding",
 ];
 
 const sized = [

@@ -1869,14 +1869,18 @@ select {
   }
 }
 
-/* Top bar with the recording controls: below 900 px they move to a second row of the bar. */
-@media (max-width: 899px) {
+/* Top bar with the recording controls: below 1200 px they move to a second row of the bar (at 1024 px
+   the REC chip, device chip and Pause no longer fit beside the language switch and Settings, and
+   would slide under them). */
+@media (max-width: 1199px) {
   .top-bar {
     flex-wrap: wrap;
     row-gap: 8px;
   }
 
-  .lang-switch {
+  .lang-switch,
+  .top-bar__settings,
+  .top-bar__back {
     order: 2;
   }
 

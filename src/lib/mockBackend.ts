@@ -6,6 +6,9 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import {
   filledMeeting,
+  freeSetupMeeting,
+  liveFreeEmptyMeeting,
+  liveFreeMeeting,
   LIVE_ELAPSED_MS,
   LIVE_PARTIAL,
   LIVE_SPEAKER_CHOICES,
@@ -89,7 +92,10 @@ type Fixture =
   | "settings-dark"
   | "settings-missing"
   | "live-mic-missing"
-  | "live-switched";
+  | "live-switched"
+  | "free"
+  | "live-free-empty"
+  | "live-free";
 
 const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   filled: filledMeeting,
@@ -112,6 +118,9 @@ const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   "settings-missing": filledMeeting,
   "live-mic-missing": liveConsentedMeeting,
   "live-switched": liveConsentedMeeting,
+  free: freeSetupMeeting,
+  "live-free-empty": liveFreeEmptyMeeting,
+  "live-free": liveFreeMeeting,
 };
 
 /** Input devices of the fake core: the system default is not one of them. */
@@ -237,6 +246,7 @@ function seed(fixture: Fixture) {
     capture = { state: "recording", meetingId: id, elapsedMs: LIVE_ELAPSED_MS, level: 0.55, reason: null };
   }
   if (
+    fixture === "live-free" ||
     fixture === "live-transcript" ||
     fixture === "live-paused" ||
     fixture === "live-mic-error" ||
@@ -248,6 +258,7 @@ function seed(fixture: Fixture) {
   }
   // Fixed states for screenshots: the script does not run, so nothing moves.
   if (
+    fixture === "live-free" ||
     fixture === "live-transcript" ||
     fixture === "settings-recording" ||
     fixture === "settings-dark" ||
