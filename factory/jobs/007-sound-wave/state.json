@@ -7,8 +7,8 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "spec",
-  "round": 0,
+  "stage": "build",
+  "round": 1,
   "max_round": 3,
   "reviews": {
     "security": "pending",
@@ -18,7 +18,7 @@
   },
   "history": [],
   "decision": null,
-  "waiting": "design",
-  "note": "Spec written; FigCraft frame 15 sound wave being drawn",
-  "updated": "2026-10-30T21:01:20Z"
+  "waiting": null,
+  "note": "Design approved; builder working",
+  "updated": "2026-10-31T11:32:45Z"
 }
