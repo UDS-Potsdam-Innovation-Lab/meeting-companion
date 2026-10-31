@@ -279,5 +279,49 @@
  },
  "s18s_anatomy": {
   "screen": 15916
+ },
+ "s19_help": {
+  "screen": 15998,
+  "back": 16022
+ },
+ "s19b_trouble": {
+  "screen": 16781,
+  "back": 16803
+ },
+ "s19c_legal": {
+  "screen": 17052,
+  "back": 17074
+ },
+ "s19d_legal_lower": {
+  "screen": 16913,
+  "back": 16935
+ },
+ "s19g_dark": {
+  "screen": 17134,
+  "back": 17158
+ },
+ "s19h_dark_help": {
+  "screen": 16609,
+  "back": 16631
+ },
+ "s19k_board": {
+  "screen": 17218,
+  "back": 17243
+ },
+ "s19l_768": {
+  "screen": 18977,
+  "back": 18996
+ },
+ "s19i_375_help": {
+  "screen": 17731,
+  "back": 17742
+ },
+ "s19j_375_legal": {
+  "screen": 17890,
+  "back": 17898
+ },
+ "s19s_entry": {
+  "screen": 18543,
+  "back": 18951
  }
 }
