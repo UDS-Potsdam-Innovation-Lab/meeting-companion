@@ -8,7 +8,7 @@
   "targets": null,
   "external": null,
   "stage": "build",
-  "round": 1,
+  "round": 2,
   "max_round": 3,
   "reviews": {
     "security": "pending",
@@ -16,9 +16,19 @@
     "ui": "pending",
     "code": "pending"
   },
-  "history": [],
+  "history": [
+    {
+      "round": 1,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "CHANGES",
+        "code": "PASS"
+      }
+    }
+  ],
   "decision": null,
   "waiting": null,
-  "note": "Stack confirmed; building",
-  "updated": "2026-10-30T20:19:05Z"
+  "note": "Round 1 ui CHANGES (picker clipped); rework round 2",
+  "updated": "2026-10-31T08:50:31Z"
 }

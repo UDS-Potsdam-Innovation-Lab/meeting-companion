@@ -7,6 +7,7 @@ while running and `[x] … → <job-id> (<stage>)` when done.
 - [x] Timekeeping in the live meeting (frame 02, left column): timer per agenda item, next item, +5 min from the buffer, park a topic, nudge at 80 %, planned vs actual per item → 002-live-timekeeping (merged)
 - [x] Local live transcription (frame 02, centre): microphone capture, on-device speech-to-text in German and English behind an engine interface, transcript written to disk continuously; recording only after the facilitator confirms everyone was informed → 003-live-transcription (merged)
 - [~] Speakers matched to attendees (frame 06): diarization, name round at check-in, manual assignment, names applied backwards, opt-in voice profiles
+- [ ] Speaker model in Settings (follow-up of 006, after 004): `speakerModel` setting checked against 004's scan, picker with "None found" / "Not found any more" states (frame 14d), the diarizer uses the chosen model
 - [ ] Voice profiles (opt-in, frame 06 toggle): remember a person's voice across meetings; consent on that person's own device, encrypted embeddings per person, deletion by that person. Biometric data (GDPR Art. 9): legal check before building, human gate
 - [ ] Language model engine: local model or Claude API behind one interface, API key in the OS keychain
 - [ ] Captures (frame 02, right column): quick capture of decisions, to-dos and questions; suggestions from the transcript that a person confirms, edits or dismisses
