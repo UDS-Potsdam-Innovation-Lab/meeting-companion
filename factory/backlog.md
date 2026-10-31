@@ -12,11 +12,12 @@ while running and `[x] … → <job-id> (<stage>)` when done.
 - [ ] Language model engine: local model or Claude API behind one interface, API key in the OS keychain
 - [ ] Captures (frame 02, right column): quick capture of decisions, to-dos and questions; suggestions from the transcript that a person confirms, edits or dismisses
 - [ ] Live mind map (frame 03): topics grouped by agenda item, decisions/to-dos/questions/parked as leaves, topic details with transcript links
-- [ ] Wrap-up (frame 04): summary, decisions, to-dos with owner and due date, time report; export as Markdown and PDF
+- [ ] Wrap-up (frame 04): summary, decisions, to-dos with owner and due date, time report; export as Markdown and PDF; in agenda-free meetings, seed the next meeting's agenda from the topics
 - [ ] Team review (frame 08): notes with suggested edits, owners accept / re-date / hand over their to-dos; on a phone via QR code over the local network
 - [ ] Export connectors (frame 04): Jira, Microsoft Planner, Teams channel post, Confluence, email recap
 - [ ] Smart board mode (frame 05): full-screen touch layout at 1920×1080, big targets, voice cue "Companion, …"
-- [ ] Agenda-free mode (frame 13): topic detection, whole-meeting timer, half-time nudge, turn topics into an agenda
+- [ ] Agenda-free mode (frame 13): start without topics, whole-meeting timer, half-time nudge, topics by hand → 009-agenda-free-mode
+- [ ] Agenda-free mode: detected topics (after Language model engine): topic detection as suggestions a person confirms, half-time text naming topics without an outcome, "Go back to…" / "Park both"
 - [ ] Slides (frame 07): follow a deck from HDMI/screen share or an uploaded PPTX/PDF, notes and captures per slide, pace check
 - [ ] Proactive AI participant, visual (opt-in): listens along and contributes on screen without being asked — relevant facts from earlier meetings and documents, a missing perspective, an open question nobody answered, a check of numbers that were just said; each contribution as a card the room can take up or wave away, with how often it may speak set by the facilitator
 - [ ] Proactive AI participant, voice (opt-in): the agent takes part in the spoken conversation — answers when addressed, raises a hand on the board before speaking up on its own, speaks with text-to-speech, stops when someone talks over it; in Teams calls it can join as a visible participant
