@@ -1,0 +1,84 @@
+{
+  "about": "Regression thresholds of the speaker-accuracy run (shares 0..1), per model file name. Each maximum is the measured baseline plus marginPp percentage points (at most 5); minLineAccuracy is the baseline minus the margin. A model without an entry is measured and printed, never failed. Recalibrate by running the test and copying its 'measured:' line.",
+  "collarMs": 250,
+  "models": {
+    "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx": {
+      "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2",
+      "measured": "2026-10-31, debug test profile, Linux x86-64, SAME_VOICE 0.5, MIN_SEGMENT_MS 1000",
+      "marginPp": 5,
+      "nameRoundMinSuggested": 4,
+      "scenes": {
+        "de-name-round": {
+          "baseline": {
+            "der": 0.1669,
+            "missed": 0.0008,
+            "falseAlarm": 0.0084,
+            "confusion": 0.1577,
+            "lineAccuracy": 0.8302
+          },
+          "maxDer": 0.2169,
+          "maxMissed": 0.0508,
+          "maxFalseAlarm": 0.0584,
+          "maxConfusion": 0.2077,
+          "minLineAccuracy": 0.7802
+        },
+        "en-overlap": {
+          "baseline": {
+            "der": 0.1431,
+            "missed": 0.1076,
+            "falseAlarm": 0.0039,
+            "confusion": 0.0315,
+            "lineAccuracy": 0.9545
+          },
+          "maxDer": 0.1931,
+          "maxMissed": 0.1576,
+          "maxFalseAlarm": 0.0539,
+          "maxConfusion": 0.0815,
+          "minLineAccuracy": 0.9045
+        },
+        "en-short-turns": {
+          "baseline": {
+            "der": 0.0861,
+            "missed": 0.0099,
+            "falseAlarm": 0.0613,
+            "confusion": 0.0149,
+            "lineAccuracy": 0.8947
+          },
+          "maxDer": 0.1361,
+          "maxMissed": 0.0599,
+          "maxFalseAlarm": 0.1113,
+          "maxConfusion": 0.0649,
+          "minLineAccuracy": 0.8447
+        },
+        "en-return": {
+          "baseline": {
+            "der": 0.0438,
+            "missed": 0.0177,
+            "falseAlarm": 0.0261,
+            "confusion": 0.0,
+            "lineAccuracy": 1.0
+          },
+          "maxDer": 0.0938,
+          "maxMissed": 0.0677,
+          "maxFalseAlarm": 0.0761,
+          "maxConfusion": 0.05,
+          "minLineAccuracy": 0.95
+        },
+        "de-noise": {
+          "baseline": {
+            "der": 0.1292,
+            "missed": 0.0,
+            "falseAlarm": 0.0625,
+            "confusion": 0.0667,
+            "lineAccuracy": 0.9167
+          },
+          "maxDer": 0.1792,
+          "maxMissed": 0.05,
+          "maxFalseAlarm": 0.1125,
+          "maxConfusion": 0.1167,
+          "minLineAccuracy": 0.8667
+        }
+      }
+    }
+  }
+}

@@ -14,6 +14,8 @@
 
 mod corpus;
 mod measures;
+mod real;
+mod run;
 mod scene;
 mod sha256;
 mod wav;
