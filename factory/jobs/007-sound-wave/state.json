@@ -7,18 +7,18 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "build",
+  "stage": "merged",
   "round": 1,
   "max_round": 3,
   "reviews": {
-    "security": "pending",
-    "ux": "pending",
-    "ui": "pending",
-    "code": "pending"
+    "security": "PASS",
+    "ux": "PASS",
+    "ui": "PASS",
+    "code": "PASS"
   },
   "history": [],
-  "decision": null,
+  "decision": "APPROVE",
   "waiting": null,
-  "note": "Design approved; builder working",
-  "updated": "2026-10-31T11:32:45Z"
+  "note": "Merged",
+  "updated": "2026-10-31T12:12:24Z"
 }

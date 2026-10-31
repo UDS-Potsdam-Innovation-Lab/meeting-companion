@@ -7,18 +7,18 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "build",
+  "stage": "needs-human",
   "round": 1,
   "max_round": 3,
   "reviews": {
-    "security": "pending",
-    "ux": "pending",
-    "ui": "pending",
-    "code": "pending"
+    "security": "PASS",
+    "ux": "PASS",
+    "ui": "PASS",
+    "code": "PASS"
   },
   "history": [],
-  "decision": null,
-  "waiting": null,
-  "note": "Design approved; builder working",
-  "updated": "2026-10-31T11:39:49Z"
+  "decision": "ESCALATE (human gate)",
+  "waiting": "merge approval",
+  "note": "All reviews PASS, CI green; human gate",
+  "updated": "2026-10-31T12:09:38Z"
 }

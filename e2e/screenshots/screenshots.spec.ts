@@ -11,6 +11,12 @@ interface View {
   /** Fixed clock time (Playwright's clock API) for the live views. */
   time?: number;
   act?: (page: Page) => Promise<void>;
+  /**
+   * The sound wave moves (job 007): the clock is installed before the app opens and the last 3 s
+   * before `time` run on the fake clock, so the level history is the same in every run.
+   */
+  wave?: boolean;
+  reducedMotion?: boolean;
 }
 
 /** Waits until the mock core's state is on screen. */
@@ -81,7 +87,7 @@ const VIEWS: View[] = [
   { name: "live-nudge-de", fixture: "live", time: LIVE_TIMES.nudge },
   // Frame 02, centre column and recording controls (job 003), with segments from the mock core.
   { name: "live-consent", fixture: "live", time: LIVE_TIMES.running, act: waitFor(".consent-check") },
-  { name: "live-transcript", fixture: "live-transcript", time: LIVE_TIMES.running, act: waitFor(".transcript-line--partial") },
+  { name: "live-transcript", fixture: "live-transcript", time: LIVE_TIMES.running, wave: true, act: waitFor(".transcript-line--partial") },
   { name: "live-paused", fixture: "live-paused", time: LIVE_TIMES.running, act: waitFor(".rec-chip--paused") },
   { name: "live-mic-error", fixture: "live-mic-error", time: LIVE_TIMES.running, act: waitFor(".rec-notice--error") },
   { name: "live-no-model", fixture: "live-no-model", time: LIVE_TIMES.running, act: waitFor(".consent-check") },
@@ -122,9 +128,9 @@ const VIEWS: View[] = [
     },
   },
   { name: "settings-no-model", fixture: "settings-no-model" },
-  { name: "settings-mic-test", fixture: "settings-mic-test" },
-  { name: "settings-recording", fixture: "settings-recording", time: LIVE_TIMES.running },
-  { name: "settings-dark", fixture: "settings-dark", time: LIVE_TIMES.running },
+  { name: "settings-mic-test", fixture: "settings-mic-test", time: LIVE_TIMES.running, wave: true },
+  { name: "settings-recording", fixture: "settings-recording", time: LIVE_TIMES.running, wave: true },
+  { name: "settings-dark", fixture: "settings-dark", time: LIVE_TIMES.running, wave: true },
   { name: "settings-missing", fixture: "settings-missing", act: waitFor(".settings-notice--error") },
   {
     name: "live-mic-missing",
@@ -136,6 +142,36 @@ const VIEWS: View[] = [
     },
   },
   { name: "live-switched", fixture: "live-switched", time: LIVE_TIMES.running, act: waitFor(".switched-notice") },
+  // The sound wave in the transcript footer (job 007).
+  {
+    name: "live-level-speech",
+    fixture: "live-level-speech",
+    time: LIVE_TIMES.running,
+    wave: true,
+    act: waitFor('.sound-wave[data-state="listening"]'),
+  },
+  {
+    name: "live-level-silence",
+    fixture: "live-level-silence",
+    time: LIVE_TIMES.running,
+    wave: true,
+    act: waitFor('.sound-wave[data-state="listening"]'),
+  },
+  {
+    name: "live-no-signal",
+    fixture: "live-no-signal",
+    time: LIVE_TIMES.running,
+    wave: true,
+    act: waitFor('.sound-wave[data-state="noSignal"]'),
+  },
+  {
+    name: "live-level-reduced",
+    fixture: "live-level-speech",
+    time: LIVE_TIMES.running,
+    wave: true,
+    reducedMotion: true,
+    act: waitFor(".sound-wave--reduced"),
+  },
   { name: "live-transcript-dark", fixture: "settings-dark", time: LIVE_TIMES.running, act: async (page) => {
       await page.getByRole("button", { name: "Back to meeting" }).click();
       await page.locator(".transcript-line--partial").waitFor();
@@ -160,13 +196,26 @@ const VIEWS: View[] = [
   { name: "free-de", fixture: "free" },
 ];
 
+async function open(page: Page, view: View, locale: "de" | "en") {
+  if (view.reducedMotion) await page.emulateMedia({ reducedMotion: "reduce" });
+  if (view.wave && view.time !== undefined) {
+    await page.clock.install({ time: view.time - 60_000 });
+    await openApp(page, view.fixture, locale);
+    await view.act?.(page);
+    await page.clock.pauseAt(view.time - 3_000);
+    await page.clock.runFor(3_000);
+    return;
+  }
+  if (view.time !== undefined) await page.clock.setFixedTime(view.time);
+  await openApp(page, view.fixture, locale);
+  await view.act?.(page);
+}
+
 for (const width of WIDTHS) {
   for (const view of VIEWS) {
     test(`${view.name}-${width}`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 1920 ? 1080 : width === 375 ? 812 : 800 });
-      if (view.time !== undefined) await page.clock.setFixedTime(view.time);
-      await openApp(page, view.fixture, view.name.endsWith("-de") ? "de" : "en");
-      await view.act?.(page);
+      await open(page, view, view.name.endsWith("-de") ? "de" : "en");
       await page.screenshot({ path: `screenshots/${view.name}-${width}.png`, fullPage: true });
     });
   }
@@ -191,6 +240,7 @@ const RESPONSIVE_VIEWS = [
   "live-over",
   "live-done",
   "live-transcript",
+  "live-level-speech",
   "live-consent",
   "speakers",
   "settings",
@@ -204,15 +254,14 @@ const RESPONSIVE_VIEWS = [
 const sized = [
   ...RESPONSIVE_SIZES.flatMap((size) => RESPONSIVE_VIEWS.map((name) => ({ size, name }))),
   ...SHORT_SIZES.map((size) => ({ size, name: "live-nudge" })),
+  ...SHORT_SIZES.map((size) => ({ size, name: "live-level-speech" })),
 ];
 
 for (const { size, name } of sized) {
   const view = VIEWS.find((v) => v.name === name)!;
   test(`${name}-${size.width}x${size.height}`, async ({ page }) => {
     await page.setViewportSize(size);
-    if (view.time !== undefined) await page.clock.setFixedTime(view.time);
-    await openApp(page, view.fixture, "en");
-    await view.act?.(page);
+    await open(page, view, "en");
     // The window as the user sees it, not the full page: shows what fits and where the nudge sits.
     await page.screenshot({ path: `screenshots/${name}-${size.width}x${size.height}.png` });
   });

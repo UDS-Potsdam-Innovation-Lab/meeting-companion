@@ -233,3 +233,28 @@ describe("AC2 (job 004) the archive check", () => {
     }
   });
 });
+
+describe("AC7 (job 007) the level event adds nothing beyond one listed core event", () => {
+  const lib = read("src-tauri/src/lib.rs");
+  const events = [...lib.matchAll(/pub const EVENT_\w+: &str = "([^"]+)";/g)].map((m) => m[1]!).sort();
+
+  it("the core sends exactly these events, and the capability file lists each", () => {
+    expect(events).toEqual([
+      "capture-level",
+      "capture-state",
+      "mic-test",
+      "microphone-switched",
+      "settings-changed",
+      "transcript-segment",
+      "transcript-voice",
+    ]);
+    const cap = JSON.parse(read("src-tauri/capabilities/default.json"));
+    for (const e of events) expect(cap.description).toContain(e);
+    expect(cap.permissions).toEqual(["core:default"]);
+  });
+
+  it("the UI listens to the level event only through ipc.ts", () => {
+    const ipc = read("src/lib/ipc.ts");
+    expect(ipc).toContain('export const EVENT_LEVEL = "capture-level";');
+  });
+});

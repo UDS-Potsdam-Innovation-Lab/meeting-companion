@@ -44,13 +44,15 @@ STATUS: CONFIGURED
   (`vite build --mode e2e`, `.env.e2e` sets `VITE_MOCK_IPC=1`; open `/?fixture=empty|filled|over|corrupt|locked|live|live-done`
   or the transcript fixtures `live-transcript|live-paused|live-mic-error|live-no-model`, the settings fixtures
   `settings|settings-no-model|settings-mic-test|settings-recording|settings-dark|settings-missing` (they open the
-  settings view) and `live-mic-missing|live-switched`,
+  settings view) and `live-mic-missing|live-switched`, the sound-wave fixtures `live-level-speech|live-level-silence|live-no-signal`
+  (the mock core sends a fixed level sequence by the clock; wave screenshots install Playwright's clock and run the last 3 s on it),
   and the speaker fixtures `speakers|speakers-empty|speakers-no-model|live-speakers` (open frame 06 with the footer button),
   and the agenda-free fixtures `free` (setup) and `live-free|live-free-empty` (frame 16);
   the live fixtures are meant for a fixed clock, see `LIVE_TIMES` and `FREE_TIMES` in `src/features/agenda/fixtures.ts`).
 - Layout:
   - `src/` — React UI. `src/i18n/de.json` + `en.json` (flat keys, de default), `src/features/<feature>/`,
-    `src/ui/` shared components, `src/app/` shell, `src/lib/ipc.ts` the only module that calls Tauri
+    `src/ui/` shared components (`SoundWave.tsx`: the level wave of frame 02 and the settings meter, drawn through refs
+    and `requestAnimationFrame`, a static bar under reduced motion), `src/app/` shell, `src/lib/ipc.ts` the only module that calls Tauri
     (`src/lib/mockBackend.ts` is its fake for the e2e build). Unit/component tests sit next to the code
     as `*.test.ts(x)` (Vitest + Testing Library, Tauri mocked with `@tauri-apps/api/mocks`).
   - `src-tauri/` — Rust core: `src/model/` (meeting + validation), `src/store/` (`MeetingStore` trait,
@@ -67,7 +69,9 @@ STATUS: CONFIGURED
     of at most 3 s; encrypted append-only `<id>.transcript` store, one record per final segment with an optional `voice`), `src/recording/`
     (`Recorder`: consent gate, transcript worker, diarizer thread, capture states, the chosen microphone and "switch to the system default",
     `mic_test.rs` the 10 s microphone test), `src/settings/` (`SettingsStore`: the sealed
-    `<app_data>/settings` file, closed schema incl. `speakerModel`, `SettingsService`), `src/speakers/` (name-round suggestions and the voice/line choices stored in
+    `<app_data>/settings` file, closed schema incl. `speakerModel`, `SettingsService`), `src/engines/level.rs` (the input
+    level measured in `AudioSink::push`, scaled RMS `min(1, rms × 4)`, sent as the `capture-level` event 25×/s while audio
+    arrives, by the recording's monitor thread and the microphone test; numbers only, never stored or logged), `src/speakers/` (name-round suggestions and the voice/line choices stored in
     the meeting file), `src/log.rs` (the only log output; never content).
   - `e2e/` — Playwright specs (axe, keyboard, layout); `e2e/screenshots/` for `npm run screenshot`.
   - `.github/workflows/ci.yml` — lint, test, compile and smoke test. Linux (`ubuntu-latest`) is the only

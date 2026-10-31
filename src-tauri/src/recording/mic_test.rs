@@ -9,8 +9,9 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use super::{Capture, Reason, Recorder, Shared, TICK};
+use super::{Capture, LevelEvent, Reason, Recorder, Shared, TICK};
 use crate::engines::audio::{AudioSink, AudioSource, SAMPLE_RATE};
+use crate::engines::level::{Level, LevelPacer};
 
 /// Longest a microphone test runs.
 pub const TEST_LIMIT: Duration = Duration::from_secs(10);
@@ -30,7 +31,8 @@ pub struct MicTestState {
     pub state: MicTest,
     /// Time left until the test stops by itself.
     pub remaining_ms: u64,
-    /// Input level 0..1, on the same scale as the recording's level.
+    /// Input level 0..1 when the state was sent, on the same scale as the recording's level. The
+    /// meter follows the `capture-level` events, sent at the recording's rate.
     pub level: f32,
     pub reason: Option<Reason>,
 }
@@ -68,15 +70,6 @@ pub enum MicTestError {
 pub(super) struct Running {
     stop: Arc<AtomicBool>,
     handle: JoinHandle<()>,
-}
-
-/// Root mean square of the samples, scaled like the recording's level meter.
-fn level(samples: &[f32]) -> f32 {
-    if samples.is_empty() {
-        return 0.0;
-    }
-    let rms = (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt();
-    (rms * 4.0).min(1.0)
 }
 
 impl Recorder {
@@ -149,6 +142,9 @@ impl Recorder {
     }
 }
 
+/// Sends the level at the recording's rate (`capture-level`, no meeting id) and the test's state
+/// (time left) every [`TICK`]. The level is measured by the sink as samples arrive (the same
+/// function as the recording's); the samples are dropped here at once.
 fn run(
     shared: Arc<Shared>,
     mut source: Box<dyn AudioSource>,
@@ -157,13 +153,12 @@ fn run(
 ) {
     let started = Instant::now();
     let mut last_tick = Instant::now();
-    let mut current = 0.0f32;
+    let mut pacer = LevelPacer::new();
+    let send_level = |l: Level| shared.events.level(&LevelEvent::new(None, l));
     let outcome = loop {
-        let taken = sink.take(Duration::from_millis(50));
-        // Measured and dropped right here.
-        if !taken.samples.is_empty() {
-            current = level(&taken.samples);
-        }
+        let taken = sink.take(pacer.due_in(Duration::from_millis(25)));
+        // Dropped right here: only the level, measured on arrival, is kept.
+        drop(taken.samples);
         if let Some(e) = taken.failed {
             break Some(Reason::from(e));
         }
@@ -171,16 +166,18 @@ fn run(
         if stop.load(Ordering::SeqCst) || elapsed >= TEST_LIMIT || taken.ended {
             break None;
         }
-        if last_tick.elapsed() >= TICK / 2 {
+        pacer.step(&sink, true, send_level);
+        if last_tick.elapsed() >= TICK {
             last_tick = Instant::now();
             shared.events.mic_test(&MicTestState {
                 state: MicTest::Running,
                 remaining_ms: (TEST_LIMIT - elapsed).as_millis() as u64,
-                level: current,
+                level: sink.level().level,
                 reason: None,
             });
         }
     };
+    pacer.finish(send_level);
     source.stop();
     sink.end();
     drop(source);
@@ -190,17 +187,5 @@ fn run(
             shared.events.mic_test(&MicTestState::error(reason));
         }
         None => shared.events.mic_test(&MicTestState::off()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn level_is_scaled_rms() {
-        assert_eq!(level(&[]), 0.0);
-        assert!((level(&[0.1, -0.1]) - 0.4).abs() < 1e-6);
-        assert_eq!(level(&[0.9; 10]), 1.0);
     }
 }

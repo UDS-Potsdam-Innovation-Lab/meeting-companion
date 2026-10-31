@@ -164,6 +164,10 @@
   "speakers.footer.listening.other": "Hört zu · {count} Stimmen",
   "speakers.footer.paused.one": "Pausiert · {count} Stimme",
   "speakers.footer.paused.other": "Pausiert · {count} Stimmen",
+  "speakers.footer.noSignal.one": "Kein Signal · {count} Stimme",
+  "speakers.footer.noSignal.other": "Kein Signal · {count} Stimmen",
+  "speakers.footer.lost.one": "Mikrofon verloren · {count} Stimme",
+  "speakers.footer.lost.other": "Mikrofon verloren · {count} Stimmen",
   "speakers.back": "Zurück zum Meeting",
   "speakers.eyebrow": "Sprecher:innen",
   "speakers.title.one": "{count} Stimme erkannt · {matched} zugeordnet",
@@ -255,6 +259,7 @@
   "settings.test.level.recording": "Zeigt die laufende Aufnahme.",
   "settings.test.none": "Kein Test läuft",
   "settings.test.recordingDevice": "Aufnahme · {name}",
+  "settings.test.pausedDevice": "Aufnahme pausiert · {name}",
   "settings.test.running": "Mikrofontest läuft",
   "settings.test.left": "noch {time}",
   "settings.test.start": "Mikrofon testen",
@@ -360,5 +365,9 @@
   "half.title": "Die Hälfte der Zeit ist um",
   "half.body": "Noch {minutes} Min., endet {time}",
   "half.dismiss": "Ausblenden",
-  "half.announcement": "Die Hälfte der Zeit ist um. Noch {minutes} Min., endet {time}."
+  "half.announcement": "Die Hälfte der Zeit ist um. Noch {minutes} Min., endet {time}.",
+  "wave.listening": "Hört zu",
+  "wave.paused": "Pausiert",
+  "wave.noSignal": "Kein Signal",
+  "wave.lost": "Mikrofon verloren"
 }

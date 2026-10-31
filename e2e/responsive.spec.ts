@@ -26,6 +26,8 @@ async function expectNothingCutOff(page: Page) {
       if (el.closest(".visually-hidden") || el.offsetParent === null) continue;
       // The meeting title in the top bar is shortened with an ellipsis on purpose.
       if (el.classList.contains("top-bar__title")) continue;
+      // The sound wave scrolls its level history through a fixed window (job 007).
+      if (el.closest(".sound-wave")) continue;
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue;
       const what = `${el.tagName.toLowerCase()}.${el.className}`.slice(0, 80);

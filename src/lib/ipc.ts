@@ -155,6 +155,28 @@ export const EVENT_VOICE = "transcript-voice";
 export const EVENT_SETTINGS = "settings-changed";
 export const EVENT_MIC_TEST = "mic-test";
 export const EVENT_SWITCHED = "microphone-switched";
+/** The input level for the sound wave, 25 per second while audio arrives (job 007). */
+export const EVENT_LEVEL = "capture-level";
+
+/**
+ * One level reading from the capture side: numbers only, never audio. `meetingId` is null for the
+ * microphone test. The last event before capture stops has level 0.
+ */
+export interface LevelEvent {
+  meetingId: string | null;
+  /** Scaled RMS, 0..1 (the same scale as `CaptureState.level`). */
+  level: number;
+  /** Highest absolute sample of the block, 0..1. */
+  peak: number;
+}
+
+/**
+ * Calls `onLevel` for every level event. Meant for refs and animation frames, never React state:
+ * 25 events a second must not re-render a view. Returns the function that stops listening.
+ */
+export function onCaptureLevel(onLevel: (e: LevelEvent) => void): () => void {
+  return subscribe<LevelEvent>(EVENT_LEVEL, onLevel);
+}
 
 /** The chosen microphone was lost and recording carries on with the system default. */
 export interface SwitchedEvent {

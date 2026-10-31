@@ -30,7 +30,7 @@ use engines::{
 };
 use model::{FieldError, Meeting};
 use recording::{
-    CaptureState, EventSink, MicTestError, MicTestState, Reason, RecordError, Recorder,
+    CaptureState, EventSink, LevelEvent, MicTestError, MicTestState, Reason, RecordError, Recorder,
     SegmentEvent, StartOptions, SwitchedEvent, VoiceEvent,
 };
 use settings::{
@@ -66,6 +66,9 @@ pub const ENV_DIARIZE: &str = "MEETING_COMPANION_DIARIZE";
 pub const EVENT_SETTINGS: &str = "settings-changed";
 /// Event with the microphone test's state ([`MicTestState`]).
 pub const EVENT_MIC_TEST: &str = "mic-test";
+/// Event with the input level for the sound wave ([`recording::LevelEvent`]), 25 per second while
+/// audio arrives. Numbers only, never samples.
+pub const EVENT_LEVEL: &str = "capture-level";
 /// Event when recording switched to the system default microphone ([`SwitchedEvent`]).
 pub const EVENT_SWITCHED: &str = "microphone-switched";
 const SMOKE_TIMEOUT: Duration = Duration::from_secs(90);
@@ -470,6 +473,9 @@ impl EventSink for TauriEvents {
     }
     fn switched(&self, event: &SwitchedEvent) {
         let _ = self.0.emit(EVENT_SWITCHED, event);
+    }
+    fn level(&self, event: &LevelEvent) {
+        let _ = self.0.emit(EVENT_LEVEL, event);
     }
 }
 
