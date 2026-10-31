@@ -129,5 +129,42 @@
   "tab_Transcript": 6142,
   "tab_Mind map": 6144,
   "tab_Notes": 6146
+ },
+ "s15_wave": {
+  "screen": 6274
+ },
+ "s15f_dark": {
+  "screen": 9937
+ },
+ "s15e_board": {
+  "screen": 6704
+ },
+ "s15d_768": {
+  "screen": 6919
+ },
+ "s15c_375": {
+  "screen": 7008
+ },
+ "s15b_states": {
+  "screen": 7833
+ },
+ "s15g_set_test": {
+  "screen": 8575,
+  "back": 8594
+ },
+ "s15h_set_rec": {
+  "screen": 8711,
+  "back": 8733
+ },
+ "s15i_set_dark": {
+  "screen": 8849,
+  "back": 8871
+ },
+ "s15k_set_375": {
+  "screen": 9465,
+  "back": 9473
+ },
+ "s15j_set_states": {
+  "screen": 9564
  }
 }
