@@ -379,7 +379,15 @@ fn a_stuck_stop_blocks_neither_saving_the_ended_meeting_nor_the_status_nor_the_n
         assert_eq!(status.meeting_id.as_deref(), Some("m-1"));
         // `save_meeting` for the ended run returns within 2 s.
         let saving = Instant::now();
-        crate::save_from_ui(&rig.meetings, &rig.recorder, &edits, ended, 500_000).unwrap();
+        crate::save_from_ui(
+            &rig.meetings,
+            &rig.recorder,
+            &crate::phone_view::tests::idle(),
+            &edits,
+            ended,
+            500_000,
+        )
+        .unwrap();
         let took = saving.elapsed();
         assert!(took < BOUND, "save took {took:?}");
         assert_eq!(stopping.join().unwrap().state, Capture::Off);
@@ -409,17 +417,39 @@ fn saves_from_the_ui_still_validate_agenda_free_meetings_and_end_them_with_their
     let rig = rig_with(talking, fake_stt());
     let edits = Mutex::new(());
     let free = crate::model::tests::free_running();
-    crate::save_from_ui(&rig.meetings, &rig.recorder, &edits, free.clone(), 10).unwrap();
+    crate::save_from_ui(
+        &rig.meetings,
+        &rig.recorder,
+        &crate::phone_view::tests::idle(),
+        &edits,
+        free.clone(),
+        10,
+    )
+    .unwrap();
 
     let mut bad = free.clone();
     bad.mode = Some("auto".into());
-    match crate::save_from_ui(&rig.meetings, &rig.recorder, &edits, bad, 11) {
+    match crate::save_from_ui(
+        &rig.meetings,
+        &rig.recorder,
+        &crate::phone_view::tests::idle(),
+        &edits,
+        bad,
+        11,
+    ) {
         Err(crate::SaveError::Invalid { fields }) => assert_eq!(fields[0].field, "mode"),
         other => panic!("expected Invalid, got {other:?}"),
     }
     let mut two_open = free.clone();
     two_open.run.as_mut().unwrap().topics[0].spans[0].ended_at = None;
-    match crate::save_from_ui(&rig.meetings, &rig.recorder, &edits, two_open, 12) {
+    match crate::save_from_ui(
+        &rig.meetings,
+        &rig.recorder,
+        &crate::phone_view::tests::idle(),
+        &edits,
+        two_open,
+        12,
+    ) {
         Err(crate::SaveError::Invalid { fields }) => assert_eq!(fields[0].field, "run.topics"),
         other => panic!("expected Invalid, got {other:?}"),
     }
@@ -429,7 +459,15 @@ fn saves_from_the_ui_still_validate_agenda_free_meetings_and_end_them_with_their
     let run = ended.run.as_mut().unwrap();
     run.ended_at = Some(100_000);
     run.topics[1].spans[0].ended_at = Some(100_000);
-    crate::save_from_ui(&rig.meetings, &rig.recorder, &edits, ended.clone(), 13).unwrap();
+    crate::save_from_ui(
+        &rig.meetings,
+        &rig.recorder,
+        &crate::phone_view::tests::idle(),
+        &edits,
+        ended.clone(),
+        13,
+    )
+    .unwrap();
     let saved = rig.meetings.load("m-1").unwrap().unwrap();
     assert_eq!(saved.run, ended.run);
     assert!(saved.is_free());

@@ -146,3 +146,18 @@ export const HalfIcon = () => (
     <path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor" />
   </svg>
 );
+
+export const PowerIcon = () => (
+  <svg {...base}>
+    <path d="M8 2v6M4.6 4.2a5 5 0 1 0 6.8 0" />
+  </svg>
+);
+
+export const QrIcon = () => (
+  <svg {...base} strokeWidth={1.4}>
+    <rect x="2.5" y="2.5" width="4" height="4" />
+    <rect x="9.5" y="2.5" width="4" height="4" />
+    <rect x="2.5" y="9.5" width="4" height="4" />
+    <path d="M9.5 9.5h1.5v1.5M13.5 9.5v4h-4" />
+  </svg>
+);

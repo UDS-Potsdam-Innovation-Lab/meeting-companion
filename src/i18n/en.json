@@ -369,5 +369,18 @@
   "wave.listening": "Listening",
   "wave.paused": "Paused",
   "wave.noSignal": "No signal",
-  "wave.lost": "Microphone lost"
+  "wave.lost": "Microphone lost",
+  "phone.appName": "Meeting Companion",
+  "phone.status.connected": "Connected",
+  "phone.status.closed": "Closed",
+  "phone.waiting.title": "Connected to the meeting screen",
+  "phone.waiting.text": "Nothing to do right now. When the meeting asks you for something, it appears here.",
+  "phone.closed.title": "This page is closed",
+  "phone.closed.text": "The meeting screen closed it, or the recording has stopped.",
+  "phone.closed.hint": "To take part again, scan the QR code on the meeting screen.",
+  "phone.footer.open": "Local network only. This page shows nothing from the meeting.",
+  "phone.footer.closed": "Nothing from this page was kept on your phone.",
+  "phoneView.error.notRecording": "The phone view opens only while the meeting is being recorded.",
+  "phoneView.error.noLocalNetwork": "No local network found. Connect this device to Wi-Fi or a network cable.",
+  "phoneView.error.failed": "The phone view could not be opened."
 }

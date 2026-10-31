@@ -157,6 +157,8 @@ export const EVENT_MIC_TEST = "mic-test";
 export const EVENT_SWITCHED = "microphone-switched";
 /** The input level for the sound wave, 25 per second while audio arrives (job 007). */
 export const EVENT_LEVEL = "capture-level";
+/** The phone web view opened or closed, and why (job 012). */
+export const EVENT_PHONE_VIEW = "phone-view-state";
 
 /**
  * One level reading from the capture side: numbers only, never audio. `meetingId` is null for the
@@ -545,4 +547,60 @@ function subscribe<T>(event: string, handler: (payload: T) => void): () => void 
     stopped = true;
     unlisten?.();
   };
+}
+
+// ---- phone web view (job 012) ---------------------------------------------------------------------
+// A consumer (voice profiles, team review) opens the view during a recording and shows the QR code. The
+// URL holds the access token: show it only as the QR code and the short address, never store or log it.
+
+export type PhoneViewErrorKey =
+  "phoneView.error.notRecording" | "phoneView.error.noLocalNetwork" | "phoneView.error.failed";
+
+export interface PhoneViewOpened {
+  /** `http://<ip>:<port>/#t=<token>`. */
+  url: string;
+  /** The QR code of `url` as SVG markup from the core (no script, no external reference). */
+  qrSvg: string;
+}
+
+export type PhoneViewCloseReason = "requested" | "recordingStopped" | "meetingEnded" | "appExit";
+
+/** The `phone-view-state` event. */
+export interface PhoneViewState {
+  state: "open" | "closed";
+  meetingId: string | null;
+  /** Set when closed. */
+  reason: PhoneViewCloseReason | null;
+}
+
+const PHONE_VIEW_ERRORS: readonly string[] = [
+  "phoneView.error.notRecording",
+  "phoneView.error.noLocalNetwork",
+  "phoneView.error.failed",
+];
+
+/** Opens the phone view for a recording meeting. Rejects with `{ key }`, a translation key. */
+export async function phoneViewOpen(meetingId: string): Promise<PhoneViewOpened> {
+  try {
+    return await invoke<PhoneViewOpened>("phone_view_open", { meetingId });
+  } catch (e) {
+    const key = (e as { key?: unknown } | undefined)?.key;
+    throw {
+      key: typeof key === "string" && PHONE_VIEW_ERRORS.includes(key) ? key : "phoneView.error.failed",
+    } as { key: PhoneViewErrorKey };
+  }
+}
+
+/** Closes the phone view (nothing happens if it is closed). */
+export async function phoneViewClose(): Promise<void> {
+  try {
+    await invoke("phone_view_close");
+  } catch {
+    // The core closes the view on its own when recording stops; nothing to undo here.
+  }
+}
+
+/** Calls `handler` whenever the phone view opens or closes. Returns the function that stops listening. */
+export function onPhoneViewState(handler: (s: PhoneViewState) => void): () => void {
+  return subscribe<PhoneViewState>(EVENT_PHONE_VIEW, handler);
 }

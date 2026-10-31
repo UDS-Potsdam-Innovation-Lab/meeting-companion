@@ -3,6 +3,7 @@
 // like a restart; the recording state lives in memory, so after a reload recording is off, as after
 // an app restart. While "recording" it emits scripted segments (German and English) as events.
 import { mockIPC } from "@tauri-apps/api/mocks";
+import phoneQrSvg from "./fixtures/phone-qr.svg?raw";
 import { emit } from "@tauri-apps/api/event";
 import {
   filledMeeting,
@@ -27,6 +28,7 @@ import {
   EVENT_CAPTURE,
   EVENT_LEVEL,
   EVENT_MIC_TEST,
+  EVENT_PHONE_VIEW,
   EVENT_SEGMENT,
   EVENT_SETTINGS,
   EVENT_SWITCHED,
@@ -38,6 +40,9 @@ import {
   type LineChoice,
   type LineTarget,
   type MicTestState,
+  type PhoneViewCloseReason,
+  type PhoneViewOpened,
+  type PhoneViewState,
   type SettingChange,
   type Settings,
   type SettingsLoad,
@@ -74,6 +79,13 @@ const MIC_TEST_KEY = "mock-backend.mic-test";
 export const STOP_DELAY_KEY = "mock-backend.stop-delay-ms";
 /** The level the fake microphone delivers: `speech` (default), `silence` or `none` (no events). */
 const LEVEL_KEY = "mock-backend.level";
+/** `none`: `phone_view_open` finds no local network. */
+export const PHONE_NETWORK_KEY = "mock-backend.phone-network";
+/** The phone view's fixed URL and QR code (the core's rendering of this URL; job 012). */
+export const MOCK_PHONE_VIEW: PhoneViewOpened = {
+  url: "http://192.168.178.20:49152/#t=FAKE-TOKEN-for-tests-only",
+  qrSvg: phoneQrSvg.trim(),
+};
 
 type Fixture =
   | "empty"
@@ -221,6 +233,7 @@ function seed(fixture: Fixture) {
     MIC_TEST_KEY,
     SPEAKER_MODELS_KEY,
     LEVEL_KEY,
+    PHONE_NETWORK_KEY,
   ]) {
     localStorage.removeItem(k);
   }
@@ -396,8 +409,33 @@ function setTranscript(id: string, segments: TranscriptSegment[]) {
   localStorage.setItem(TRANSCRIPTS_KEY, JSON.stringify({ ...transcripts(), [id]: segments }));
 }
 
+// ---- the phone view (job 012): open only while its meeting records or is paused -------------------
+let phoneMeeting: string | null = null;
+
+function closePhone(reason: PhoneViewCloseReason) {
+  if (phoneMeeting === null) return;
+  const meetingId = phoneMeeting;
+  phoneMeeting = null;
+  void emit(EVENT_PHONE_VIEW, { state: "closed", meetingId, reason } satisfies PhoneViewState);
+}
+
+function openPhone(meetingId: string): PhoneViewOpened {
+  if (capture.state !== "recording" || capture.meetingId !== meetingId) {
+    throw { key: "phoneView.error.notRecording" };
+  }
+  if (localStorage.getItem(PHONE_NETWORK_KEY) === "none") throw { key: "phoneView.error.noLocalNetwork" };
+  if (phoneMeeting === meetingId) return MOCK_PHONE_VIEW;
+  closePhone("recordingStopped");
+  phoneMeeting = meetingId;
+  void emit(EVENT_PHONE_VIEW, { state: "open", meetingId, reason: null } satisfies PhoneViewState);
+  return MOCK_PHONE_VIEW;
+}
+
 function setCapture(next: CaptureState) {
   capture = next;
+  if (!(next.meetingId === phoneMeeting && (next.state === "recording" || next.state === "paused"))) {
+    closePhone("recordingStopped");
+  }
   void emit(EVENT_CAPTURE, capture);
   if (next.state === "recording") startLevels(next.meetingId);
   else stopLevels();
@@ -605,6 +643,7 @@ export function installMockBackend() {
             speakers: previous?.speakers,
           });
           localStorage.setItem(KEY, JSON.stringify(list));
+          if (meeting.run?.endedAt && phoneMeeting === meeting.id) closePhone("meetingEnded");
           if (meeting.run?.endedAt && capture.meetingId === meeting.id) {
             stopScript();
             setCapture(CAPTURE_OFF);
@@ -787,6 +826,11 @@ export function installMockBackend() {
         case "stop_mic_test":
           stopTest();
           emitTest(MIC_TEST_OFF);
+          return null;
+        case "phone_view_open":
+          return openPhone(a.meetingId as string);
+        case "phone_view_close":
+          closePhone("requested");
           return null;
         default:
           throw new Error(`mock backend: unknown command ${cmd}`);

@@ -29,9 +29,24 @@ whisper-rs = "0.16"
 # Speaker embeddings (k2-fsa, Apache-2.0); only `SpeakerEmbeddingExtractor` is used. Links the prebuilt
 # static libraries from the checksum-pinned archive (see .cargo/config.toml, scripts/sherpa-onnx.mjs).
 sherpa-onnx = { version = "=2.0.1", default-features = false, features = ["static"] }
+# The opt-in phone web view (src/phone_view/, job 012): an HTTP/1 server on the tokio runtime Tauri already
+# runs, bound to one private IPv4 address only while a person opened it. Server side only, no HTTP client.
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "http1", "service"] }
+tokio = { version = "1", features = ["net", "time", "sync", "rt", "rt-multi-thread", "macros"] }
+# Lists the local interfaces (and whether each is up) to choose the one private address to bind.
+if-addrs = "0.15"
+# The QR code for the phone URL, drawn as SVG in the core (Nayuki, MIT, no dependencies).
+qrcodegen = "1.8"
+# Constant-time comparison of the phone token (RustCrypto; already used by chacha20poly1305).
+subtle = "2.6"
 
 [dev-dependencies]
+# Decodes the phone QR code back in tests (dev only).
+rqrr = { version = "0.11", default-features = false }
 tempfile = "3"
+
 
 # Dependencies (whisper-rs-sys, cpal, ...) are optimised in dev builds; the app's own code is not.
 # The native whisper.cpp build gets CMAKE_BUILD_TYPE=Release from `.cargo/config.toml`.

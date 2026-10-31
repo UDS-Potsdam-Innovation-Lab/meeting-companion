@@ -20,6 +20,7 @@
     "src",
     "e2e",
     "vite.config.ts",
+    "vite.phone.config.ts",
     "playwright.config.ts",
     "playwright.screenshot.config.ts",
     "eslint.config.js"
