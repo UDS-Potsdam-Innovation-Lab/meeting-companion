@@ -7,18 +7,18 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "review",
+  "stage": "needs-human",
   "round": 1,
   "max_round": 3,
   "reviews": {
-    "security": "pending",
+    "security": "PASS",
     "ux": "PASS",
     "ui": "PASS",
-    "code": "pending"
+    "code": "PASS"
   },
   "history": [],
-  "decision": null,
-  "waiting": null,
-  "note": "Round 1 reviews running",
-  "updated": "2026-10-31T16:06:28Z"
+  "decision": "ESCALATE (human gate)",
+  "waiting": "merge approval",
+  "note": "All reviews PASS, CI green (accuracy gate ran); human gate: voice corpus",
+  "updated": "2026-10-31T16:19:53Z"
 }
