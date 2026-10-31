@@ -92,6 +92,23 @@ STATUS: CONFIGURED
   person each; uses `MEETING_COMPANION_SPEAKER_MODEL`, else the model the scan prefers; prints the time
   per segment). Speaker models (sherpa-onnx ONNX with `framework` 3d-speaker/wespeaker/nemo, 16 kHz) are
   looked for in `<app_data>/models/` and the Hugging Face cache; nothing is downloaded.
+- Speaker accuracy: `src-tauri/src/engines/speaker_eval/` (`#[cfg(test)]` only) mixes test meetings from the
+  CC0 VoxPopuli clips in `src-tauri/testdata/speakers/` (`manifest.json` with source, licence and SHA-256 of
+  every clip, `ATTRIBUTION.md`, `scenes.json`, `thresholds.json`; provenance scripts in `tools/`), runs
+  them through the transcript windowing, a `Diarizer` and the real `VoiceTracker`, and measures DER (missed
+  speech, false alarm, confusion; 0.25 s collar, optimal voice mapping) and line accuracy. The default
+  suite checks the corpus, the scenes, the measures and the gate with fakes (no model). The real-model run
+  is `#[ignore]`: fetch the pinned model once with `node scripts/speaker-model.mjs fetch` (CAM++
+  `3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx`, Apache-2.0, checked against
+  `src-tauri/native/speaker-model.sha256`, saved in `src-tauri/native/models/`; `verify [file]` exits 1
+  for an altered copy), then `MEETING_COMPANION_SPEAKER_MODEL="$(node scripts/speaker-model.mjs path)"
+  cargo test --manifest-path src-tauri/Cargo.toml -- --ignored speaker_accuracy`. It prints a table per
+  scene and fails when a scene exceeds the thresholds committed for that model file (baseline + at most
+  5 points; a model without thresholds is only printed), and it runs the name-round, "applied backwards"
+  and "Who said this?" workflows on the real output. CI runs it after `npm test` with the cached model.
+  After a deliberate change to `SAME_VOICE`, `MIN_SEGMENT_MS` or the model, re-measure and update
+  `thresholds.json` from the `measured:` line the run prints. The test never downloads. The filter
+  `--ignored speaker` of the two-WAV check above matches these tests too; they need the env var set.
 - Native build dependencies on Linux: `libasound2-dev` (microphone), `cmake`, `clang`, `libclang-dev`
   (whisper.cpp is compiled from source by `whisper-rs`); CI installs them.
 - sherpa-onnx (`sherpa-onnx = "=2.0.1"`, static) links prebuilt libraries. Run

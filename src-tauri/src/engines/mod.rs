@@ -11,6 +11,8 @@ pub mod diarize;
 pub mod level;
 pub mod models;
 pub mod sherpa;
+#[cfg(test)]
+mod speaker_eval;
 pub mod stt;
 pub mod whisper;
 

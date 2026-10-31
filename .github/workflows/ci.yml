@@ -87,6 +87,31 @@ jobs:
             exit 1
           fi
 
+      # The speaker model for the speaker-accuracy run (test only; the app downloads no model). Fetched
+      # once, checked against the SHA-256 pinned in src-tauri/native/speaker-model.sha256 and cached by
+      # that checksum file. The test itself never downloads.
+      - name: Cache the speaker model
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/native/models
+          key: speaker-model-${{ hashFiles('src-tauri/native/speaker-model.sha256') }}
+
+      - name: Fetch and verify the speaker model (pinned SHA-256)
+        run: node scripts/speaker-model.mjs fetch
+
+      - name: A corrupted speaker model fails the check
+        shell: bash
+        run: |
+          dir=$(mktemp -d)
+          cp src-tauri/native/models/*.onnx "$dir/"
+          file=$(ls "$dir"/*.onnx)
+          printf 'corrupt' | dd of="$file" bs=1 seek=1000 count=7 conv=notrunc status=none
+          if node scripts/speaker-model.mjs verify "$file"; then
+            echo "a corrupted speaker model passed the check"
+            exit 1
+          fi
+          rm -rf "$dir"
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
@@ -96,8 +121,38 @@ jobs:
       - name: Test
         run: npm test
 
+      # The real speaker model on the test meetings of src-tauri/testdata/speakers, in the debug test
+      # profile npm test has just built (no second release build). Fails on a regression against
+      # src-tauri/testdata/speakers/thresholds.json.
+      - name: Speaker accuracy (real model, regression thresholds)
+        shell: bash
+        run: |
+          export MEETING_COMPANION_SPEAKER_MODEL="$(node scripts/speaker-model.mjs path)"
+          cargo test --manifest-path src-tauri/Cargo.toml -- --ignored speaker_accuracy
+
+      # The marker string is compiled into the test build (the check would see it) but must not be in
+      # the app: the speaker corpus and its test code stay out of the release binary.
+      - name: The corpus marker check finds the marker in the test build
+        shell: bash
+        run: |
+          marker=meeting-companion-speaker-corpus-v1
+          if ! grep -l -a "$marker" src-tauri/target/debug/deps/meeting_companion_lib-* | grep -q .; then
+            echo "the marker is missing from the test build: the check is broken"
+            exit 1
+          fi
+
       - name: Compile the desktop app
         run: npm run tauri build -- --no-bundle
+
+      - name: The release app holds no speaker corpus
+        shell: bash
+        run: |
+          app=src-tauri/target/release/meeting-companion
+          test -f "$app" || app=src-tauri/target/release/meeting-companion.exe
+          if grep -q -a meeting-companion-speaker-corpus-v1 "$app"; then
+            echo "the release app contains the speaker corpus marker"
+            exit 1
+          fi
 
       - name: Smoke test the built app (Linux, virtual display)
         if: runner.os == 'Linux'
