@@ -1,4 +1,5 @@
-//! [`AudioSource`] for the default input device, with `cpal`. The stream lives on its own thread
+//! [`AudioSource`] for the default input device or one chosen by name, and [`AudioDevices`] listing
+//! the input devices, with `cpal`. The stream lives on its own thread
 //! (it is not `Send` on every OS); samples are mixed to mono, resampled to 16 kHz and pushed into the
 //! bounded in-memory sink. Nothing is written to disk.
 
@@ -10,15 +11,49 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{ErrorKind, FromSample, Sample, SampleFormat, SizedSample};
 
 use super::audio::{AudioError, AudioSink, AudioSource, SAMPLE_RATE};
+use super::devices::AudioDevices;
 
 #[derive(Default)]
 pub struct CpalAudioSource {
+    /// `None`: the system default input device.
+    device: Option<String>,
     running: Option<(mpsc::Sender<()>, JoinHandle<()>)>,
 }
 
 impl CpalAudioSource {
+    /// The system default input device.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The input device with this name.
+    pub fn named(name: &str) -> Self {
+        Self {
+            device: Some(name.to_owned()),
+            running: None,
+        }
+    }
+}
+
+/// The input devices of the default host, by name.
+pub struct CpalAudioDevices;
+
+impl AudioDevices for CpalAudioDevices {
+    fn list(&self) -> Vec<String> {
+        let Ok(devices) = cpal::default_host().input_devices() else {
+            return Vec::new();
+        };
+        let mut names: Vec<String> = Vec::new();
+        for name in devices.map(|d| d.to_string()) {
+            if !name.is_empty() && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        names
+    }
+
+    fn open(&self, name: &str) -> Box<dyn AudioSource> {
+        Box::new(CpalAudioSource::named(name))
     }
 }
 
@@ -94,11 +129,16 @@ where
     )
 }
 
-fn open(sink: AudioSink) -> Result<cpal::Stream, AudioError> {
+fn open(sink: AudioSink, name: Option<&str>) -> Result<cpal::Stream, AudioError> {
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or(AudioError::NoMicrophone)?;
+    let device = match name {
+        None => host.default_input_device(),
+        Some(name) => host
+            .input_devices()
+            .map_err(|e| map_error(e.kind()))?
+            .find(|d| d.to_string() == name),
+    }
+    .ok_or(AudioError::NoMicrophone)?;
     let supported = device
         .default_input_config()
         .map_err(|e| map_error(e.kind()))?;
@@ -123,7 +163,8 @@ impl AudioSource for CpalAudioSource {
         self.stop();
         let (ready_tx, ready_rx) = mpsc::channel();
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
-        let handle = std::thread::spawn(move || match open(sink) {
+        let name = self.device.clone();
+        let handle = std::thread::spawn(move || match open(sink, name.as_deref()) {
             Ok(stream) => {
                 let _ = ready_tx.send(Ok(()));
                 // Holds the stream open until stop() (or the source is dropped).

@@ -77,6 +77,11 @@ impl FileMeetingStore {
         crate::transcript::FileTranscriptStore::new(self.dir.clone(), self.key.clone())
     }
 
+    /// The app settings in the file `path`, sealed with the same data key.
+    pub fn settings(&self, path: impl Into<PathBuf>) -> crate::settings::FileSettingsStore {
+        crate::settings::FileSettingsStore::new(path, self.key.clone())
+    }
+
     fn path_for(&self, id: &str) -> PathBuf {
         self.dir.join(format!("{id}{EXT}"))
     }

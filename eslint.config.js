@@ -48,6 +48,11 @@ export default tseslint.config(
     },
   },
   {
+    // Classic browser scripts served as they are (the first-paint theme).
+    files: ["public/**/*.js"],
+    languageOptions: { globals: globals.browser },
+  },
+  {
     files: ["scripts/**/*.mjs", "eslint.config.js"],
     languageOptions: { globals: globals.node },
   },

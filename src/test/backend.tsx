@@ -1,4 +1,5 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
+import { emit } from "@tauri-apps/api/event";
 import { render, screen, waitFor } from "@testing-library/react";
 import { expect } from "vitest";
 import { App } from "../app/App";
@@ -7,7 +8,13 @@ import { ClockProvider, FakeClock, systemClock, type Clock } from "../lib/clock"
 import type { Meeting } from "../features/agenda/model";
 import {
   CAPTURE_OFF,
+  DEFAULT_SETTINGS,
+  EVENT_SETTINGS,
+  MIC_TEST_OFF,
   type CaptureState,
+  type MicTestError,
+  type Settings,
+  type SettingsLoad,
   type LoadResult,
   type ModelList,
   type RecordError,
@@ -21,7 +28,14 @@ export interface FakeRecording {
   models?: ModelList;
   /** `start_recording` fails with this error instead of returning a recording state. */
   startError?: RecordError;
+  /** Stored settings (`load_settings`); defaults with status "missing" if not given. */
+  settings?: Partial<Settings>;
+  settingsStatus?: SettingsLoad["status"];
+  devices?: string[];
+  micTestError?: MicTestError;
 }
+
+export const FAKE_DEVICES = ["Built-in Audio Analog Stereo", "Jabra Speak 510"];
 
 export const FAKE_MODELS: ModelList = {
   models: [
@@ -46,6 +60,8 @@ export const FAKE_MODELS: ModelList = {
 };
 
 export interface FakeCore {
+  /** The settings the fake core holds now. */
+  settings: Settings;
   saved: Meeting[];
   readyViews: string[];
   /** Every command the UI sent, in order, with its arguments. */
@@ -60,6 +76,7 @@ export function fakeCore(
   rec: FakeRecording = {},
 ): FakeCore {
   const core: FakeCore = {
+    settings: { ...DEFAULT_SETTINGS, ...rec.settings },
     saved: [],
     readyViews: [],
     calls: [],
@@ -79,6 +96,37 @@ export function fakeCore(
       }
       const meetingId = (args as { meetingId?: string } | undefined)?.meetingId ?? null;
       switch (cmd) {
+        case "load_settings": {
+          const status = rec.settingsStatus ?? (rec.settings ? "stored" : "missing");
+          // Like the core: without a readable file, the UI's cached locale and theme are taken over.
+          const cached = ((args as { cached?: Record<string, string | null> }).cached ?? {}) as Record<
+            string,
+            string | null
+          >;
+          if (status !== "stored") {
+            if (cached.locale === "de" || cached.locale === "en") core.settings.locale = cached.locale;
+            if (cached.theme === "light" || cached.theme === "dark" || cached.theme === "system")
+              core.settings.theme = cached.theme;
+          }
+          return {
+            settings: core.settings,
+            status,
+            storageFolder: "/home/u/.local/share/de.udspotsdam.meetingcompanion/meetings",
+          } satisfies SettingsLoad;
+        }
+        case "update_setting": {
+          const { key, value } = (args as { change: { key: keyof Settings; value: never } }).change;
+          core.settings = { ...core.settings, [key]: value };
+          void emit(EVENT_SETTINGS, core.settings);
+          return { settings: core.settings, saved: true };
+        }
+        case "list_input_devices":
+          return rec.devices ?? FAKE_DEVICES;
+        case "start_mic_test":
+          if (rec.micTestError) throw rec.micTestError;
+          return { ...MIC_TEST_OFF, state: "running", remainingMs: 10_000 };
+        case "stop_mic_test":
+          return null;
         case "recording_status":
           return rec.status ?? CAPTURE_OFF;
         case "load_transcript":

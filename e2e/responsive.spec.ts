@@ -194,14 +194,14 @@ for (const size of [...WINDOWS, ...SHORT_WINDOWS]) {
   test.describe(`transcript at ${label}`, () => {
     test.use({ viewport: size });
 
-    test(`consent prompt and model picker fit; Start recording usable`, async ({ page }) => {
+    test(`consent prompt fits; Start recording and Settings usable`, async ({ page }) => {
       await page.clock.setFixedTime(LIVE_TIMES.running);
       await openApp(page, "live");
       await page.getByRole("checkbox", { name: /Everyone was informed/ }).check();
       await expectResponsive(page);
       await expectUsable(
         page.getByRole("button", { name: "Start recording" }),
-        page.getByRole("combobox", { name: "Speech model" }),
+        page.locator("[data-settings-button]"),
         page.getByRole("button", { name: "End meeting" }),
       );
     });

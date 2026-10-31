@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { LOCALES, useI18n, type Locale, type MessageKey } from "../i18n";
-import { LogoMark, PlusIcon } from "../ui/icons";
+import { useSettings } from "../features/settings/useSettings";
+import { BackIcon, GearIcon, LogoMark, PlusIcon } from "../ui/icons";
 
 interface Props {
   /** Setup: the "New meeting" button. */
@@ -9,10 +10,30 @@ interface Props {
   meetingTitle?: string;
   /** Live meeting: recording indicator and controls, before the language switch. */
   actions?: ReactNode;
+  /** Opens the settings view; the "Settings" button after the language switch. */
+  onOpenSettings?: () => void;
+  /** The settings view is open: the button shows it, and "Back" returns. */
+  settingsOpen?: boolean;
+  onBack?: () => void;
+  backLabel?: string;
 }
 
-export function TopBar({ onNewMeeting, meetingTitle, actions }: Props) {
-  const { t, locale, setLocale } = useI18n();
+/** The attribute focus returns to when the settings view closes. */
+export const SETTINGS_BUTTON = "data-settings-button";
+
+export function TopBar({
+  onNewMeeting,
+  meetingTitle,
+  actions,
+  onOpenSettings,
+  settingsOpen = false,
+  onBack,
+  backLabel,
+}: Props) {
+  const { t, locale } = useI18n();
+  const { update } = useSettings();
+  // The same setting as "App language" in the settings.
+  const setLocale = (l: Locale) => void update({ key: "locale", value: l });
   return (
     <header className="top-bar">
       <div className="top-bar__brand">
@@ -45,6 +66,25 @@ export function TopBar({ onNewMeeting, meetingTitle, actions }: Props) {
           </button>
         ))}
       </div>
+      {onOpenSettings ? (
+        <button
+          type="button"
+          className={`button button--outline top-bar__settings${settingsOpen ? " top-bar__settings--open" : ""}`}
+          onClick={onOpenSettings}
+          aria-current={settingsOpen ? "page" : undefined}
+          aria-keyshortcuts="Control+Comma Meta+Comma"
+          {...{ [SETTINGS_BUTTON]: "" }}
+        >
+          <GearIcon />
+          <span className="top-bar__settings-label">{t("settings.open")}</span>
+        </button>
+      ) : null}
+      {onBack ? (
+        <button type="button" className="button button--dark top-bar__back" onClick={onBack}>
+          <BackIcon />
+          {backLabel}
+        </button>
+      ) : null}
     </header>
   );
 }

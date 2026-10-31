@@ -123,6 +123,14 @@ impl AudioSink {
         self.inner.1.notify_all();
     }
 
+    /// Another source takes over after a failure ("Switch to the system default"): the failure is
+    /// cleared and the stall clock starts again. Samples already in the buffer stay.
+    pub fn recover(&self) {
+        let mut s = self.lock();
+        s.failed = None;
+        s.last_push = Some(std::time::Instant::now());
+    }
+
     /// Capture was stopped on purpose; the pipeline flushes and stops.
     pub fn end(&self) {
         self.lock().ended = true;

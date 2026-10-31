@@ -8,6 +8,7 @@ pub mod engines;
 pub mod log;
 pub mod model;
 pub mod recording;
+pub mod settings;
 pub mod store;
 pub mod transcript;
 
@@ -19,11 +20,19 @@ use tauri::{Emitter, Manager, State};
 
 use crypto::KeychainKeyProvider;
 use engines::audio::{AudioSource, FakeAudioSource};
-use engines::cpal_source::CpalAudioSource;
+use engines::cpal_source::{CpalAudioDevices, CpalAudioSource};
+use engines::devices::{AudioDevices, FakeAudioDevices};
 use engines::models::{self, ModelList};
 use engines::{FakeSttProvider, SttProvider, WhisperProvider};
 use model::{FieldError, Meeting};
-use recording::{CaptureState, EventSink, Reason, RecordError, Recorder, SegmentEvent};
+use recording::{
+    CaptureState, EventSink, MicTestError, MicTestState, Reason, RecordError, Recorder,
+    SegmentEvent, StartOptions, SwitchedEvent,
+};
+use settings::{
+    Cached, Catalog, LockedSettingsStore, MemorySettingsStore, SettingsError, SettingsLoad,
+    SettingsService, SettingsStore, SettingsUpdate,
+};
 use store::{FileMeetingStore, LockedMeetingStore, MeetingStore, MemoryMeetingStore, StoreError};
 use transcript::{
     LockedTranscriptStore, MemoryTranscriptStore, Segment, TranscriptError, TranscriptStore,
@@ -44,13 +53,51 @@ pub const ENV_STT: &str = "MEETING_COMPANION_STT";
 pub const EVENT_CAPTURE: &str = "capture-state";
 /// Event with one transcript segment ([`SegmentEvent`]).
 pub const EVENT_SEGMENT: &str = "transcript-segment";
+/// Event with the settings now in effect ([`settings::Settings`]), after every change.
+pub const EVENT_SETTINGS: &str = "settings-changed";
+/// Event with the microphone test's state ([`MicTestState`]).
+pub const EVENT_MIC_TEST: &str = "mic-test";
+/// Event when recording switched to the system default microphone ([`SwitchedEvent`]).
+pub const EVENT_SWITCHED: &str = "microphone-switched";
 const SMOKE_TIMEOUT: Duration = Duration::from_secs(90);
 const SMOKE_VIEW: &str = "agenda-setup";
 
 pub struct AppState {
     store: Arc<dyn MeetingStore>,
     recorder: Recorder,
+    settings: SettingsService,
+    /// Where meetings and transcripts are stored, shown read-only in the settings.
+    storage_folder: String,
     smoke: bool,
+}
+
+/// What the core knows right now: the connected devices and its own model scan.
+impl Catalog for Recorder {
+    fn input_devices(&self) -> Vec<String> {
+        Recorder::input_devices(self)
+    }
+    fn speech_models(&self) -> Vec<String> {
+        self.models().models.into_iter().map(|m| m.id).collect()
+    }
+}
+
+/// The settings for a recording session.
+pub fn start_options(s: &settings::Settings) -> StartOptions {
+    StartOptions {
+        model_id: s.speech_model.clone(),
+        device: s.input_device.clone(),
+        language: s.meeting_language.hint(),
+        on_lost: s.device_lost,
+    }
+}
+
+/// What `load_settings` returns: the settings, where they came from, and the storage folder.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsView {
+    #[serde(flatten)]
+    pub load: SettingsLoad,
+    pub storage_folder: String,
 }
 
 /// What the UI gets on start: the latest meeting, or why it could not be read.
@@ -205,15 +252,56 @@ fn confirm_recording_consent(
     confirm_consent(state.store.as_ref(), &meeting_id, now_ms())
 }
 
+/// Starts recording with the microphone, model and language from the settings. The model id is
+/// still checked against the core's own scan (an unknown one falls back to the preferred model).
 #[tauri::command(async)]
 fn start_recording(
     state: State<'_, AppState>,
     meeting_id: String,
-    model_id: Option<String>,
 ) -> Result<CaptureState, RecordError> {
+    let opts = start_options(&state.settings.current());
     state
         .recorder
-        .start(state.store.as_ref(), &meeting_id, model_id.as_deref())
+        .start_with(state.store.as_ref(), &meeting_id, &opts)
+}
+
+#[tauri::command(async)]
+fn load_settings(state: State<'_, AppState>, cached: Option<Cached>) -> SettingsView {
+    SettingsView {
+        load: state
+            .settings
+            .load(&cached.unwrap_or_default(), &state.recorder),
+        storage_folder: state.storage_folder.clone(),
+    }
+}
+
+/// Checks and applies one change, stores the settings and tells every view (`settings-changed`).
+#[tauri::command(async)]
+fn update_setting(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    change: serde_json::Value,
+) -> Result<SettingsUpdate, SettingsError> {
+    let update = state.settings.update(&change, &state.recorder)?;
+    let _ = app.emit(EVENT_SETTINGS, &update.settings);
+    Ok(update)
+}
+
+#[tauri::command(async)]
+fn list_input_devices(state: State<'_, AppState>) -> Vec<String> {
+    state.recorder.input_devices()
+}
+
+/// Opens the chosen microphone for at most 10 s to show its level; nothing is kept.
+#[tauri::command(async)]
+fn start_mic_test(state: State<'_, AppState>) -> Result<MicTestState, MicTestError> {
+    let device = state.settings.current().input_device;
+    state.recorder.start_test(device.as_deref())
+}
+
+#[tauri::command(async)]
+fn stop_mic_test(state: State<'_, AppState>) {
+    state.recorder.stop_test();
 }
 
 #[tauri::command(async)]
@@ -251,6 +339,12 @@ impl EventSink for TauriEvents {
     fn segment(&self, event: &SegmentEvent) {
         let _ = self.0.emit(EVENT_SEGMENT, event);
     }
+    fn mic_test(&self, state: &MicTestState) {
+        let _ = self.0.emit(EVENT_MIC_TEST, state);
+    }
+    fn switched(&self, event: &SwitchedEvent) {
+        let _ = self.0.emit(EVENT_SWITCHED, event);
+    }
 }
 
 fn env_is(name: &str, value: &str) -> bool {
@@ -283,33 +377,48 @@ pub fn run() {
             let smoke = env_flag(ENV_SMOKE);
             let memory = smoke || env_is(ENV_STORE, "memory");
             let app_data = app.path().app_data_dir()?;
-            let (store, transcripts): (Arc<dyn MeetingStore>, Arc<dyn TranscriptStore>) = if memory
-            {
+            let meetings_dir = app_data.join("meetings");
+            let storage_folder = meetings_dir.to_string_lossy().into_owned();
+            type Stores = (
+                Arc<dyn MeetingStore>,
+                Arc<dyn TranscriptStore>,
+                Arc<dyn SettingsStore>,
+            );
+            let (store, transcripts, settings_store): Stores = if memory {
                 (
                     Arc::new(MemoryMeetingStore::new()),
                     Arc::new(MemoryTranscriptStore::new()),
+                    Arc::new(MemorySettingsStore::new()),
                 )
             } else {
-                let dir = app_data.join("meetings");
                 let keys =
                     KeychainKeyProvider::new(app.config().identifier.clone(), KEYCHAIN_ACCOUNT);
-                match FileMeetingStore::open(dir, &keys) {
+                match FileMeetingStore::open(meetings_dir, &keys) {
                     Ok(store) => {
                         let transcripts = Arc::new(store.transcripts());
-                        (Arc::new(store), transcripts)
+                        let settings = Arc::new(store.settings(app_data.join("settings")));
+                        (Arc::new(store), transcripts, settings)
                     }
                     // No key: the UI explains it; stored files stay untouched.
                     Err(StoreError::KeyUnavailable) => (
                         Arc::new(LockedMeetingStore),
                         Arc::new(LockedTranscriptStore),
+                        Arc::new(LockedSettingsStore),
                     ),
                     Err(e) => return Err(Box::new(e)),
                 }
             };
-            let audio: engines::AudioFactory = if smoke || env_is(ENV_AUDIO, "fake") {
+            let settings = SettingsService::open(settings_store);
+            let fake_audio = smoke || env_is(ENV_AUDIO, "fake");
+            let audio: engines::AudioFactory = if fake_audio {
                 Box::new(|| Box::new(FakeAudioSource::demo()) as Box<dyn AudioSource>)
             } else {
                 Box::new(|| Box::new(CpalAudioSource::new()) as Box<dyn AudioSource>)
+            };
+            let devices: Arc<dyn AudioDevices> = if fake_audio {
+                Arc::new(FakeAudioDevices::demo())
+            } else {
+                Arc::new(CpalAudioDevices)
             };
             let stt: Box<dyn SttProvider> = if smoke || env_is(ENV_STT, "fake") {
                 Box::new(FakeSttProvider::demo())
@@ -325,10 +434,13 @@ pub fn run() {
                 transcripts,
                 Arc::new(TauriEvents(app.handle().clone())),
                 now_ms,
-            );
+            )
+            .with_devices(devices);
             app.manage(AppState {
                 store,
                 recorder,
+                settings,
+                storage_folder,
                 smoke,
             });
             if smoke {
@@ -352,7 +464,12 @@ pub fn run() {
             stop_recording,
             recording_status,
             load_transcript,
-            list_speech_models
+            list_speech_models,
+            load_settings,
+            update_setting,
+            list_input_devices,
+            start_mic_test,
+            stop_mic_test
         ])
         .run(tauri::generate_context!())
         .expect("error while running Meeting Companion");
@@ -506,5 +623,51 @@ mod tests {
     fn save_error_serialises_with_a_kind_tag() {
         let json = serde_json::to_value(SaveError::Io).unwrap();
         assert_eq!(json, serde_json::json!({ "kind": "io" }));
+    }
+
+    #[test]
+    fn recording_takes_device_model_language_and_policy_from_the_settings() {
+        let s = settings::Settings {
+            input_device: Some("Room mic".into()),
+            speech_model: Some("/m/ggml-small.bin".into()),
+            meeting_language: settings::MeetingLanguage::De,
+            device_lost: settings::DeviceLost::SwitchToDefault,
+            ..settings::Settings::default()
+        };
+        assert_eq!(
+            start_options(&s),
+            StartOptions {
+                model_id: Some("/m/ggml-small.bin".into()),
+                device: Some("Room mic".into()),
+                language: Some(engines::stt::Lang::De),
+                on_lost: settings::DeviceLost::SwitchToDefault,
+            }
+        );
+        let d = start_options(&settings::Settings::default());
+        assert_eq!(d, StartOptions::default());
+    }
+
+    #[test]
+    fn a_chosen_model_that_disappeared_falls_back_to_the_preferred_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("ggml-base.bin");
+        let b = dir.path().join("ggml-small.bin");
+        engines::models::tests::fake_model(&a, true, 10);
+        engines::models::tests::fake_model(&b, true, 1_000);
+        let locations = vec![engines::models::ModelLocation {
+            source: engines::models::ModelSource::App,
+            path: dir.path().to_path_buf(),
+        }];
+        let list = engines::models::scan(&locations);
+        let chosen = list.models[1].id.clone();
+        assert_eq!(
+            engines::models::choose(&list, Some(&chosen)).unwrap().id,
+            chosen
+        );
+        std::fs::remove_file(&b).unwrap();
+        let list = engines::models::scan(&locations);
+        let used = engines::models::choose(&list, Some(&chosen)).unwrap();
+        assert_eq!(used.id, list.models[0].id);
+        assert_ne!(used.id, chosen);
     }
 }
