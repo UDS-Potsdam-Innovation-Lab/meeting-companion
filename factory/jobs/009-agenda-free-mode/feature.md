@@ -1,0 +1,3 @@
+Auto mode without topics (backlog "Agenda-free mode", FigCraft frame 13): start a meeting without entering any agenda topics. The companion runs a whole-meeting timer with a half-time nudge, records and transcribes as usual, detects the topics being discussed as the meeting goes, and lets the facilitator turn the detected topics into an agenda.
+
+Topic detection needs a language model; the Language model engine is not built yet (backlog). The spec should decide what ships now without it (e.g. starting without topics, whole-meeting timer, half-time nudge, adding topics on the fly) and what waits for the engine.
