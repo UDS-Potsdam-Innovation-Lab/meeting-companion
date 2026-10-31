@@ -166,5 +166,50 @@
  },
  "s15j_set_states": {
   "screen": 9564
+ },
+ "s16b_live": {
+  "screen": 10864,
+  "end": 10883
+ },
+ "s16c_empty": {
+  "screen": 10291,
+  "end": 10310
+ },
+ "s16d_half": {
+  "screen": 10394,
+  "end": 10413
+ },
+ "s16e_over": {
+  "screen": 10557,
+  "end": 10576
+ },
+ "s16f_dark": {
+  "screen": 11019,
+  "end": 11038
+ },
+ "s16g_1024": {
+  "screen": 11788,
+  "end": 11805
+ },
+ "s16h_768": {
+  "screen": 11343,
+  "end": 11362
+ },
+ "s16i_375": {
+  "screen": 11496,
+  "end": 11513
+ },
+ "s16j_375_half": {
+  "screen": 11638,
+  "end": 11655
+ },
+ "s16a_setup": {
+  "screen": 11941,
+  "mode_With agenda": 11962,
+  "mode_Agenda-free": 11964,
+  "start": 12055
+ },
+ "s16k_states": {
+  "screen": 12418
  }
 }
