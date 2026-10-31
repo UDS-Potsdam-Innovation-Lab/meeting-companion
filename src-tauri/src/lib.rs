@@ -7,6 +7,7 @@ pub mod crypto;
 pub mod engines;
 pub mod log;
 pub mod model;
+pub mod organisation;
 pub mod recording;
 pub mod settings;
 pub mod speakers;
@@ -80,6 +81,8 @@ pub struct AppState {
     settings: SettingsService,
     /// Where meetings and transcripts are stored, shown read-only in the settings.
     storage_folder: String,
+    /// `<app_data>/organisation.json`, read on demand by "Help & legal" (never at start).
+    organisation_file: std::path::PathBuf,
     smoke: bool,
     /// Held by every command that reads, changes and writes the meeting file, so a save from the
     /// UI and a speaker choice cannot overwrite each other.
@@ -474,6 +477,13 @@ fn list_speaker_models(state: State<'_, AppState>) -> SpeakerModelList {
     state.recorder.speaker_models()
 }
 
+/// The organisation's details from the IT-deployed `organisation.json`, checked; the placeholder
+/// when there is none or it was rejected. Read when asked, so a bad file never stops the app.
+#[tauri::command(async)]
+fn load_organisation(state: State<'_, AppState>) -> organisation::OrganisationLoad {
+    organisation::load(&state.organisation_file)
+}
+
 /// Sends the core's events to the window.
 struct TauriEvents(tauri::AppHandle);
 
@@ -530,6 +540,7 @@ pub fn run() {
             let app_data = app.path().app_data_dir()?;
             let meetings_dir = app_data.join("meetings");
             let storage_folder = meetings_dir.to_string_lossy().into_owned();
+            let organisation_file = organisation::path_in(&app_data);
             type Stores = (
                 Arc<dyn MeetingStore>,
                 Arc<dyn TranscriptStore>,
@@ -608,6 +619,7 @@ pub fn run() {
                 recorder,
                 settings,
                 storage_folder,
+                organisation_file,
                 smoke,
                 edits: Mutex::new(()),
             });
@@ -643,7 +655,8 @@ pub fn run() {
             update_setting,
             list_input_devices,
             start_mic_test,
-            stop_mic_test
+            stop_mic_test,
+            load_organisation
         ])
         .run(tauri::generate_context!())
         .expect("error while running Meeting Companion");
