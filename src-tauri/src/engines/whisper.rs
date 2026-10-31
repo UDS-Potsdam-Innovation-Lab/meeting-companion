@@ -19,6 +19,8 @@ pub struct WhisperSpeechToText {
     threads: usize,
     /// Language of the last final window; previews reuse it instead of running detection again.
     last_lang: Lang,
+    /// The default meeting language, if one was chosen: no detection runs.
+    hint: Option<Lang>,
 }
 
 impl WhisperSpeechToText {
@@ -40,6 +42,7 @@ impl WhisperSpeechToText {
             multilingual,
             threads,
             last_lang: Lang::De,
+            hint: None,
         })
     }
 
@@ -78,7 +81,9 @@ impl SpeechToText for WhisperSpeechToText {
             return Ok(Vec::new());
         }
         // Detection runs the encoder once more; a preview reuses the language of the last final window.
-        let lang = if final_pass {
+        let lang = if let Some(hint) = self.hint {
+            hint
+        } else if final_pass {
             let lang = self.detect(window)?;
             self.last_lang = lang;
             lang
@@ -119,6 +124,10 @@ impl SpeechToText for WhisperSpeechToText {
             });
         }
         Ok(out)
+    }
+
+    fn set_language(&mut self, hint: Option<Lang>) {
+        self.hint = hint;
     }
 }
 

@@ -20,12 +20,23 @@ import {
 import { isMeetingValid, type Meeting } from "../features/agenda/model";
 import {
   CAPTURE_OFF,
+  DEFAULT_SETTINGS,
   EVENT_CAPTURE,
+  EVENT_MIC_TEST,
   EVENT_SEGMENT,
+  EVENT_SETTINGS,
+  EVENT_SWITCHED,
   EVENT_VOICE,
+  MIC_TEST_OFF,
+  type CachedSettings,
   type CaptureState,
   type LineChoice,
   type LineTarget,
+  type MicTestState,
+  type SettingChange,
+  type Settings,
+  type SettingsLoad,
+  type SwitchedEvent,
   type LoadResult,
   type ModelList,
   type RecordReason,
@@ -50,6 +61,10 @@ const AUDIO_KEY = "mock-backend.audio";
 const MODELS_KEY = "mock-backend.models";
 /** `none`: no speaker model is found (recording runs without voices). */
 const SPEAKER_MODELS_KEY = "mock-backend.speakerModels";
+/** The "settings file" of the fake core; survives a reload like the real one. */
+const SETTINGS_KEY = "mock-backend.settings";
+/** `fixed`: the microphone test shows a still state (screenshots). */
+const MIC_TEST_KEY = "mock-backend.mic-test";
 
 type Fixture =
   | "empty"
@@ -66,7 +81,15 @@ type Fixture =
   | "speakers"
   | "speakers-empty"
   | "speakers-no-model"
-  | "live-speakers";
+  | "live-speakers"
+  | "settings"
+  | "settings-no-model"
+  | "settings-mic-test"
+  | "settings-recording"
+  | "settings-dark"
+  | "settings-missing"
+  | "live-mic-missing"
+  | "live-switched";
 
 const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   filled: filledMeeting,
@@ -81,7 +104,19 @@ const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   "speakers-empty": liveConsentedMeeting,
   "speakers-no-model": liveConsentedMeeting,
   "live-speakers": liveConsentedMeeting,
+  settings: filledMeeting,
+  "settings-no-model": filledMeeting,
+  "settings-mic-test": filledMeeting,
+  "settings-recording": liveConsentedMeeting,
+  "settings-dark": liveConsentedMeeting,
+  "settings-missing": filledMeeting,
+  "live-mic-missing": liveConsentedMeeting,
+  "live-switched": liveConsentedMeeting,
 };
+
+/** Input devices of the fake core: the system default is not one of them. */
+const DEVICES = ["Built-in Audio Analog Stereo", "Jabra Speak 510", "Logitech BRIO"];
+const STORAGE_FOLDER = "/home/user/.local/share/de.udspotsdam.meetingcompanion/meetings";
 
 const MODELS: ModelList = {
   models: [
@@ -156,8 +191,17 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let step = 0;
 
 function seed(fixture: Fixture) {
-  for (const k of [CORRUPT_KEY, LOCKED_KEY, AUDIO_KEY, MODELS_KEY, SPEAKER_MODELS_KEY])
+  for (const k of [
+    CORRUPT_KEY,
+    LOCKED_KEY,
+    AUDIO_KEY,
+    MODELS_KEY,
+    SETTINGS_KEY,
+    MIC_TEST_KEY,
+    SPEAKER_MODELS_KEY,
+  ]) {
     localStorage.removeItem(k);
+  }
   const make = SEEDS[fixture];
   const meetings: Stored[] = make ? [make()] : [];
   if (fixture === "speakers") meetings[0]!.speakers = structuredClone(SPEAKER_CHOICES);
@@ -166,19 +210,49 @@ function seed(fixture: Fixture) {
   localStorage.setItem(TRANSCRIPTS_KEY, "{}");
   if (fixture === "corrupt") localStorage.setItem(CORRUPT_KEY, "1");
   if (fixture === "locked") localStorage.setItem(LOCKED_KEY, "1");
-  if (fixture === "live-no-model") localStorage.setItem(MODELS_KEY, "none");
-  if (fixture === "speakers-no-model") localStorage.setItem(SPEAKER_MODELS_KEY, "none");
+  if (fixture === "live-no-model" || fixture === "settings-no-model")
+    localStorage.setItem(MODELS_KEY, "none");
+  if (fixture.startsWith("settings") || fixture === "live-mic-missing" || fixture === "live-switched") {
+    // "Jabra Speak 710" is chosen but not connected.
+    const missing = fixture === "settings-missing" || fixture === "live-mic-missing";
+    const settings: Settings = {
+      ...DEFAULT_SETTINGS,
+      locale: (localStorage.getItem("meeting-companion.locale") as Settings["locale"]) ?? "en",
+      inputDevice: missing ? "Jabra Speak 710" : "Jabra Speak 510",
+      theme: fixture === "settings-dark" ? "dark" : "light",
+    };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    localStorage.setItem("meeting-companion.theme", settings.theme);
+  }
+  if (fixture === "settings-mic-test") localStorage.setItem(MIC_TEST_KEY, "fixed");
+
   const id = meetings[0]?.id ?? null;
+  if (fixture === "live-switched") {
+    pendingSwitch = { meetingId: id!, at: LIVE_TRANSCRIPT.at(-1)!.at, elapsedMs: LIVE_ELAPSED_MS };
+  }
+  if (fixture === "speakers-no-model") localStorage.setItem(SPEAKER_MODELS_KEY, "none");
   if (fixture === "speakers" || fixture === "live-speakers") setTranscript(id!, SPEAKER_TRANSCRIPT);
   if (fixture === "speakers-no-model") setTranscript(id!, LIVE_TRANSCRIPT);
   if (fixture.startsWith("speakers") || fixture === "live-speakers") {
     capture = { state: "recording", meetingId: id, elapsedMs: LIVE_ELAPSED_MS, level: 0.55, reason: null };
   }
-  if (fixture === "live-transcript" || fixture === "live-paused" || fixture === "live-mic-error") {
+  if (
+    fixture === "live-transcript" ||
+    fixture === "live-paused" ||
+    fixture === "live-mic-error" ||
+    fixture === "settings-recording" ||
+    fixture === "live-switched" ||
+    fixture === "settings-dark"
+  ) {
     setTranscript(id!, LIVE_TRANSCRIPT);
   }
   // Fixed states for screenshots: the script does not run, so nothing moves.
-  if (fixture === "live-transcript") {
+  if (
+    fixture === "live-transcript" ||
+    fixture === "settings-recording" ||
+    fixture === "settings-dark" ||
+    fixture === "live-switched"
+  ) {
     capture = { state: "recording", meetingId: id, elapsedMs: LIVE_ELAPSED_MS, level: 0.55, reason: null };
     pendingPartial = { ...LIVE_PARTIAL, meetingId: id! };
   }
@@ -193,6 +267,8 @@ function seed(fixture: Fixture) {
 
 /** A partial line a fixture shows once the view listens. */
 let pendingPartial: SegmentEvent | null = null;
+/** A microphone switch a fixture shows once the view listens. */
+let pendingSwitch: SwitchedEvent | null = null;
 
 /** A meeting as the core stores it: with the speaker choices and guests the UI does not send. */
 type Stored = Meeting & {
@@ -331,6 +407,73 @@ function startScript(meetingId: string) {
   }, STEP_MS);
 }
 
+// ---- settings and the microphone test ---------------------------------------------------------
+/** The settings in effect, like the core's memory: the cached values taken over at load included. */
+let current: Settings | null = null;
+let testTimer: ReturnType<typeof setInterval> | null = null;
+
+function storedSettings(): Settings | null {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    return raw ? { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) } : null;
+  } catch {
+    return null;
+  }
+}
+
+function modelList(): ModelList {
+  return localStorage.getItem(MODELS_KEY) === "none" ? { models: [], searched: SEARCHED } : MODELS;
+}
+
+const ENUMS: Partial<Record<SettingChange["key"], readonly string[]>> = {
+  deviceLost: ["stop", "switchToDefault"],
+  meetingLanguage: ["auto", "de", "en"],
+  locale: ["de", "en"],
+  theme: ["light", "dark", "system"],
+};
+
+/** Like the core: only values in the schema, connected devices and models of the scan. */
+function valid(change: SettingChange): boolean {
+  const { key, value } = change;
+  if (key === "inputDevice") return value === null || DEVICES.includes(value);
+  if (key === "speechModel") return value === null || modelList().models.some((m) => m.id === value);
+  return ENUMS[key]?.includes(value as string) ?? false;
+}
+
+function emitTest(state: MicTestState) {
+  void emit(EVENT_MIC_TEST, state);
+}
+
+function stopTest() {
+  if (testTimer !== null) clearInterval(testTimer);
+  testTimer = null;
+}
+
+function startTest(): MicTestState {
+  stopTest();
+  if (localStorage.getItem(MIC_TEST_KEY) === "fixed") {
+    const fixed: MicTestState = { state: "running", remainingMs: 6_400, level: 0.6, reason: null };
+    setTimeout(() => emitTest(fixed), 0);
+    return fixed;
+  }
+  const started = Date.now();
+  testTimer = setInterval(() => {
+    const remainingMs = Math.max(0, 10_000 - (Date.now() - started));
+    if (remainingMs === 0) {
+      stopTest();
+      emitTest(MIC_TEST_OFF);
+      return;
+    }
+    emitTest({
+      state: "running",
+      remainingMs,
+      level: 0.3 + 0.4 * Math.abs(Math.sin(remainingMs / 300)),
+      reason: null,
+    });
+  }, 150);
+  return { state: "running", remainingMs: 10_000, level: 0, reason: null };
+}
+
 function fail(meetingId: string, reason: RecordReason): never {
   setCapture({ ...capture, state: "error", meetingId, level: 0, reason });
   throw { kind: "failed", reason };
@@ -405,6 +548,9 @@ export function installMockBackend() {
           if (!m.run || m.run.endedAt) throw { kind: "notRunning" };
           if (!m.recordingConsentAt) throw { kind: "noConsent" };
           if (capture.state === "recording" && capture.meetingId === id) return capture;
+          stopTest();
+          const device = storedSettings()?.inputDevice ?? null;
+          if (device !== null && !DEVICES.includes(device)) fail(id, "chosenMicrophoneMissing");
           if (localStorage.getItem(MODELS_KEY) === "none") fail(id, "noModel");
           const audio = localStorage.getItem(AUDIO_KEY) as RecordReason | null;
           if (audio) fail(id, audio);
@@ -428,6 +574,9 @@ export function installMockBackend() {
           const partial = pendingPartial;
           pendingPartial = null;
           if (partial) setTimeout(() => void emit(EVENT_SEGMENT, partial), 0);
+          const switched = pendingSwitch;
+          pendingSwitch = null;
+          if (switched) setTimeout(() => void emit(EVENT_SWITCHED, switched), 0);
           return capture;
         }
         case "load_transcript":
@@ -436,7 +585,7 @@ export function installMockBackend() {
             error: null,
           } satisfies TranscriptLoad;
         case "list_speech_models":
-          return localStorage.getItem(MODELS_KEY) === "none" ? { models: [], searched: SEARCHED } : MODELS;
+          return modelList();
         case "list_speaker_models":
           return localStorage.getItem(SPEAKER_MODELS_KEY) === "none"
             ? { models: [], searched: SPEAKER_SEARCHED }
@@ -502,6 +651,52 @@ export function installMockBackend() {
             }
           });
         }
+        case "load_settings": {
+          const stored = storedSettings();
+          if (stored) {
+            return {
+              settings: stored,
+              status: "stored",
+              storageFolder: STORAGE_FOLDER,
+            } satisfies SettingsLoad;
+          }
+          // No "file" yet: take over the UI's cached locale and theme, as the core does.
+          const cached = (a.cached ?? {}) as CachedSettings;
+          const settings = { ...DEFAULT_SETTINGS };
+          for (const key of ["locale", "theme"] as const) {
+            const value = cached[key];
+            if (value && valid({ key, value } as SettingChange))
+              (settings as Record<string, unknown>)[key] = value;
+          }
+          current = settings;
+          return { settings, status: "missing", storageFolder: STORAGE_FOLDER } satisfies SettingsLoad;
+        }
+        case "update_setting": {
+          const change = a.change as SettingChange;
+          if (!valid(change)) throw { kind: "invalid", key: change.key };
+          const settings = {
+            ...(storedSettings() ?? current ?? DEFAULT_SETTINGS),
+            [change.key]: change.value,
+          } as Settings;
+          current = settings;
+          localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+          void emit(EVENT_SETTINGS, settings);
+          return { settings, saved: true };
+        }
+        case "list_input_devices":
+          return DEVICES;
+        case "start_mic_test": {
+          if (capture.state === "recording" || capture.state === "paused") throw { kind: "busy" };
+          const device = storedSettings()?.inputDevice ?? null;
+          if (device !== null && !DEVICES.includes(device)) {
+            throw { kind: "failed", reason: "chosenMicrophoneMissing" };
+          }
+          return startTest();
+        }
+        case "stop_mic_test":
+          stopTest();
+          emitTest(MIC_TEST_OFF);
+          return null;
         default:
           throw new Error(`mock backend: unknown command ${cmd}`);
       }

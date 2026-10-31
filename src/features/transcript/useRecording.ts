@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CAPTURE_OFF,
   confirmRecordingConsent,
-  listSpeechModels,
   loadTranscript,
   onCaptureState,
+  onMicrophoneSwitched,
   onTranscriptSegment,
   onTranscriptVoice,
   pauseRecording,
@@ -12,22 +12,11 @@ import {
   startRecording,
   stopRecording,
   type CaptureState,
-  type ModelList,
+  type SwitchedEvent,
   type RecordReason,
   type TranscriptLoadError,
   type TranscriptSegment,
 } from "../../lib/ipc";
-
-/** Where the facilitator's model choice is remembered on this device. */
-export const MODEL_STORAGE_KEY = "meeting-companion.speechModel";
-
-function storedModel(): string | null {
-  try {
-    return localStorage.getItem(MODEL_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
 
 export interface Recording {
   /** The core's capture state; drives the REC chip. Never set from UI state alone. */
@@ -39,10 +28,9 @@ export interface Recording {
   /** What is being said right now, replaced by its final line. */
   partial: TranscriptSegment | null;
   transcriptError: TranscriptLoadError | null;
-  models: ModelList | null;
-  /** The chosen model's id (the preferred one unless the facilitator picked another). */
-  modelId: string | null;
-  chooseModel: (id: string) => void;
+  /** The chosen microphone was lost and recording switched to the system default (until dismissed). */
+  switched: SwitchedEvent | null;
+  dismissSwitched: () => void;
   /** A command is running (start, pause): buttons wait. */
   busy: boolean;
   /** Stores the consent confirmation, then starts recording. */
@@ -59,7 +47,8 @@ function failed(meetingId: string, reason: RecordReason): CaptureState {
 
 /**
  * The live view's recording: capture state and segments from the core's events, the stored transcript
- * of the meeting, the speech models found, and the recording commands. Recording never starts here on
+ * of the meeting, and the recording commands. Microphone, speech model and language come from the
+ * settings, which the core reads itself. Recording never starts here on
  * its own; only `confirmAndStart` and `start`, called from buttons, start it.
  */
 export function useRecording(meetingId: string, onConsent: (at: number) => void): Recording {
@@ -68,9 +57,8 @@ export function useRecording(meetingId: string, onConsent: (at: number) => void)
   const [partial, setPartial] = useState<TranscriptSegment | null>(null);
   const [received, setReceived] = useState(0);
   const [transcriptError, setTranscriptError] = useState<TranscriptLoadError | null>(null);
-  const [models, setModels] = useState<ModelList | null>(null);
-  const [picked, setPicked] = useState<string | null>(storedModel);
   const [busy, setBusy] = useState(false);
+  const [switched, setSwitched] = useState<SwitchedEvent | null>(null);
   const consentRef = useRef(onConsent);
   useEffect(() => {
     consentRef.current = onConsent;
@@ -101,6 +89,9 @@ export function useRecording(meetingId: string, onConsent: (at: number) => void)
       if (cancelled || v.meetingId !== meetingId) return;
       setLines((l) => l.map((line) => (line.seq === v.seq ? { ...line, voice: v.voice } : line)));
     });
+    const stopSwitched = onMicrophoneSwitched((e) => {
+      if (!cancelled && e.meetingId === meetingId) setSwitched(e);
+    });
     void recordingStatus().then((s) => {
       if (!cancelled && ours(s.meetingId)) setCapture(s);
     });
@@ -112,28 +103,14 @@ export function useRecording(meetingId: string, onConsent: (at: number) => void)
       setLines((live) => [...stored, ...live.filter((l) => l.seq === undefined || l.seq >= stored.length)]);
       setTranscriptError(t.error);
     });
-    void listSpeechModels().then((m) => {
-      if (!cancelled) setModels(m);
-    });
     return () => {
       cancelled = true;
       stopCapture();
       stopSegments();
       stopVoices();
+      stopSwitched();
     };
   }, [meetingId]);
-
-  const available = models?.models ?? [];
-  const modelId = available.find((m) => m.id === picked)?.id ?? available[0]?.id ?? null;
-
-  const chooseModel = useCallback((id: string) => {
-    setPicked(id);
-    try {
-      localStorage.setItem(MODEL_STORAGE_KEY, id);
-    } catch {
-      // The choice still holds for this session.
-    }
-  }, []);
 
   const run = useCallback(
     async (command: () => Promise<CaptureState>) => {
@@ -150,7 +127,7 @@ export function useRecording(meetingId: string, onConsent: (at: number) => void)
     [meetingId],
   );
 
-  const start = useCallback(() => run(() => startRecording(meetingId, modelId)), [run, meetingId, modelId]);
+  const start = useCallback(() => run(() => startRecording(meetingId)), [run, meetingId]);
 
   const confirmAndStart = useCallback(async () => {
     setBusy(true);
@@ -164,8 +141,8 @@ export function useRecording(meetingId: string, onConsent: (at: number) => void)
       return;
     }
     consentRef.current(at);
-    await run(() => startRecording(meetingId, modelId));
-  }, [meetingId, modelId, run]);
+    await run(() => startRecording(meetingId));
+  }, [meetingId, run]);
 
   const pause = useCallback(() => run(pauseRecording), [run]);
   const stop = useCallback(async () => {
@@ -178,9 +155,8 @@ export function useRecording(meetingId: string, onConsent: (at: number) => void)
     received,
     partial,
     transcriptError,
-    models,
-    modelId,
-    chooseModel,
+    switched,
+    dismissSwitched: useCallback(() => setSwitched(null), []),
     busy,
     confirmAndStart,
     start,

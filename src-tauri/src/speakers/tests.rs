@@ -306,7 +306,7 @@ fn a_guest_is_a_participant_with_a_trimmed_name_of_1_to_80_characters() {
 /// the meeting file and survive a reload.
 #[test]
 fn the_transcript_file_is_byte_identical_and_choices_survive_a_reload() {
-    let _log = crate::log::capture();
+    crate::log::capture();
     let dir = tempfile::tempdir().unwrap();
     let keys = MemoryKeyProvider::with_key(DataKey::generate());
     let meetings = FileMeetingStore::open(dir.path(), &keys).unwrap();

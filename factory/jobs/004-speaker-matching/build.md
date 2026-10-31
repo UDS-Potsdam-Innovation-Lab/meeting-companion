@@ -101,3 +101,36 @@ c429b2f feat(speakers): name-round suggestions and voice, line and guest choices
 edd4690 feat(speakers): diarizer engine, speaker-model scan and voices in the pipeline
 de38e22 chore(stack): establish sherpa-onnx 2.0.1 with a checksum-pinned archive
 ```
+
+## Round 1 response
+
+The pushed branch was updated by merge only: `ce74f59` merged main (no conflicts, factory files only). Nothing was rebased.
+
+| Review item | What I did |
+|---|---|
+| review-ui [must-fix]: "Who said this?" is cut off by the transcript pane at 1280 and 375 px | The picker is now `position: fixed` and placed by `placePicker` (src/features/speakers/LineSpeaker.tsx). It opens below its line when it fits, else on the side with more room; at the bottom of the pane that means above. It stays clamped inside the window and scrolls inside only if neither side has room. It follows its line when the transcript or window scrolls or resizes, or when the guest form opens. The live transcript stops following new lines while a picker is open, so the line does not move away under it. DOM and focus order are unchanged: the picker still comes right after its button. **Tests:** `src/features/speakers/placePicker.test.ts` (below / flip above / scroll inside / horizontal clamp). `e2e/speakers.spec.ts › every option and Add guest are visible and usable at 1280 px` and `… at 375 px` open the picker on the last line and check that all 8 options are inside the viewport, at least 44 px high, and not covered (hit-tested at their centre). The tests then click "Add guest…", check that the input is focused and inside the viewport, add "Petra Sand", and see the line take the name. Screenshots live-speakers-1280/-375 now show the whole picker opening upward. |
+| review-ui [note]: picker options 32 px, board is touch | Picker options, the guest name input and its buttons now have `min-height: 44px` (the e2e test checks the options). |
+| coordinator note: error in the live view when a per-line choice fails | The transcript card shows `speakers.failed` ("The choice could not be saved on this device.") as `role="alert"`. **Test:** `Speakers.test.tsx › UI rework: a per-line choice that cannot be saved › says so in the live view`. |
+| review-ux [note] / coordinator: why "Apply names to transcript" is disabled | When nothing can be applied, a hint shows under the button: "Nothing to apply: no voice has a name from the name round that waits for confirmation. Unsure voices need a person to pick." (de and en). It is linked to the button by `aria-describedby`. The Apply test asserts the description. |
+| review-ui [note]: frame 06 play button, confidence figure, voice-profile toggle | Left out on purpose and kept out, as the coordinator confirmed. The play button needs stored audio, cosine scores are not probabilities, and voice profiles are the separate GDPR Art. 9 job (spec ## Scope, out). |
+| review-ui [note]: Who-spoke-when bars are thin | Not changed. Bars are drawn to scale: a 4–10 s line in a 12-minute recording is narrow, with a 3 px minimum. Wider bars would misstate talk time. Can revisit with the UI owner. |
+| review-ui [note]: top bar wraps to three rows at 375 px | Not changed: this is shared shell behaviour (TopBar), not this job. |
+
+### Test run (round 1)
+- `npm run lint` → clean.
+- `npx vitest run` → 145 passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml` → 133 passed, 3 ignored.
+- `npx playwright test` with the private-port config (4273) → 68 passed, 3 failed. The 3 are the hard-coded-4173 "no network request" tests; once port 4173 was free I ran them with the committed config (`npx playwright test -g "no network request"`) → 3 passed.
+- Secret scan: no leaks.
+
+```
+      Tests  145 passed (145)
+test result: ok. 133 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 17.62s
+  68 passed (16.3s)   [+ 3 port-only, passed on 4173: 3 passed (3.6s)]
+```
+
+### Commits (round 1)
+```
+dc9ab54 fix(speakers): Who said this? stays inside the window; 44 px options
+ce74f59 Merge branch 'main' into factory/004-speaker-matching
+```

@@ -55,30 +55,30 @@ test.describe("AC7 transcript accessibility at 1280×800", () => {
     await expect(chip(page)).toHaveCount(0);
     await expectAccessibleLayout(page);
     await openAt(page, "live-no-model");
+    // The model is chosen in the settings now; without one, starting says so.
+    await consentBox(page).check();
+    await page.getByRole("button", { name: "Start recording" }).click();
     await expect(card(page)).toContainText("No speech model installed");
     await expectAccessibleLayout(page);
   });
 
-  test("the keyboard reaches consent, Start recording, the model and the left column in order", async ({
-    page,
-  }) => {
+  test("the keyboard reaches consent, Start recording and the left column in order", async ({ page }) => {
     await openAt(page, "live");
     const order = await tabOrder(page, (n) => n === "End meeting");
     expectInOrder(order, [
       "Deutsch",
       "English",
+      "Settings",
       "+5 min",
       "Park it",
       "Next ›",
       /^Parking lot/,
       "Everyone was informed that this meeting is transcribed",
-      "Speech model",
       "End meeting",
     ]);
-    // Start recording is disabled until the box is ticked; then it is next after the model.
+    // Start recording is disabled until the box is ticked; then it is next after the box.
     await consentBox(page).focus();
     await page.keyboard.press("Space");
-    await page.keyboard.press("Tab");
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "Start recording" })).toBeFocused();
     await page.keyboard.press("Enter");

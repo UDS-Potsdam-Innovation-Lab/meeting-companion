@@ -21,6 +21,9 @@ interface Props {
   /** The running meeting (`state.meeting`, narrowed). Mount with `key={meeting.id}`. */
   meeting: Meeting;
   state: MeetingState;
+  onOpenSettings: () => void;
+  /** The settings view covers this one; recording and the transcript carry on underneath. */
+  hidden?: boolean;
 }
 
 /**
@@ -28,7 +31,7 @@ interface Props {
  * parking lot, overall line), the centre column (transcript), the time nudge over it and "End meeting"
  * at the bottom right. The right column (captures) comes with a later job.
  */
-export function LiveView({ meeting, state }: Props) {
+export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Props) {
   const i18n = useI18n();
   const { t } = i18n;
   const clock = useClock();
@@ -177,6 +180,7 @@ export function LiveView({ meeting, state }: Props) {
     <div className="live-view" ref={viewRef}>
       <TopBar
         meetingTitle={meeting.title}
+        onOpenSettings={onOpenSettings}
         actions={
           <RecordingControls
             capture={recording.capture}
@@ -212,6 +216,8 @@ export function LiveView({ meeting, state }: Props) {
             speakers={speakers}
             onOpenSpeakers={openSpeakers}
             initialScroll={feedScroll}
+            onOpenSettings={onOpenSettings}
+            hidden={hidden}
           />
         </div>
         <div className="live__stage">

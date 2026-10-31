@@ -20,6 +20,7 @@
   --overrun-soft: #fce6e6;
   --green: #13804a;
   --green-soft: #e3f4ea;
+  --green-ink: #0b6635;
   /* Dark surfaces of frame 02 (timer card, nudge). */
   --dark: #15161a;
   --dark-3: #2e3038;
@@ -28,9 +29,33 @@
   --dark-accent: #8b85f0;
   --dark-amber: #f5b342;
   --dark-overrun: #f87171;
+  --on-accent: #ffffff;
+  --on-ink: #ffffff;
+  --on-avatar: #ffffff;
+  --dark-strong: #ffffff;
+  --dark-3-hover: #3a3d47;
+  --disabled-ink: #b9bbc1;
+  --overrun-ink: #7a1810;
+  --hover-tint: #17181c0a;
+  --warn-ink: #8a5300;
+  --warn-soft: #fdf0d9;
+  --warn-line: #b86e00;
   --radius-card: 16px;
   --shadow: 0 2px 8px #1a18140f, 0 12px 32px #1a18140a;
+  --shadow-small: 0 1px 3px #1a181422;
+  /* The theme previews in the settings show both themes whichever is active. */
+  --preview-light-bg: #f5f4f0;
+  --preview-light-card: #ffffff;
+  --preview-light-ink: #17181c;
+  --preview-light-accent: #4338ca;
+  --preview-light-muted: #8a8d96;
+  --preview-dark-bg: #121317;
+  --preview-dark-card: #1b1d22;
+  --preview-dark-ink: #edece7;
+  --preview-dark-accent: #8f88ff;
+  --preview-dark-muted: #9396a0;
   --focus: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+  color-scheme: light;
 
   font-family: "Inter Variable", Inter, system-ui, sans-serif;
   font-size: 15px;
@@ -38,6 +63,53 @@
   color: var(--ink);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Dark theme (job 006, frame 14 · kit.py DARK): same tokens, WCAG AA for text on bg, surface,
+   sunken and the soft tints. `data-theme` is set on <html> before the first paint
+   (public/theme-boot.js) and kept in step with the settings. */
+:root[data-theme="dark"] {
+  --bg: #121317;
+  --surface: #1b1d22;
+  --sunken: #25272e;
+  --ink: #edece7;
+  --ink-2: #bcbec6;
+  --muted: #9a9da7;
+  --line: #33363f;
+  --line-strong: #6e717b;
+  --accent: #8f88ff;
+  --accent-soft: #2a2858;
+  --accent-ink: #cbc7ff;
+  --teal-ink: #4fc9cc;
+  --teal-soft: #12302f;
+  --amber-ink: #f2b04a;
+  --amber-soft: #3a2b10;
+  --overrun: #ff8086;
+  --overrun-soft: #3d1c1f;
+  --green: #4cc98a;
+  --green-soft: #16301f;
+  --green-ink: #7fd8a4;
+  --dark: #0c0d10;
+  --dark-3: #2a2c33;
+  --dark-ink: #f2f1ec;
+  --dark-muted: #a3a5ae;
+  --dark-accent: #8f88ff;
+  --dark-amber: #f2b04a;
+  --dark-overrun: #ff8086;
+  --on-accent: #14113a;
+  --on-ink: #15161a;
+  --on-avatar: #ffffff;
+  --dark-strong: #ffffff;
+  --dark-3-hover: #383b44;
+  --disabled-ink: #7d808a;
+  --overrun-ink: #ffb3b6;
+  --hover-tint: #ffffff0d;
+  --warn-ink: #f2b04a;
+  --warn-soft: #3a2b10;
+  --warn-line: #f2b04a;
+  --shadow: 0 2px 8px #00000040, 0 12px 32px #00000033;
+  --shadow-small: 0 1px 3px #00000066;
+  color-scheme: dark;
 }
 
 *,
@@ -105,6 +177,7 @@ select {
   height: 30px;
   border-radius: 9px;
   background: var(--accent);
+  color: var(--on-accent);
 }
 
 .top-bar__name {
@@ -146,7 +219,7 @@ select {
 .lang-switch__option[aria-pressed="true"] {
   background: var(--surface);
   color: var(--ink);
-  box-shadow: 0 1px 3px #1a181422;
+  box-shadow: var(--shadow-small);
 }
 
 /* ---- buttons ---------------------------------------------------------------------------------- */
@@ -167,7 +240,7 @@ select {
 
 .button--primary {
   background: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 .button--secondary {
@@ -198,7 +271,7 @@ select {
 
 .button--dark {
   background: var(--ink);
-  color: #ffffff;
+  color: var(--on-ink);
 }
 
 .button--armed {
@@ -211,7 +284,7 @@ select {
 }
 
 .button--dark-ghost:hover:not(:disabled) {
-  background: #3a3d47;
+  background: var(--dark-3-hover);
 }
 
 .button--small {
@@ -250,7 +323,7 @@ select {
 }
 
 .icon-button:disabled {
-  color: #b9bbc1;
+  color: var(--disabled-ink);
   cursor: default;
 }
 
@@ -384,7 +457,7 @@ select {
 
 .banner--error {
   background: var(--overrun-soft);
-  color: #7a1810;
+  color: var(--overrun-ink);
 }
 
 .banner__text {
@@ -460,7 +533,7 @@ select {
 }
 
 .agenda-row__topic:hover {
-  background: #17181c0a;
+  background: var(--hover-tint);
 }
 
 .agenda-row__title {
@@ -503,7 +576,7 @@ select {
   place-items: center;
   flex: none;
   border-radius: 50%;
-  color: #ffffff;
+  color: var(--on-avatar);
   font-weight: 600;
   line-height: 1;
 }
@@ -884,7 +957,7 @@ select {
   line-height: 1.05;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
-  color: #ffffff;
+  color: var(--dark-strong);
 }
 
 .timer-card__of {
@@ -993,7 +1066,7 @@ select {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--on-accent);
 }
 
 .parking-glyph {
@@ -1146,7 +1219,7 @@ select {
   padding: 12px 14px 12px 18px;
   border-radius: 14px;
   background: var(--dark);
-  color: #ffffff;
+  color: var(--dark-strong);
   box-shadow: var(--shadow);
 }
 
@@ -1469,6 +1542,987 @@ select {
   overflow-wrap: anywhere;
 }
 
+/* ---- responsive layout -----------------------------------------------------------------------
+ * Breakpoints follow the content, not devices:
+ * - setup, two columns: the agenda table needs about 640 px (fixed columns 420 px + a readable topic)
+ *   next to the meeting card's 320 px, plus gaps → below 1080 px one column, the card under the list.
+ * - agenda table → stacked rows when the list itself is narrower than about 600 px (container query),
+ *   the item editor's three fields when it is narrower than about 680 px.
+ * - live, two columns: the 300 px timer column next to a nudge of at least about 440 px → below 800 px
+ *   one column; the nudge then sticks to the bottom of the window above "End meeting".
+ * - top bar: below 640 px only the mark, the actions and the language switch stay.
+ */
+@media (max-width: 1279px) {
+  .setup {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+    padding: 24px;
+  }
+}
+
+@media (max-width: 1079px) {
+  .setup {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 880px;
+  }
+}
+
+/* Top bar with the recording controls: below 900 px they move to a second row of the bar. */
+@media (max-width: 899px) {
+  .top-bar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .lang-switch {
+    order: 2;
+  }
+
+  .rec-controls {
+    order: 3;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+}
+
+@media (max-width: 799px) {
+  .live {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    gap: 16px;
+    padding: 16px;
+  }
+
+  .live__left,
+  .live__centre,
+  .live__stage {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  /* One column: the card grows with its content; the line list scrolls on its own. */
+  .transcript-card {
+    height: auto;
+  }
+
+  .transcript-feed {
+    min-height: 120px;
+    max-height: min(60vh, 520px);
+  }
+
+  .live__stage {
+    position: sticky;
+    bottom: 12px;
+    z-index: 1;
+  }
+
+  .nudge {
+    flex-wrap: wrap;
+    width: 100%;
+    max-width: none;
+    margin-bottom: 0;
+  }
+
+  .nudge__text {
+    flex: 1 1 200px;
+  }
+
+  .live__footer {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 639px) {
+  .top-bar {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .top-bar__divider,
+  .top-bar__name {
+    display: none;
+  }
+
+  .top-bar__new {
+    padding: 6px;
+  }
+
+  .lang-switch__option {
+    min-width: 0;
+    padding: 4px 8px;
+  }
+
+  .setup {
+    padding: 20px 16px;
+  }
+
+  .setup__title {
+    font-size: 26px;
+  }
+
+  .live {
+    padding: 12px;
+  }
+
+  .live-agenda {
+    flex: none;
+  }
+}
+
+/* ---- narrow agenda list ------------------------------------------------------------------------- */
+@container agenda-list (max-width: 599px) {
+  .agenda-list__header {
+    display: none;
+  }
+
+  .agenda-row__summary {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "num topic topic"
+      "meta meta actions";
+    row-gap: 8px;
+    padding: 10px 8px;
+  }
+
+  .agenda-row__num {
+    grid-area: num;
+  }
+
+  .agenda-row__topic {
+    grid-area: topic;
+  }
+
+  .agenda-row__meta {
+    grid-area: meta;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .agenda-row__actions {
+    grid-area: actions;
+  }
+}
+
+@container agenda-list (max-width: 679px) {
+  .item-editor {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 4px 8px 14px;
+  }
+}
+
+/* ---- settings (frame 14, job 006) -------------------------------------------------------------- */
+
+/* The view the settings were opened from stays mounted underneath; it takes no part in the layout. */
+.app__view {
+  display: contents;
+}
+
+.app__view[hidden] {
+  display: none;
+}
+
+.settings-view {
+  display: contents;
+}
+
+.top-bar__settings {
+  gap: 6px;
+}
+
+.top-bar__settings--open,
+.top-bar__settings--open:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+
+.top-bar__back {
+  gap: 6px;
+}
+
+.settings {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+  align-items: start;
+  gap: 32px;
+  width: 100%;
+  max-width: 1440px;
+  padding: 28px 32px 40px;
+}
+
+.settings__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: sticky;
+  top: 20px;
+}
+
+.settings__title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.settings__intro {
+  margin-bottom: 18px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.settings__tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 12px 14px 12px 18px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-tab:hover {
+  background: var(--hover-tint);
+}
+
+.settings-tab[aria-selected="true"] {
+  background: var(--surface);
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+}
+
+.settings-tab[aria-selected="true"]::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.settings-tab__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--sunken);
+  color: var(--ink-2);
+}
+
+.settings-tab[aria-selected="true"] .settings-tab__icon {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.settings-tab__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.settings-tab__label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.settings-tab[aria-selected="true"] .settings-tab__label {
+  color: var(--ink);
+}
+
+.settings-tab__sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.settings__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.settings-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-card__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-card__title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.settings-card__hint {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 24px;
+}
+
+.settings-row + .settings-row {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-row__label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-row__name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-row__hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.settings-row__control {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Device select: the native select, with the icon and the status line of the frame around it. */
+.device-select {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.device-select:focus-within {
+  border-color: var(--accent);
+}
+
+.device-select--missing {
+  border-color: var(--overrun);
+}
+
+.device-select__icon {
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--sunken);
+  color: var(--ink-2);
+}
+
+.device-select--missing .device-select__icon {
+  background: var(--overrun-soft);
+  color: var(--overrun);
+}
+
+.device-select__select {
+  width: 100%;
+  min-height: 28px;
+  padding: 0 4px 0 0;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.device-select__select:focus-visible {
+  outline-offset: 4px;
+}
+
+.device-select__status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.device-select--missing .device-select__status {
+  color: var(--overrun);
+  font-weight: 600;
+}
+
+.settings-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--sunken);
+  font-size: 13px;
+}
+
+.settings-notice__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--ink-2);
+  color: var(--sunken);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.settings-notice__icon::before {
+  content: "!";
+}
+
+.settings-notice--info .settings-notice__icon::before {
+  content: "i";
+}
+
+.settings-notice__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-notice__body {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.settings-notice--error {
+  background: var(--overrun-soft);
+}
+
+.settings-notice--error .settings-notice__title {
+  color: var(--overrun-ink);
+  font-weight: 600;
+}
+
+.settings-notice--error .settings-notice__icon {
+  background: var(--overrun);
+  color: var(--overrun-soft);
+}
+
+.settings-notice--warn {
+  background: var(--warn-soft);
+}
+
+.settings-notice--warn .settings-notice__title {
+  color: var(--warn-ink);
+  font-weight: 600;
+}
+
+.settings-notice--warn .settings-notice__icon {
+  background: var(--warn-line);
+  color: var(--warn-soft);
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.settings-actions__hint {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.meter-box {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 50px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--sunken);
+}
+
+.meter-box .level-meter {
+  height: 30px;
+}
+
+.meter-box .level-meter__bar {
+  width: 4px;
+}
+
+.meter-box__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.meter-box__left {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-ink);
+}
+
+.test-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.test-progress__bar {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
+.status-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.status-chip__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.banner--warn {
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+}
+
+/* Radio cards. */
+.choices {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.choices--column {
+  grid-auto-flow: row;
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.choice:hover {
+  border-color: var(--line-strong);
+}
+
+.choice--on,
+.choice--on:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.choice__main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.choice__radio {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.choice__text,
+.choice__details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.choice__label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.choice__hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.choice--on .choice__hint {
+  color: var(--ink-2);
+}
+
+.choice__path {
+  overflow-wrap: anywhere;
+}
+
+.choice__warn {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--warn-soft);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.choice__warn-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--warn-ink);
+}
+
+.none-found {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--sunken);
+}
+
+.none-found__title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.none-found__body {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.none-found__folders {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.settings-path {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--sunken);
+  font-size: 13px;
+  user-select: all;
+}
+
+/* Theme tiles: a small picture of the theme above the radio. */
+.theme-preview {
+  display: flex;
+  height: 64px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.theme-preview__half {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+}
+
+/* Fixed colours: the preview shows the other theme, whatever theme is active. */
+.theme-preview__half--light {
+  --p-bg: var(--preview-light-bg);
+  --p-card: var(--preview-light-card);
+  --p-ink: var(--preview-light-ink);
+  --p-accent: var(--preview-light-accent);
+  --p-muted: var(--preview-light-muted);
+  background: var(--p-bg);
+}
+
+.theme-preview__half--dark {
+  --p-bg: var(--preview-dark-bg);
+  --p-card: var(--preview-dark-card);
+  --p-ink: var(--preview-dark-ink);
+  --p-accent: var(--preview-dark-accent);
+  --p-muted: var(--preview-dark-muted);
+  background: var(--p-bg);
+}
+
+.theme-preview__line {
+  width: 34px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--p-ink);
+}
+
+.theme-preview__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--p-card);
+}
+
+.theme-preview__accent,
+.theme-preview__muted {
+  height: 3px;
+  border-radius: 2px;
+}
+
+.theme-preview__accent {
+  width: 28px;
+  background: var(--p-accent);
+}
+
+.theme-preview__muted {
+  width: 40px;
+  background: var(--p-muted);
+}
+
+.rec-notice--centred {
+  align-items: center;
+  text-align: center;
+}
+
+/* Tablet and phone: sections become tabs on top, cards full width, rows stacked. */
+@media (max-width: 899px) {
+  .settings {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    padding: 20px 16px 32px;
+  }
+
+  .settings__nav {
+    position: static;
+  }
+
+  .settings__title {
+    font-size: 24px;
+  }
+
+  .settings__intro {
+    margin-bottom: 10px;
+  }
+
+  .settings__tabs {
+    flex-direction: row;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 12px;
+    background: var(--sunken);
+  }
+
+  .settings-tab {
+    flex: 1;
+    justify-content: center;
+    min-height: 40px;
+    padding: 8px 6px;
+    text-align: center;
+  }
+
+  .settings-tab[aria-selected="true"]::before,
+  .settings-tab__icon,
+  .settings-tab__sub {
+    display: none;
+  }
+
+  .settings-tab__label {
+    font-size: 13px;
+  }
+
+  .settings-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .choices {
+    grid-auto-flow: row;
+  }
+}
+
+@media (max-width: 639px) {
+  .top-bar__settings,
+  .top-bar__back {
+    padding: 6px 10px;
+  }
+
+  .settings-card {
+    padding: 18px 16px;
+  }
+
+  .settings-tab__label {
+    font-size: 12px;
+  }
+}
+
+/* Board (1920×1080): everything is read from further away and touched; targets at least 48 px. */
+@media (min-width: 1800px) and (min-height: 1000px) {
+  .settings-view .top-bar .button,
+  .settings-view .lang-switch__option,
+  .settings .button,
+  .settings-tab,
+  .device-select,
+  .choice,
+  .settings-path {
+    min-height: 48px;
+  }
+
+  .settings-view .lang-switch__option {
+    min-width: 48px;
+  }
+
+  .settings {
+    grid-template-columns: 316px minmax(0, 1fr);
+    max-width: none;
+    font-size: 17px;
+  }
+
+  .settings-card__title {
+    font-size: 19px;
+  }
+
+  .settings-card__hint,
+  .settings-row__name,
+  .choice__label,
+  .device-select__select {
+    font-size: 16px;
+  }
+
+  .settings-row__hint,
+  .choice__hint,
+  .settings-tab__sub {
+    font-size: 14px;
+  }
+
+  .choice__radio {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+/* Frame 02 addition: recording switched to the system microphone (job 006). */
+.switched-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+
+.switched-notice__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--accent-ink);
+}
+
+.switched-notice__text {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.switched-notice__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+
+.switched-notice__body {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.switched-notice__actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* ---- speakers on transcript lines (frame 02) -------------------------------------------------- */
 .transcript-line {
   position: relative;
@@ -1552,9 +2606,7 @@ select {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
-  box-shadow:
-    var(--shadow),
-    0 4px 16px #1a181424;
+  box-shadow: var(--shadow), var(--shadow-small);
 }
 
 .line-picker__title {
@@ -1962,7 +3014,7 @@ select {
 }
 
 .timeline__bar--open {
-  background: #8a8d96;
+  background: var(--line-strong);
 }
 
 .invited {
@@ -2013,7 +3065,7 @@ select {
   padding: 2px 10px;
   border-radius: 999px;
   background: var(--green-soft);
-  color: #0b6635;
+  color: var(--green-ink);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -2022,7 +3074,7 @@ select {
 .voice-chip--open {
   background: var(--amber-soft);
   color: var(--amber-ink);
-  box-shadow: inset 0 0 0 1px #e9b45b;
+  box-shadow: inset 0 0 0 1px var(--warn-line);
 }
 
 .speakers-how {
@@ -2055,176 +3107,6 @@ select {
 .speakers__apply[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;
-}
-
-/* ---- responsive layout -----------------------------------------------------------------------
- * Breakpoints follow the content, not devices:
- * - setup, two columns: the agenda table needs about 640 px (fixed columns 420 px + a readable topic)
- *   next to the meeting card's 320 px, plus gaps → below 1080 px one column, the card under the list.
- * - agenda table → stacked rows when the list itself is narrower than about 600 px (container query),
- *   the item editor's three fields when it is narrower than about 680 px.
- * - live, two columns: the 300 px timer column next to a nudge of at least about 440 px → below 800 px
- *   one column; the nudge then sticks to the bottom of the window above "End meeting".
- * - top bar: below 640 px only the mark, the actions and the language switch stay.
- */
-@media (max-width: 1279px) {
-  .setup {
-    grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
-    padding: 24px;
-  }
-}
-
-@media (max-width: 1079px) {
-  .setup {
-    grid-template-columns: minmax(0, 1fr);
-    max-width: 880px;
-  }
-}
-
-/* Top bar with the recording controls: below 900 px they move to a second row of the bar. */
-@media (max-width: 899px) {
-  .top-bar {
-    flex-wrap: wrap;
-    row-gap: 8px;
-  }
-
-  .lang-switch {
-    order: 2;
-  }
-
-  .rec-controls {
-    order: 3;
-    flex-basis: 100%;
-    flex-wrap: wrap;
-    row-gap: 8px;
-  }
-}
-
-@media (max-width: 799px) {
-  .live {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: none;
-    gap: 16px;
-    padding: 16px;
-  }
-
-  .live__left,
-  .live__centre,
-  .live__stage {
-    grid-column: auto;
-    grid-row: auto;
-  }
-
-  /* One column: the card grows with its content; the line list scrolls on its own. */
-  .transcript-card {
-    height: auto;
-  }
-
-  .transcript-feed {
-    min-height: 120px;
-    max-height: min(60vh, 520px);
-  }
-
-  .live__stage {
-    position: sticky;
-    bottom: 12px;
-    z-index: 1;
-  }
-
-  .nudge {
-    flex-wrap: wrap;
-    width: 100%;
-    max-width: none;
-    margin-bottom: 0;
-  }
-
-  .nudge__text {
-    flex: 1 1 200px;
-  }
-
-  .live__footer {
-    grid-column: auto;
-  }
-}
-
-@media (max-width: 639px) {
-  .top-bar {
-    padding: 10px 12px;
-    gap: 8px;
-  }
-
-  .top-bar__divider,
-  .top-bar__name {
-    display: none;
-  }
-
-  .top-bar__new {
-    padding: 6px;
-  }
-
-  .lang-switch__option {
-    min-width: 0;
-    padding: 4px 8px;
-  }
-
-  .setup {
-    padding: 20px 16px;
-  }
-
-  .setup__title {
-    font-size: 26px;
-  }
-
-  .live {
-    padding: 12px;
-  }
-
-  .live-agenda {
-    flex: none;
-  }
-}
-
-/* ---- narrow agenda list ------------------------------------------------------------------------- */
-@container agenda-list (max-width: 599px) {
-  .agenda-list__header {
-    display: none;
-  }
-
-  .agenda-row__summary {
-    grid-template-columns: 24px minmax(0, 1fr) auto;
-    grid-template-areas:
-      "num topic topic"
-      "meta meta actions";
-    row-gap: 8px;
-    padding: 10px 8px;
-  }
-
-  .agenda-row__num {
-    grid-area: num;
-  }
-
-  .agenda-row__topic {
-    grid-area: topic;
-  }
-
-  .agenda-row__meta {
-    grid-area: meta;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .agenda-row__actions {
-    grid-area: actions;
-  }
-}
-
-@container agenda-list (max-width: 679px) {
-  .item-editor {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 4px 8px 14px;
-  }
 }
 
 /* ---- speakers view, narrower windows ------------------------------------------------------------ */

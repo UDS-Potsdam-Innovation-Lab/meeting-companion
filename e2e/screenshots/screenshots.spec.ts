@@ -80,11 +80,11 @@ const VIEWS: View[] = [
   },
   { name: "live-nudge-de", fixture: "live", time: LIVE_TIMES.nudge },
   // Frame 02, centre column and recording controls (job 003), with segments from the mock core.
-  { name: "live-consent", fixture: "live", time: LIVE_TIMES.running, act: waitFor(".model-picker") },
+  { name: "live-consent", fixture: "live", time: LIVE_TIMES.running, act: waitFor(".consent-check") },
   { name: "live-transcript", fixture: "live-transcript", time: LIVE_TIMES.running, act: waitFor(".transcript-line--partial") },
   { name: "live-paused", fixture: "live-paused", time: LIVE_TIMES.running, act: waitFor(".rec-chip--paused") },
   { name: "live-mic-error", fixture: "live-mic-error", time: LIVE_TIMES.running, act: waitFor(".rec-notice--error") },
-  { name: "live-no-model", fixture: "live-no-model", time: LIVE_TIMES.running, act: waitFor(".model-picker--none") },
+  { name: "live-no-model", fixture: "live-no-model", time: LIVE_TIMES.running, act: waitFor(".consent-check") },
   // Frame 06 and the speakers on frame 02 (job 004).
   { name: "speakers", fixture: "speakers", time: LIVE_TIMES.running, act: openSpeakers },
   { name: "speakers-empty", fixture: "speakers-empty", time: LIVE_TIMES.running, act: openSpeakers },
@@ -104,6 +104,42 @@ const VIEWS: View[] = [
     time: LIVE_TIMES.running,
     act: waitFor(".transcript-line--partial"),
   },
+  // Frame 14 Settings (job 006).
+  { name: "settings", fixture: "settings" },
+  {
+    name: "settings-device",
+    fixture: "settings",
+    act: async (page) => {
+      await page.getByRole("tab", { name: /On this device/ }).click();
+      await page.locator(".choice").first().waitFor();
+    },
+  },
+  {
+    name: "settings-general",
+    fixture: "settings",
+    act: async (page) => {
+      await page.getByRole("tab", { name: /General/ }).click();
+    },
+  },
+  { name: "settings-no-model", fixture: "settings-no-model" },
+  { name: "settings-mic-test", fixture: "settings-mic-test" },
+  { name: "settings-recording", fixture: "settings-recording", time: LIVE_TIMES.running },
+  { name: "settings-dark", fixture: "settings-dark", time: LIVE_TIMES.running },
+  { name: "settings-missing", fixture: "settings-missing", act: waitFor(".settings-notice--error") },
+  {
+    name: "live-mic-missing",
+    fixture: "live-mic-missing",
+    time: LIVE_TIMES.running,
+    act: async (page) => {
+      await page.getByRole("button", { name: "Resume recording" }).click();
+      await page.locator('[data-testid="mic-missing"]').waitFor();
+    },
+  },
+  { name: "live-switched", fixture: "live-switched", time: LIVE_TIMES.running, act: waitFor(".switched-notice") },
+  { name: "live-transcript-dark", fixture: "settings-dark", time: LIVE_TIMES.running, act: async (page) => {
+      await page.getByRole("button", { name: "Back to meeting" }).click();
+      await page.locator(".transcript-line--partial").waitFor();
+    } },
 ];
 
 for (const width of WIDTHS) {
@@ -139,6 +175,8 @@ const RESPONSIVE_VIEWS = [
   "live-transcript",
   "live-consent",
   "speakers",
+  "settings",
+  "settings-recording",
 ];
 
 const sized = [

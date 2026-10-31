@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useI18n, type MessageKey } from "../../i18n";
 import { useClock } from "../../lib/clock";
-import type { RecordReason, SpeechModel } from "../../lib/ipc";
-import { MicIcon } from "../../ui/icons";
+import type { RecordReason } from "../../lib/ipc";
+import { GearIcon, MicIcon } from "../../ui/icons";
 import { LineSpeaker } from "../speakers/LineSpeaker";
 import { voiceCount } from "../speakers/model";
 import type { Speakers } from "../speakers/useSpeakers";
-import { formatMegabytes } from "./format";
+import { useSettings } from "../settings/useSettings";
+import { formatClock } from "./format";
 import { LevelMeter } from "./LevelMeter";
 import type { Recording } from "./useRecording";
 
@@ -30,14 +31,26 @@ interface Props {
   onOpenSpeakers: () => void;
   /** Where the list was when the speakers view opened: restored on return. */
   initialScroll: FeedScroll | null;
+  /** Opens the settings view (in the same window; recording carries on). */
+  onOpenSettings: () => void;
+  /** The settings view covers the live view: the feed keeps its scroll position for the return. */
+  hidden?: boolean;
 }
 
 /**
  * Frame 02 centre column, "Transcript" only: the consent prompt before anything is recorded (inline,
- * not modal), the speech model, the final lines with their time, the live partial line, and the
- * footer with the level meter. Transcript text is untrusted and rendered as plain text.
+ * not modal), the final lines with their time, the live partial line, and the footer with the level
+ * meter. Microphone and speech model are chosen in the settings. Transcript text is untrusted and rendered as plain text.
  */
-export function TranscriptPanel({ recording, consented, speakers, onOpenSpeakers, initialScroll }: Props) {
+export function TranscriptPanel({
+  recording,
+  consented,
+  speakers,
+  onOpenSpeakers,
+  initialScroll,
+  onOpenSettings,
+  hidden = false,
+}: Props) {
   const { t, tp } = useI18n();
   const { capture, lines, partial } = recording;
   const active = capture.state === "recording" || capture.state === "paused";
@@ -53,6 +66,8 @@ export function TranscriptPanel({ recording, consented, speakers, onOpenSpeakers
       <div className="transcript-card__body">
         {active ? null : !consented ? (
           <ConsentNotice recording={recording} reason={error} />
+        ) : error === "chosenMicrophoneMissing" ? (
+          <MissingMicNotice recording={recording} onOpenSettings={onOpenSettings} />
         ) : error ? (
           <ErrorNotice recording={recording} reason={error} />
         ) : (
@@ -63,13 +78,22 @@ export function TranscriptPanel({ recording, consented, speakers, onOpenSpeakers
             {t("speakers.failed")}
           </p>
         ) : null}
+        {active && recording.switched ? (
+          <SwitchedNotice recording={recording} onOpenSettings={onOpenSettings} />
+        ) : null}
         {recording.transcriptError ? (
           <p className="banner banner--error" role="alert">
             {t("transcript.loadFailed")}
           </p>
         ) : null}
         {lines.length > 0 || partial || active ? (
-          <Feed recording={recording} active={active} speakers={speakers} initialScroll={initialScroll} />
+          <Feed
+            recording={recording}
+            active={active}
+            speakers={speakers}
+            initialScroll={initialScroll}
+            hidden={hidden}
+          />
         ) : null}
       </div>
       {active || lines.length > 0 ? (
@@ -102,17 +126,29 @@ function Feed({
   active,
   speakers,
   initialScroll,
+  hidden,
 }: {
   recording: Recording;
   active: boolean;
   speakers: Speakers;
   initialScroll: FeedScroll | null;
+  hidden: boolean;
 }) {
   const { t } = useI18n();
   const { lines, partial } = recording;
   const feedRef = useRef<HTMLOListElement>(null);
   const [pinned, setPinned] = useState(() => initialScroll?.pinned ?? true);
   const [picking, setPicking] = useState<number | null>(null);
+  const scrollTop = useRef(initialScroll?.top ?? 0);
+
+  // Back from the settings view: the reader is where they left, even if a hidden feed lost its offset.
+  useLayoutEffect(() => {
+    const el = feedRef.current;
+    if (hidden || !el) return;
+    el.scrollTop = pinned ? el.scrollHeight : scrollTop.current;
+    // Only on the change of `hidden`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hidden]);
 
   // Back from the speakers view: the list is where the reader left it.
   const [restore] = useState(initialScroll);
@@ -121,7 +157,6 @@ function Feed({
     if (el && restore && !restore.pinned) el.scrollTop = restore.top;
   }, [restore]);
 
-  // Follow the newest line unless the reader scrolled up.
   // Follow the newest line unless the reader scrolled up, or is picking who said a line (the line
   // would move away under the picker).
   useLayoutEffect(() => {
@@ -131,9 +166,9 @@ function Feed({
 
   const onScroll = () => {
     const el = feedRef.current;
-    if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM;
-    setPinned(atBottom);
+    if (!el || hidden) return;
+    scrollTop.current = el.scrollTop;
+    setPinned(el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM);
   };
 
   const jump = () => {
@@ -238,7 +273,6 @@ function ConsentNotice({ recording, reason }: { recording: Recording; reason: Re
         <input type="checkbox" checked={informed} onChange={(e) => setInformed(e.target.checked)} />
         <span>{t("consent.check")}</span>
       </label>
-      <ModelPicker recording={recording} />
       <div className="rec-notice__actions">
         <button
           type="button"
@@ -262,7 +296,6 @@ function OffNotice({ recording }: { recording: Recording }) {
     <div className="rec-notice">
       <h3 className="rec-notice__title">{t("recording.off.title")}</h3>
       <p className="rec-notice__body">{t("recording.off.body")}</p>
-      <ModelPicker recording={recording} />
       <ResumeButton recording={recording} />
     </div>
   );
@@ -270,6 +303,7 @@ function OffNotice({ recording }: { recording: Recording }) {
 
 const REASON_KEYS: Record<RecordReason, MessageKey> = {
   noMicrophone: "recording.error.noMicrophone",
+  chosenMicrophoneMissing: "recording.error.chosenMicrophoneMissing",
   microphoneBlocked: "recording.error.microphoneBlocked",
   microphoneLost: "recording.error.microphoneLost",
   noModel: "recording.error.noModel",
@@ -287,7 +321,6 @@ function ErrorNotice({ recording, reason }: { recording: Recording; reason: Reco
         <h3 className="rec-notice__title">{t(REASON_KEYS[reason])}</h3>
         <p className="rec-notice__body">{t("recording.error.off")}</p>
       </div>
-      <ModelPicker recording={recording} />
       <ResumeButton recording={recording} />
     </div>
   );
@@ -311,63 +344,88 @@ function ResumeButton({ recording }: { recording: Recording }) {
   );
 }
 
-function modelLabel(
-  m: SpeechModel,
-  t: ReturnType<typeof useI18n>["t"],
-  locale: ReturnType<typeof useI18n>["locale"],
-) {
-  return t("model.option", {
-    name: m.name,
-    size: t("model.size", { mb: formatMegabytes(m.sizeBytes, locale) }),
-    source: t(`model.source.${m.source}` as MessageKey),
-    language: m.multilingual ? t("model.multilingual") : t("model.englishOnly"),
-  });
+/**
+ * Frame 02 addition: the microphone chosen in the settings is not connected, so recording did not
+ * start and no other microphone was opened. One tap on "Use system default" switches the setting and
+ * starts recording; "Settings" opens the Audio section.
+ */
+function MissingMicNotice({
+  recording,
+  onOpenSettings,
+}: {
+  recording: Recording;
+  onOpenSettings: () => void;
+}) {
+  const { t } = useI18n();
+  const { settings, update } = useSettings();
+  const name = settings.inputDevice;
+  const switchToDefault = async () => {
+    await update({ key: "inputDevice", value: null });
+    await recording.start();
+  };
+  return (
+    <div className="rec-notice rec-notice--error rec-notice--centred" data-testid="mic-missing">
+      <div role="alert">
+        <h3 className="rec-notice__title">
+          {name ? t("recording.missing.title", { name }) : t("recording.error.chosenMicrophoneMissing")}
+        </h3>
+        <p className="rec-notice__body">{t("recording.missing.body")}</p>
+      </div>
+      <div className="rec-notice__actions">
+        <button
+          type="button"
+          className="button button--primary"
+          disabled={recording.busy}
+          onClick={() => void switchToDefault()}
+          data-rec-action=""
+        >
+          <MicIcon />
+          {t("recording.missing.useDefault")}
+        </button>
+        <button type="button" className="button button--outline" onClick={onOpenSettings}>
+          <GearIcon />
+          {t("settings.open")}
+        </button>
+      </div>
+      <p className="rec-notice__local">{t("recording.missing.hint")}</p>
+    </div>
+  );
 }
 
 /**
- * The engine area: the speech models found on this device (preferred first), or where the app looked
- * when there is none. The choice is remembered on this device.
+ * Frame 02 addition: the chosen microphone was lost and recording carries on with the system default.
+ * Non-blocking: a status with an icon and text (not colour alone), "Settings" and "Dismiss".
  */
-function ModelPicker({ recording }: { recording: Recording }) {
+function SwitchedNotice({ recording, onOpenSettings }: { recording: Recording; onOpenSettings: () => void }) {
   const { t, locale } = useI18n();
-  const { models, modelId } = recording;
-  if (!models) return null;
-  if (models.models.length === 0) {
-    return (
-      <div className="model-picker model-picker--none">
-        <p className="model-picker__title">{t("model.none.title")}</p>
-        <p className="model-picker__hint">{t("model.none.body")}</p>
-        <ul className="model-picker__folders">
-          {models.searched.map((f) => (
-            <li key={f}>{f}</li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
-  const chosen = models.models.find((m) => m.id === modelId) ?? models.models[0]!;
+  const { settings } = useSettings();
+  const event = recording.switched!;
+  const time = formatClock(event.at, locale);
   return (
-    <div className="model-picker">
-      <label className="model-picker__label" htmlFor="speech-model">
-        {t("model.label")}
-      </label>
-      <select
-        id="speech-model"
-        className="model-picker__select"
-        value={chosen.id}
-        onChange={(e) => recording.chooseModel(e.target.value)}
-        disabled={recording.busy}
-      >
-        {models.models.map((m) => (
-          <option key={m.id} value={m.id}>
-            {modelLabel(m, t, locale)}
-          </option>
-        ))}
-      </select>
-      {chosen.folder ? (
-        <p className="model-picker__hint">{t("model.foundIn", { folder: chosen.folder })}</p>
-      ) : null}
-      {!chosen.multilingual ? <p className="model-picker__warn">{t("model.englishOnlyHint")}</p> : null}
+    <div className="switched-notice" role="status" data-testid="mic-switched">
+      <span className="switched-notice__icon" aria-hidden="true">
+        <MicIcon />
+      </span>
+      <div className="switched-notice__text">
+        <p className="switched-notice__title">{t("recording.switched.title")}</p>
+        <p className="switched-notice__body">
+          {settings.inputDevice
+            ? t("recording.switched.body", { name: settings.inputDevice, time })
+            : t("recording.switched.bodyNoName", { time })}
+        </p>
+      </div>
+      <div className="switched-notice__actions">
+        <button type="button" className="button button--outline button--small" onClick={onOpenSettings}>
+          {t("settings.open")}
+        </button>
+        <button
+          type="button"
+          className="button button--outline button--small"
+          onClick={recording.dismissSwitched}
+        >
+          {t("recording.switched.dismiss")}
+        </button>
+      </div>
     </div>
   );
 }

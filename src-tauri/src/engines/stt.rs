@@ -52,6 +52,10 @@ pub trait SpeechToText: Send {
     /// window is complete (the speaker paused or the window is full); false for a running preview.
     fn transcribe(&mut self, window: &[f32], final_pass: bool)
         -> Result<Vec<Recognized>, SttError>;
+
+    /// The language every line is in (`Some`), or `None` to detect it per window. Set before each
+    /// recording session from the default meeting language.
+    fn set_language(&mut self, _hint: Option<Lang>) {}
 }
 
 /// A fake engine: every final window gets the next line of a script (cycling); a partial window
@@ -60,6 +64,7 @@ pub trait SpeechToText: Send {
 pub struct ScriptedSpeechToText {
     lines: Vec<(String, Lang)>,
     next: usize,
+    hint: Option<Lang>,
     pub stats: Arc<SttStats>,
 }
 
@@ -67,6 +72,8 @@ pub struct ScriptedSpeechToText {
 pub struct SttStats {
     pub calls: AtomicUsize,
     pub longest_window: AtomicUsize,
+    /// Every language hint the engine received, in order.
+    pub hints: std::sync::Mutex<Vec<Option<Lang>>>,
 }
 
 impl ScriptedSpeechToText {
@@ -74,6 +81,7 @@ impl ScriptedSpeechToText {
         Self {
             lines,
             next: 0,
+            hint: None,
             stats: Arc::new(SttStats::default()),
         }
     }
@@ -113,7 +121,8 @@ impl SpeechToText for ScriptedSpeechToText {
         if self.lines.is_empty() || window.is_empty() {
             return Ok(Vec::new());
         }
-        let (line, lang) = self.lines[self.next % self.lines.len()].clone();
+        let (line, detected) = self.lines[self.next % self.lines.len()].clone();
+        let lang = self.hint.unwrap_or(detected);
         let end_ms = window.len() as u64 * 1000 / u64::from(SAMPLE_RATE);
         let text = if final_pass {
             self.next += 1;
@@ -129,5 +138,14 @@ impl SpeechToText for ScriptedSpeechToText {
             text,
             lang,
         }])
+    }
+
+    fn set_language(&mut self, hint: Option<Lang>) {
+        self.hint = hint;
+        self.stats
+            .hints
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(hint);
     }
 }

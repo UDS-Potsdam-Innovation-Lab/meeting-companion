@@ -6,6 +6,7 @@
 
 pub mod audio;
 pub mod cpal_source;
+pub mod devices;
 pub mod diarize;
 pub mod models;
 pub mod sherpa;

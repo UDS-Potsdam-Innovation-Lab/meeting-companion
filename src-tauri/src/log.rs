@@ -7,6 +7,10 @@
 use std::sync::Mutex;
 
 static CAPTURE: Mutex<Option<Vec<String>>> = Mutex::new(None);
+/// One capture at a time: tests run in parallel, and a second capture would reset the first.
+#[cfg(test)]
+static CAPTURING: (Mutex<bool>, std::sync::Condvar) =
+    (Mutex::new(false), std::sync::Condvar::new());
 
 /// Writes one line to stderr, prefixed with the app name.
 pub fn log(args: std::fmt::Arguments<'_>) {
@@ -25,25 +29,29 @@ macro_rules! log {
     };
 }
 
-/// Tests that capture the log run one at a time: the capture is global.
+/// Starts collecting log lines (from every thread) until [`take_captured`] is called.
+/// Waits (at most 60 s) while another test captures.
 #[cfg(test)]
-static CAPTURING: Mutex<()> = Mutex::new(());
-
-/// Starts collecting log lines (from every thread) until [`take_captured`] is called. Hold the
-/// returned guard for the whole test: another capturing test waits until it is dropped.
-#[cfg(test)]
-pub fn capture() -> std::sync::MutexGuard<'static, ()> {
-    let guard = CAPTURING.lock().unwrap_or_else(|e| e.into_inner());
+pub fn capture() {
+    let (busy, freed) = &CAPTURING;
+    let guard = busy.lock().unwrap_or_else(|e| e.into_inner());
+    let (mut guard, _) = freed
+        .wait_timeout_while(guard, std::time::Duration::from_secs(60), |b| *b)
+        .unwrap_or_else(|e| e.into_inner());
+    *guard = true;
     *CAPTURE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Vec::new());
-    guard
 }
 
 /// Stops collecting and returns what was logged since [`capture`].
 #[cfg(test)]
 pub fn take_captured() -> Vec<String> {
-    CAPTURE
+    let lines = CAPTURE
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .take()
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let (busy, freed) = &CAPTURING;
+    *busy.lock().unwrap_or_else(|e| e.into_inner()) = false;
+    freed.notify_all();
+    lines
 }

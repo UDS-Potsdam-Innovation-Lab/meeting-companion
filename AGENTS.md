@@ -42,8 +42,10 @@ STATUS: CONFIGURED
   768×1024, 480×800, and short live windows 1024×600 and 768×480); `e2e/responsive.spec.ts` checks those sizes.
 - Dev: `npm run tauri dev`. Browser-only build with a fake core (Playwright, screenshots): `npm run build:e2e`
   (`vite build --mode e2e`, `.env.e2e` sets `VITE_MOCK_IPC=1`; open `/?fixture=empty|filled|over|corrupt|locked|live|live-done`
-  or the transcript fixtures `live-transcript|live-paused|live-mic-error|live-no-model`, or the speaker
-  fixtures `speakers|speakers-empty|speakers-no-model|live-speakers` (open frame 06 with the footer button);
+  or the transcript fixtures `live-transcript|live-paused|live-mic-error|live-no-model`, the settings fixtures
+  `settings|settings-no-model|settings-mic-test|settings-recording|settings-dark|settings-missing` (they open the
+  settings view) and `live-mic-missing|live-switched`,
+  and the speaker fixtures `speakers|speakers-empty|speakers-no-model|live-speakers` (open frame 06 with the footer button);
   the live fixtures are meant for a fixed clock, see `LIVE_TIMES` in `src/features/agenda/fixtures.ts`).
 - Layout:
   - `src/` — React UI. `src/i18n/de.json` + `en.json` (flat keys, de default), `src/features/<feature>/`,
@@ -55,20 +57,25 @@ STATUS: CONFIGURED
     encryption at rest; `KeyProvider` trait with `KeychainKeyProvider` for the app and
     `MemoryKeyProvider` for tests), `src/lib.rs` (Tauri commands and events), `src/engines/` (engines,
     each behind a trait with a fake: `audio.rs` `AudioSource` + `FakeAudioSource` and the bounded 30 s
-    `AudioSink`, `cpal_source.rs` the microphone, `stt.rs` `SpeechToText` + `ScriptedSpeechToText`,
+    `AudioSink`, `cpal_source.rs` the microphone and `CpalAudioDevices`, `devices.rs`
+    `AudioDevices` + `FakeAudioDevices` (input devices by name), `stt.rs` `SpeechToText` + `ScriptedSpeechToText`,
     `whisper.rs` whisper.cpp, `diarize.rs` `Diarizer` + `ScriptedDiarizer` and the in-memory
     `VoiceClusterer`/`VoiceTracker` (voice labels `A`–`Z`), `sherpa.rs` `SherpaDiarizer` (sherpa-onnx
     `SpeakerEmbeddingExtractor` only), `models.rs` the read-only search for whisper ggml and sherpa-onnx
-    speaker models already on the device — the one list of model folders per OS),
-    `src/transcript/` (`Transcriber` pipeline, windows of at most 3 s; encrypted append-only
-    `<id>.transcript` store, one record per final segment with an optional `voice`), `src/recording/`
-    (`Recorder`: consent gate, transcript worker, diarizer thread, capture states), `src/speakers/`
-    (name-round suggestions and the voice/line assignments stored in the meeting file), `src/log.rs`
-    (the only log output; never content).
+    speaker models already on the device — the one list of model folders per OS), `src/transcript/` (`Transcriber` pipeline, windows
+    of at most 3 s; encrypted append-only `<id>.transcript` store, one record per final segment with an optional `voice`), `src/recording/`
+    (`Recorder`: consent gate, transcript worker, diarizer thread, capture states, the chosen microphone and "switch to the system default",
+    `mic_test.rs` the 10 s microphone test), `src/settings/` (`SettingsStore`: the sealed
+    `<app_data>/settings` file, closed schema, `SettingsService`), `src/speakers/` (name-round suggestions and the voice/line choices stored in
+    the meeting file), `src/log.rs` (the only log output; never content).
   - `e2e/` — Playwright specs (axe, keyboard, layout); `e2e/screenshots/` for `npm run screenshot`.
   - `.github/workflows/ci.yml` — lint, test, compile and smoke test. Linux (`ubuntu-latest`) is the only
     CI-tested target for now; macOS and Windows are deferred until the feature set is final (add them to
     the matrix; OS-specific code stays in place).
+- Settings: one sealed file `<app_data>/settings` (same data key, AAD binds the purpose "settings");
+  the UI (`src/features/settings/`) caches only locale and theme in `localStorage` for the first paint
+  (`public/theme-boot.js` sets `data-theme` before React). Colours come only from the token blocks at
+  the top of `src/styles.css` (light `:root`, dark `:root[data-theme="dark"]`; `src/styles.test.ts`).
 - Data at rest: meeting files (`<app_data>/meetings/<id>.meeting`) and transcripts
   (`<app_data>/meetings/<id>.transcript`, one sealed record per final segment) are encrypted; audio is
   never written. The data key lives only in the OS keychain (Linux: Secret Service). Tests never touch the real keychain; the one keychain test

@@ -19,7 +19,6 @@ import {
   liveMeeting,
 } from "../agenda/fixtures";
 import type { Meeting } from "../agenda/model";
-import { MODEL_STORAGE_KEY } from "./useRecording";
 
 beforeEach(() => {
   localStorage.setItem("meeting-companion.locale", "en");
@@ -30,8 +29,9 @@ const ID = "fixture-live";
 async function openLive(meeting: Meeting, recording: FakeRecording = {}, time: number = LIVE_TIMES.running) {
   const clock = new FakeClock(time);
   const utils = await renderApp({ meeting, error: null }, { clock, view: "live", recording });
-  // The view has asked the core for its state, transcript and models.
-  await waitFor(() => expect(utils.core.calls.some((c) => c.cmd === "list_speech_models")).toBe(true));
+  // The view has asked the core for its state, transcript and settings.
+  await waitFor(() => expect(utils.core.calls.some((c) => c.cmd === "load_transcript")).toBe(true));
+  await waitFor(() => expect(utils.core.calls.some((c) => c.cmd === "load_settings")).toBe(true));
   return { clock, ...utils };
 }
 
@@ -86,7 +86,8 @@ describe("AC1 consent before recording", () => {
     await user.click(start);
     const cmds = core.calls.map((c) => c.cmd).filter((c) => c.includes("recording"));
     expect(cmds.slice(-2)).toEqual(["confirm_recording_consent", "start_recording"]);
-    expect(startCalls(core)[0]!.args).toEqual({ meetingId: ID, modelId: "/m/ggml-base.bin" });
+    // The core takes microphone, model and language from its own settings store.
+    expect(startCalls(core)[0]!.args).toEqual({ meetingId: ID });
     // The confirmation time is kept in the meeting.
     await waitFor(() => expect(core.last()?.recordingConsentAt).toBe(1_000));
     await waitFor(() => expect(chip()).toHaveTextContent("REC00:00:00"));
@@ -121,38 +122,19 @@ describe("AC1 consent before recording", () => {
     expect(chip()).toBeNull();
     expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
   });
-
-  it("without any speech model it says where the app looks", async () => {
-    await openLive(liveMeeting(), {
-      models: {
-        models: [],
-        searched: ["/home/u/.local/share/voxtype/models", "/home/u/.cache/huggingface/hub"],
-      },
-    });
-    expect(within(card()).getByText("No speech model installed")).toBeVisible();
-    expect(within(card()).getByText("/home/u/.cache/huggingface/hub")).toBeVisible();
-    expect(within(card()).queryByRole("combobox")).toBeNull();
-  });
 });
 
-describe("speech model picker (spec review 1)", () => {
-  it("preselects the preferred multilingual model, remembers another choice and starts with it", async () => {
+describe("job 006 AC5: the speech-model picker moved to the settings", () => {
+  it("the transcript column has no model picker; Start sends no model id", async () => {
     const user = userEvent.setup();
-    const { core } = await openLive(liveConsentedMeeting());
-    const select = within(card()).getByRole("combobox", { name: "Speech model" });
-    expect(select).toHaveDisplayValue("ggml-base.bin · 148 MB · Voxtype · German and English");
-    expect(within(card()).getByText("Found in /m")).toBeVisible();
-    await user.selectOptions(select, "/m/ggml-base.en.bin");
-    expect(localStorage.getItem(MODEL_STORAGE_KEY)).toBe("/m/ggml-base.en.bin");
-    expect(within(card()).getByText(/only understands English/)).toBeVisible();
+    const { core } = await openLive(liveConsentedMeeting(), {
+      settings: { speechModel: "/m/ggml-base.en.bin", locale: "en" },
+    });
+    expect(within(card()).queryByRole("combobox")).toBeNull();
+    expect(within(card()).queryByText(/Speech model/)).toBeNull();
+    expect(core.calls.some((c) => c.cmd === "list_speech_models")).toBe(false);
     await user.click(within(card()).getByRole("button", { name: "Resume recording" }));
-    expect(startCalls(core)[0]!.args).toEqual({ meetingId: ID, modelId: "/m/ggml-base.en.bin" });
-  });
-
-  it("a remembered model that is gone falls back to the preferred one", async () => {
-    localStorage.setItem(MODEL_STORAGE_KEY, "/gone/ggml-large.bin");
-    await openLive(liveConsentedMeeting());
-    expect(within(card()).getByRole("combobox", { name: "Speech model" })).toHaveValue("/m/ggml-base.bin");
+    expect(startCalls(core)[0]!.args).toEqual({ meetingId: ID });
   });
 });
 

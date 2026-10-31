@@ -399,7 +399,7 @@ fn errors_and_states_serialise_without_engine_types() {
 /// neither the log nor any error message contains what was said.
 #[test]
 fn a_recording_session_writes_only_meeting_and_transcript_files_and_logs_no_text() {
-    let _log = crate::log::capture();
+    crate::log::capture();
     let dir = tempfile::tempdir().unwrap();
     let meetings_dir = dir.path().join("meetings");
     let keys = MemoryKeyProvider::with_key(DataKey::generate());
@@ -828,7 +828,7 @@ fn voice_events_carry_only_the_label() {
 /// `.transcript` files are left; the fake's embedding marker is in neither (after decryption).
 #[test]
 fn a_session_with_speaker_detection_keeps_no_embedding_anywhere() {
-    let _log = crate::log::capture();
+    crate::log::capture();
     let dir = tempfile::tempdir().unwrap();
     let meetings_dir = dir.path().join("meetings");
     let key = DataKey::generate();

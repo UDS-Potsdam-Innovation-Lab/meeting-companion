@@ -15,6 +15,11 @@
 //!   dropped when recording stops.
 //! - A failing or silent device (no audio for [`STALL`]) ends the session with an error state within
 //!   2 s, and the source is closed.
+//! - The microphone is the system default or the device chosen in the settings ([`StartOptions`]).
+//!   A chosen device that is not connected is never replaced by another one at start: the start
+//!   fails with [`Reason::ChosenMicrophoneMissing`].
+//! - The microphone test ([`Recorder::start_test`], `mic_test.rs`) opens the chosen device for at
+//!   most 10 s to show its level. Its audio goes nowhere else and is dropped at once.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,10 +31,12 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 
 use crate::engines::audio::{AudioError, AudioSink, AudioSource};
+use crate::engines::devices::{AudioDevices, NoAudioDevices};
 use crate::engines::diarize::{Diarizer, VoiceTracker};
 use crate::engines::models::SpeakerModelList;
-use crate::engines::stt::{SpeechToText, SttError};
+use crate::engines::stt::{Lang, SpeechToText, SttError};
 use crate::engines::{AudioFactory, DiarizerProvider, NoSpeakerModelProvider, SttProvider};
+use crate::settings::DeviceLost;
 use crate::store::{MeetingStore, StoreError};
 use crate::transcript::{
     Segment, Transcriber, TranscriptError, TranscriptStore, TranscriptWriter, Voice,
@@ -59,6 +66,8 @@ pub enum Capture {
 #[serde(rename_all = "camelCase")]
 pub enum Reason {
     NoMicrophone,
+    /// The microphone chosen in the settings is not connected; no other one was opened.
+    ChosenMicrophoneMissing,
     MicrophoneBlocked,
     MicrophoneLost,
     NoModel,
@@ -163,7 +172,37 @@ pub enum RecordError {
 pub trait EventSink: Send + Sync {
     fn capture(&self, state: &CaptureState);
     fn segment(&self, event: &SegmentEvent);
-    fn voice(&self, event: &VoiceEvent);
+    /// The voice of a stored final segment (`transcript-voice` event).
+    fn voice(&self, _event: &VoiceEvent) {}
+    /// The chosen microphone was lost and recording carries on with the system default
+    /// (`microphone-switched` event).
+    fn switched(&self, _event: &SwitchedEvent) {}
+    /// The microphone test's state (`mic-test` event).
+    fn mic_test(&self, _state: &MicTestState) {}
+}
+
+/// Recording switched to the system default microphone after the chosen one was lost.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwitchedEvent {
+    pub meeting_id: String,
+    /// Wall-clock time of the switch, ms since epoch.
+    pub at: u64,
+    /// Recorded time of the meeting at the switch.
+    pub elapsed_ms: u64,
+}
+
+/// How a recording session runs, from the settings.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StartOptions {
+    /// Speech model id from the core's scan; `None` or an id no longer found: the preferred model.
+    pub model_id: Option<String>,
+    /// Input device by name; `None`: the system default.
+    pub device: Option<String>,
+    /// Language hint for speech-to-text; `None`: detected per line.
+    pub language: Option<Lang>,
+    /// What happens when the microphone disappears while recording.
+    pub on_lost: DeviceLost,
 }
 
 struct Shared {
@@ -233,7 +272,9 @@ struct Inner {
 }
 
 pub struct Recorder {
-    audio: AudioFactory,
+    audio: Arc<AudioFactory>,
+    devices: Arc<dyn AudioDevices>,
+    test: Mutex<Option<mic_test::Running>>,
     stt: Box<dyn SttProvider>,
     diarize: Box<dyn DiarizerProvider>,
     transcripts: Arc<dyn TranscriptStore>,
@@ -251,7 +292,9 @@ impl Recorder {
         now_ms: fn() -> u64,
     ) -> Self {
         Self {
-            audio,
+            audio: Arc::new(audio),
+            devices: Arc::new(NoAudioDevices),
+            test: Mutex::new(None),
             stt,
             diarize: Box::new(NoSpeakerModelProvider {
                 searched: Vec::new(),
@@ -271,6 +314,29 @@ impl Recorder {
     pub fn with_diarizer(mut self, provider: Box<dyn DiarizerProvider>) -> Self {
         self.diarize = provider;
         self
+    }
+
+    /// Named input devices can be chosen from `devices` (default: none, only the system default).
+    pub fn with_devices(mut self, devices: Arc<dyn AudioDevices>) -> Self {
+        self.devices = devices;
+        self
+    }
+
+    /// Names of the connected input devices.
+    pub fn input_devices(&self) -> Vec<String> {
+        self.devices.list()
+    }
+
+    /// A source for `device` (`None`: the system default), or why it cannot be opened: a chosen
+    /// device that is not connected is never replaced by another one.
+    fn open_source(&self, device: Option<&str>) -> Result<Box<dyn AudioSource>, Reason> {
+        match device {
+            None => Ok((self.audio)()),
+            Some(name) if self.devices.list().iter().any(|d| d == name) => {
+                Ok(self.devices.open(name))
+            }
+            Some(_) => Err(Reason::ChosenMicrophoneMissing),
+        }
     }
 
     pub fn models(&self) -> crate::engines::models::ModelList {
@@ -309,6 +375,21 @@ impl Recorder {
         meeting_id: &str,
         model_id: Option<&str>,
     ) -> Result<CaptureState, RecordError> {
+        let opts = StartOptions {
+            model_id: model_id.map(str::to_owned),
+            ..StartOptions::default()
+        };
+        self.start_with(meetings, meeting_id, &opts)
+    }
+
+    /// [`Self::start`] with the device, language and model from the settings.
+    pub fn start_with(
+        &self,
+        meetings: &dyn MeetingStore,
+        meeting_id: &str,
+        opts: &StartOptions,
+    ) -> Result<CaptureState, RecordError> {
+        let model_id = opts.model_id.as_deref();
         let mut inner = self.inner();
         {
             let s = self.shared.status();
@@ -339,14 +420,17 @@ impl Recorder {
             }
         };
         let wanted = model_id.map(str::to_owned);
-        let engine = match inner.engine.take() {
+        let mut engine = match inner.engine.take() {
             Some((id, engine)) if id == wanted => engine,
             _ => match self.stt.load(model_id) {
                 Ok(e) => e,
                 Err(e) => return Err(self.refuse(meeting_id, e.into())),
             },
         };
+        engine.set_language(opts.language);
 
+        // A microphone test gives the device back before the meeting takes it.
+        self.stop_test();
         // Speaker detection is optional: without a model, recording runs without voices.
         let diarizer = inner
             .diarizer
@@ -364,12 +448,24 @@ impl Recorder {
         };
 
         let sink = AudioSink::new();
-        let mut source = (self.audio)();
+        let mut source = match self.open_source(opts.device.as_deref()) {
+            Ok(s) => s,
+            Err(reason) => {
+                inner.engine = Some((wanted, engine));
+                inner.diarizer = diarizer;
+                inner.voices = Some((meeting_id.to_owned(), tracker));
+                return Err(self.refuse(meeting_id, reason));
+            }
+        };
         if let Err(e) = source.start(sink.clone()) {
             inner.engine = Some((wanted, engine));
             inner.diarizer = diarizer;
             inner.voices = Some((meeting_id.to_owned(), tracker));
-            return Err(self.refuse(meeting_id, e.into()));
+            let reason = match (e, &opts.device) {
+                (AudioError::NoMicrophone, Some(_)) => Reason::ChosenMicrophoneMissing,
+                (e, _) => e.into(),
+            };
+            return Err(self.refuse(meeting_id, reason));
         }
         *self.shared.source.lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
 
@@ -394,9 +490,27 @@ impl Recorder {
         let shared = self.shared.clone();
         let worker_sink = sink.clone();
         let id = meeting_id.to_owned();
+        // "Switch to the system default" applies to a chosen device; losing the default stops.
+        let fallback =
+            (opts.on_lost == DeviceLost::SwitchToDefault && opts.device.is_some()).then(|| {
+                Fallback {
+                    audio: self.audio.clone(),
+                    now_ms: self.now_ms,
+                }
+            });
         let handle = std::thread::Builder::new()
             .name("transcript".into())
-            .spawn(move || run(shared, worker_sink, transcriber, writer, id, speakers))
+            .spawn(move || {
+                run(
+                    shared,
+                    worker_sink,
+                    transcriber,
+                    writer,
+                    id,
+                    speakers,
+                    fallback,
+                )
+            })
             .map_err(|_| self.refuse(meeting_id, Reason::EngineFailed))?;
         inner.worker = Some(Worker {
             sink,
@@ -456,6 +570,8 @@ impl Recorder {
                 }
                 Err(_) => crate::log!("the transcript worker stopped unexpectedly"),
             }
+            // A source the worker switched to while this halt began is closed too.
+            self.shared.close_source();
         }
         let current = self.status();
         if let Some(id) = &current.meeting_id {
@@ -487,6 +603,7 @@ impl Recorder {
 
 impl Drop for Recorder {
     fn drop(&mut self) {
+        self.stop_test();
         let mut inner = self.inner();
         let _ = self.halt(&mut inner, Capture::Off, false);
         inner.voices = None;
@@ -672,6 +789,33 @@ fn diarize(
     (diarizer, tracker)
 }
 
+/// The system default microphone, for "Switch to the system default".
+struct Fallback {
+    audio: Arc<AudioFactory>,
+    now_ms: fn() -> u64,
+}
+
+impl Fallback {
+    /// Closes the lost source and starts the system default on the same sink, so the pipeline,
+    /// the recorded time and the capture state carry on. `false` if the default cannot be opened.
+    fn switch(&self, shared: &Shared, sink: &AudioSink) -> bool {
+        shared.close_source();
+        let mut source = (self.audio)();
+        sink.recover();
+        match source.start(sink.clone()) {
+            Ok(()) => {
+                *shared.source.lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
+                crate::log!("microphone lost: switched to the system default");
+                true
+            }
+            Err(e) => {
+                crate::log!("microphone lost; the system default could not be opened: {e}");
+                false
+            }
+        }
+    }
+}
+
 /// How long the monitor lets the speech-to-text thread finish the cut-off utterance before it
 /// reports a lost device itself (the engine may be inside a long window).
 const FLUSH_GRACE: Duration = Duration::from_millis(250);
@@ -680,7 +824,7 @@ const FLUSH_GRACE: Duration = Duration::from_millis(250);
 /// transcript lag; the sink keeps the audio, bounded), the other watches the device and sends
 /// ticks, so a busy engine neither looks like a lost microphone nor freezes the state. Speaker
 /// detection hangs off the speech side: the speech thread hands clips to the diarizer's own thread
-/// and stores lines as their voices arrive, so neither capture nor loss detection ever waits for it.
+/// and stores lines as their voices arrive, so neither capture nor loss detection waits for it.
 fn run(
     shared: Arc<Shared>,
     sink: AudioSink,
@@ -688,6 +832,7 @@ fn run(
     writer: Box<dyn TranscriptWriter>,
     meeting_id: String,
     speakers: Option<(Box<dyn Diarizer>, VoiceTracker)>,
+    fallback: Option<Fallback>,
 ) -> Returned {
     use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::SeqCst};
     let speakers = speakers.and_then(|(diarizer, tracker)| {
@@ -709,7 +854,7 @@ fn run(
     });
     let mut delivery = Delivery {
         shared: shared.clone(),
-        meeting_id,
+        meeting_id: meeting_id.clone(),
         next_seq: writer.next_seq(),
         writer,
         waiting: VecDeque::new(),
@@ -731,6 +876,7 @@ fn run(
             s.level = (level * 4.0).min(1.0);
         });
     };
+    let has_fallback = fallback.is_some();
     std::thread::scope(|scope| {
         let stt = scope.spawn(|| {
             let outcome: Result<(), Reason> = loop {
@@ -751,7 +897,9 @@ fn run(
                     break Err(r);
                 }
                 let gone = lost.lock().unwrap_or_else(|e| e.into_inner()).take();
-                let lost_now = taken.failed.map(Reason::from).or(gone);
+                // With a fallback, the monitor decides whether a failure ends the session.
+                let failed = taken.failed.filter(|_| !has_fallback);
+                let lost_now = failed.map(Reason::from).or(gone);
                 if taken.ended || lost_now.is_some() {
                     let flushed = transcriber
                         .flush()
@@ -776,12 +924,26 @@ fn run(
         });
         let mut last_tick = Instant::now();
         let mut lost_since: Option<Instant> = None;
+        let mut fallback = fallback;
         while !done.load(SeqCst) {
             std::thread::sleep(Duration::from_millis(25));
             let (failed, ended) = sink.peek();
             let reason = failed.map(Reason::from).or_else(|| {
                 (!ended && sink.since_last_push() >= STALL).then_some(Reason::MicrophoneLost)
             });
+            // One switch per session: if the default is lost as well, recording stops.
+            if reason.is_some() && !ended && !reported.load(SeqCst) {
+                if let Some(f) = fallback.take() {
+                    if f.switch(&shared, &sink) {
+                        shared.events.switched(&SwitchedEvent {
+                            meeting_id: meeting_id.clone(),
+                            at: (f.now_ms)(),
+                            elapsed_ms: elapsed_ms.load(SeqCst),
+                        });
+                        continue;
+                    }
+                }
+            }
             if let Some(reason) = reason {
                 lost.lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -808,5 +970,10 @@ fn run(
     }
 }
 
+mod mic_test;
+pub use mic_test::{MicTest, MicTestError, MicTestState, TEST_LIMIT};
+
+#[cfg(test)]
+mod device_tests;
 #[cfg(test)]
 mod tests;
