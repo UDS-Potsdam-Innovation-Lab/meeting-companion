@@ -93,9 +93,13 @@ describe("AC6 (job 003) recording adds no network and declares the microphone", 
   const conf = JSON.parse(read("src-tauri/tauri.conf.json"));
 
   it("adds no HTTP client crate and no Tauri plugin for the engines", () => {
-    for (const crate of ["reqwest", "ureq", "hyper", "curl", "isahc", "attohttpc", "tauri-plugin-"]) {
+    for (const crate of ["reqwest", "hyper", "curl", "isahc", "attohttpc", "tauri-plugin-"]) {
       expect(cargo).not.toContain(crate);
     }
+    // Deliberately loosened in job 011: one HTTP client, ureq, for the Claude API only (see below).
+    expect(cargo.match(/^ureq\b.*$/gm)).toEqual([
+      'ureq = { version = "3.5", default-features = false, features = ["rustls"] }',
+    ]);
     // Neither engine crate pulls one in, directly or through its dependencies.
     const deps = new Map<string, string[]>();
     for (const block of lock.split("[[package]]").slice(1)) {
@@ -166,11 +170,12 @@ describe("AC6 (job 004) speaker detection adds no network and only the checksum-
     expect(wf).toContain("A corrupted sherpa-onnx archive fails the check");
   });
 
-  it("the HTTP client in the lock file is only a build dependency of sherpa-onnx-sys", () => {
+  it("the HTTP client in the lock file is a build dependency of sherpa-onnx-sys and the core's Claude client", () => {
     const users = blocks
       .filter((b) => /dependencies = \[[^\]]*"ureq[" ]/.test(b))
-      .map((b) => /name = "([^"]+)"/.exec(b)?.[1]);
-    expect(users).toEqual(["sherpa-onnx-sys"]);
+      .map((b) => `${/name = "([^"]+)"/.exec(b)?.[1]} → ${/"(ureq[^"]*)"/.exec(b)?.[1]}`);
+    // ureq 2 builds sherpa-onnx-sys (and is not linked); ureq 3 is the core's client for the Claude API (job 011).
+    expect(users.sort()).toEqual(["meeting-companion → ureq 3.5.0", "sherpa-onnx-sys → ureq 2.12.1"]);
     // The runtime crate sherpa-onnx itself pulls in no HTTP client.
     const runtime = depsOf("sherpa-onnx");
     expect(runtime).toContain("sherpa-onnx-sys");
@@ -256,5 +261,92 @@ describe("AC7 (job 007) the level event adds nothing beyond one listed core even
   it("the UI listens to the level event only through ipc.ts", () => {
     const ipc = read("src/lib/ipc.ts");
     expect(ipc).toContain('export const EVENT_LEVEL = "capture-level";');
+  });
+});
+
+describe("AC3 (job 011) the one network path: HTTPS to api.anthropic.com from engines/claude.rs only", () => {
+  const cargo = read("src-tauri/Cargo.toml");
+  const lock = read("src-tauri/Cargo.lock");
+  const blocks = lock.split("[[package]]").slice(1);
+  const dir = join(root, "src-tauri/src");
+  const files = readdirSync(dir, { recursive: true })
+    .map(String)
+    .filter((f) => f.endsWith(".rs"))
+    .map((f) => ({ file: f.replaceAll("\\", "/"), src: readFileSync(join(dir, f), "utf8") }));
+  /** The code of a file without its `#[cfg(test)]` module(s) and without test-only files. */
+  const production = files
+    .filter(({ file }) => !/(^|\/)tests?(\.rs|\/)/.test(file) && !file.includes("speaker_eval/"))
+    .map(({ file, src }) => ({ file, src: src.split("#[cfg(test)]")[0]! }));
+
+  it("ureq 3 with rustls only: no native-tls, no OpenSSL, no proxy, no async runtime", () => {
+    const deps = new Map<string, string[]>();
+    for (const block of blocks) {
+      const name = /name = "([^"]+)"/.exec(block)?.[1];
+      const version = /version = "([^"]+)"/.exec(block)?.[1];
+      const list = /dependencies = \[([^\]]*)\]/.exec(block)?.[1] ?? "";
+      deps.set(`${name} ${version}`, [...list.matchAll(/"([^"]+)"/g)].map((m) => m[1]!));
+    }
+    const resolve = (dep: string) =>
+      deps.has(dep) ? dep : [...deps.keys()].find((k) => k.startsWith(`${dep} `)) ?? dep;
+    const closure = new Set<string>();
+    const visit = (n: string) => {
+      const key = resolve(n);
+      if (closure.has(key)) return;
+      closure.add(key);
+      for (const d of deps.get(key) ?? []) visit(d);
+    };
+    visit("ureq 3.5.0");
+    const names = [...closure].map((k) => k.split(" ")[0]);
+    expect(names).toContain("rustls");
+    expect(names).toContain("webpki-roots");
+    for (const crate of ["native-tls", "openssl", "openssl-sys", "tokio", "hyper", "socks", "rustls-platform-verifier"])
+      expect(names, crate).not.toContain(crate);
+    expect(cargo).not.toMatch(/native-tls|socks-proxy|win-system-proxy|platform-verifier/);
+  });
+
+  it("only engines/claude.rs uses the HTTP client", () => {
+    const users = files.filter(({ src }) => /\bureq\b/.test(src)).map(({ file }) => file);
+    expect(users).toEqual(["engines/claude.rs"]);
+  });
+
+  it("the only URL in the core's code is the Messages API on api.anthropic.com", () => {
+    const urls = production.flatMap(({ file, src }) =>
+      [...src.matchAll(/"(https?:\/\/[^"]*)"/g)].map((m) => `${file}: ${m[1]}`),
+    );
+    expect(urls).toEqual(["engines/claude.rs: https://api.anthropic.com/v1/messages"]);
+    const claude = production.find((f) => f.file === "engines/claude.rs")!.src;
+    expect(claude).toContain('pub const API_HOST: &str = "api.anthropic.com";');
+    expect(claude).toContain('pub const API_URL: &str = "https://api.anthropic.com/v1/messages";');
+    // The agent posts to the constant only, HTTPS only, without proxy, with both timeouts.
+    expect([...claude.matchAll(/\.post\(([^)]*)\)/g)].map((m) => m[1])).toEqual(["API_URL", "&request"]);
+    expect(claude).toContain("if req.url != API_URL {");
+    for (const setting of [
+      ".https_only(true)",
+      ".proxy(None)",
+      ".max_redirects(0)",
+      ".timeout_connect(Some(CONNECT_TIMEOUT))",
+      ".timeout_global(Some(TOTAL_TIMEOUT))",
+      "pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);",
+      "pub const TOTAL_TIMEOUT: Duration = Duration::from_secs(60);",
+    ])
+      expect(claude).toContain(setting);
+  });
+
+  it("still opens no listening socket, adds no Tauri HTTP/shell plugin and keeps connect-src IPC only", () => {
+    const all = files.map((f) => f.src).join("\n");
+    expect(all).not.toMatch(/TcpListener|UdpSocket/);
+    expect(cargo).not.toMatch(/tauri-plugin-(http|shell|websocket|localhost|upload)/);
+    const conf = JSON.parse(read("src-tauri/tauri.conf.json"));
+    expect(String(conf.app.security.csp["connect-src"]).split(/\s+/).sort()).toEqual([
+      "http://ipc.localhost",
+      "ipc:",
+    ]);
+    const cap = JSON.parse(read("src-tauri/capabilities/default.json"));
+    expect(cap.permissions).toEqual(["core:default"]);
+  });
+
+  it("the UI never sees an engine type: the IPC module names no engine, host or key", () => {
+    const ipc = read("src/lib/ipc.ts");
+    expect(ipc).not.toMatch(/anthropic\.com|x-api-key|llama|ureq|ClaudeLanguageModel|ScriptedLanguageModel/i);
   });
 });

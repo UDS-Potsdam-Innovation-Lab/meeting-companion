@@ -16,6 +16,10 @@
 //! give an `output_dim` — the keys sherpa-onnx v2.0.1 reads in `speaker-embedding-extractor-model.cc` and
 //! `speaker-embedding-extractor-nemo-model.cc`. Any other ONNX model (VAD, ASR, TTS, …), a truncated
 //! file, or a checkpoint in another format is not listed.
+//!
+//! Language models ([`scan_llm`]) are single-file GGUF models (version 2 or 3) whose
+//! `general.architecture` is a text model: vision projectors (`clip`), embedding-only encoders and
+//! audio models are not listed. Split files are listed only by their first part.
 
 use std::collections::HashSet;
 use std::fs::{self, File};
@@ -47,15 +51,18 @@ pub enum ModelKind {
     Whisper,
     /// Speaker embeddings (sherpa-onnx ONNX).
     Speaker,
+    /// Language models (GGUF, for llama.cpp).
+    Llm,
 }
 
 impl ModelSource {
-    /// Whether this kind of location can hold models of `kind`. Speaker models are looked for in the
-    /// app's own folder and the Hugging Face cache only; the other tools keep whisper models.
+    /// Whether this kind of location can hold models of `kind`. Speaker and language models are
+    /// looked for in the app's own folder and the Hugging Face cache only; the other tools keep
+    /// whisper models.
     pub fn holds(self, kind: ModelKind) -> bool {
         match kind {
             ModelKind::Whisper => true,
-            ModelKind::Speaker => matches!(
+            ModelKind::Speaker | ModelKind::Llm => matches!(
                 self,
                 ModelSource::App | ModelSource::HuggingFace | ModelSource::Test
             ),
@@ -591,6 +598,168 @@ fn parse_entry(buf: &[u8]) -> Option<(String, String)> {
     Some((key, value))
 }
 
+// ---- language models --------------------------------------------------------------------------------
+
+/// A GGUF language model file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmModel {
+    /// Stable id: the canonical path. The core accepts only ids from its own scan.
+    pub id: String,
+    /// File name, e.g. `Qwen2.5-3B-Instruct-Q4_K_M.gguf`.
+    pub name: String,
+    pub size_bytes: u64,
+    pub source: ModelSource,
+    /// Folder the file is in, shown so a person can find it.
+    pub folder: String,
+}
+
+/// The language models found (smaller first) and every folder searched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmModelList {
+    pub models: Vec<LlmModel>,
+    pub searched: Vec<String>,
+}
+
+/// Searches every location for GGUF language models.
+pub fn scan_llm(locations: &[ModelLocation]) -> LlmModelList {
+    let mut models = Vec::new();
+    let searched = walk_all(locations, &mut |found| {
+        let lower = found.name.to_ascii_lowercase();
+        if !lower.ends_with(".gguf") || is_later_split_part(&lower) {
+            return false;
+        }
+        if read_gguf_architecture(found.path).is_none() {
+            return false;
+        }
+        models.push(LlmModel {
+            id: found.path.to_string_lossy().into_owned(),
+            name: found.name.to_owned(),
+            size_bytes: found.size_bytes,
+            source: found.source,
+            folder: found.folder.to_string_lossy().into_owned(),
+        });
+        true
+    });
+    models.sort_by(|a, b| a.size_bytes.cmp(&b.size_bytes).then(a.id.cmp(&b.id)));
+    LlmModelList { models, searched }
+}
+
+/// `…-00002-of-00003.gguf`: a part of a split model other than the first.
+fn is_later_split_part(lower_name: &str) -> bool {
+    let stem = lower_name.trim_end_matches(".gguf");
+    let Some((head, total)) = stem.rsplit_once("-of-") else {
+        return false;
+    };
+    let part = head.rsplit('-').next().unwrap_or("");
+    let digits = |s: &str| s.len() == 5 && s.bytes().all(|b| b.is_ascii_digit());
+    digits(part) && digits(total) && part != "00001"
+}
+
+/// Architectures in GGUF files that are not text generation models.
+const NOT_TEXT_MODELS: [&str; 9] = [
+    "clip",
+    "mmproj",
+    "bert",
+    "nomic-bert",
+    "nomic-bert-moe",
+    "jina-bert-v2",
+    "neo-bert",
+    "t5encoder",
+    "wavtokenizer-dec",
+];
+/// Most metadata entries read before `general.architecture` must have turned up.
+const GGUF_MAX_KV: u64 = 64;
+const GGUF_MAX_STRING: u64 = 64 * 1024;
+
+/// Reads the GGUF header (version 2 or 3) and returns `general.architecture` if the file is a text
+/// generation model. Reads only the start of the file.
+pub fn read_gguf_architecture(path: &Path) -> Option<String> {
+    use std::io::{BufReader, Seek, SeekFrom};
+    let file = File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut r = BufReader::new(file);
+    let mut magic = [0u8; 4];
+    r.read_exact(&mut magic).ok()?;
+    if &magic != b"GGUF" {
+        return None;
+    }
+    let u32_ = |r: &mut BufReader<File>| -> Option<u32> {
+        let mut b = [0u8; 4];
+        r.read_exact(&mut b).ok()?;
+        Some(u32::from_le_bytes(b))
+    };
+    let u64_ = |r: &mut BufReader<File>| -> Option<u64> {
+        let mut b = [0u8; 8];
+        r.read_exact(&mut b).ok()?;
+        Some(u64::from_le_bytes(b))
+    };
+    if !matches!(u32_(&mut r)?, 2 | 3) {
+        return None;
+    }
+    let tensors = u64_(&mut r)?;
+    let kv_count = u64_(&mut r)?;
+    if tensors == 0 || kv_count == 0 {
+        return None;
+    }
+    let read_string = |r: &mut BufReader<File>| -> Option<String> {
+        let n = u64_(r)?;
+        if n > GGUF_MAX_STRING || n > len {
+            return None;
+        }
+        let mut b = vec![0u8; n as usize];
+        r.read_exact(&mut b).ok()?;
+        String::from_utf8(b).ok()
+    };
+    // Byte size of a fixed-size value type; `None` for string (8) and array (9).
+    let fixed = |t: u32| -> Option<i64> {
+        match t {
+            0 | 1 | 7 => Some(1),
+            2 | 3 => Some(2),
+            4..=6 => Some(4),
+            10..=12 => Some(8),
+            _ => None,
+        }
+    };
+    for _ in 0..kv_count.min(GGUF_MAX_KV) {
+        let key = read_string(&mut r)?;
+        let kind = u32_(&mut r)?;
+        if key == "general.architecture" {
+            if kind != 8 {
+                return None;
+            }
+            let arch = read_string(&mut r)?;
+            let arch = arch.trim().to_ascii_lowercase();
+            return (!arch.is_empty() && !NOT_TEXT_MODELS.contains(&arch.as_str())).then_some(arch);
+        }
+        match kind {
+            8 => {
+                let n = u64_(&mut r)?;
+                if n > len {
+                    return None;
+                }
+                r.seek(SeekFrom::Current(i64::try_from(n).ok()?)).ok()?;
+            }
+            9 => {
+                let elem = u32_(&mut r)?;
+                let count = u64_(&mut r)?;
+                // An array of strings or arrays before the architecture is not a layout we read.
+                let size = fixed(elem)?;
+                let bytes = count.checked_mul(size as u64)?;
+                if bytes > len {
+                    return None;
+                }
+                r.seek(SeekFrom::Current(i64::try_from(bytes).ok()?)).ok()?;
+            }
+            t => {
+                r.seek(SeekFrom::Current(fixed(t)?)).ok()?;
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -1063,5 +1232,199 @@ pub(crate) mod tests {
             assert!(speaker.iter().all(|l| all.contains(l)));
             assert_eq!(locations_of(ModelKind::Whisper, os, &env), all);
         }
+    }
+
+    // ---- language models ----------------------------------------------------------------------------
+
+    /// A GGUF header: version, tensor count, then metadata entries (`(key, value)`, strings only)
+    /// after an optional array of `u32` numbers; `pad` adds bytes.
+    pub fn fake_gguf(path: &Path, version: u32, kvs: &[(&str, &str)], pad: usize) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut b = b"GGUF".to_vec();
+        b.extend(version.to_le_bytes());
+        b.extend(291u64.to_le_bytes());
+        b.extend((kvs.len() as u64 + 2).to_le_bytes());
+        let string = |s: &str, b: &mut Vec<u8>| {
+            b.extend((s.len() as u64).to_le_bytes());
+            b.extend(s.as_bytes());
+        };
+        // `general.alignment` (u32) and a small u32 array come first, as some exporters write.
+        string("general.alignment", &mut b);
+        b.extend(4u32.to_le_bytes());
+        b.extend(32u32.to_le_bytes());
+        string("general.file_list", &mut b);
+        b.extend(9u32.to_le_bytes());
+        b.extend(4u32.to_le_bytes());
+        b.extend(3u64.to_le_bytes());
+        for v in [1u32, 2, 3] {
+            b.extend(v.to_le_bytes());
+        }
+        for (k, v) in kvs {
+            string(k, &mut b);
+            b.extend(8u32.to_le_bytes());
+            string(v, &mut b);
+        }
+        b.extend(std::iter::repeat_n(0u8, pad));
+        fs::write(path, b).unwrap();
+    }
+
+    #[test]
+    fn gguf_language_models_are_listed_with_name_size_source_and_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let app = d.path().join("app/models");
+        let hub = d.path().join("hub");
+        fake_gguf(
+            &app.join("Llama-3.2-3B-Instruct-Q4_K_M.gguf"),
+            3,
+            &[("general.architecture", "llama")],
+            2_000,
+        );
+        fake_gguf(
+            &hub.join("models--Qwen/snapshots/1/Qwen2.5-3B-Instruct-Q4_K_M.gguf"),
+            3,
+            &[
+                ("general.name", "Qwen2.5"),
+                ("general.architecture", "qwen2"),
+            ],
+            1_000,
+        );
+        fake_gguf(
+            &app.join("gemma-3-4b-it-Q4_K_M.gguf"),
+            2,
+            &[("general.architecture", "gemma3")],
+            3_000,
+        );
+        let list = scan_llm(&[
+            loc(ModelSource::App, &app),
+            loc(ModelSource::HuggingFace, &hub),
+        ]);
+        let names: Vec<_> = list.models.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+                "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+                "gemma-3-4b-it-Q4_K_M.gguf"
+            ]
+        );
+        assert_eq!(list.models[0].source, ModelSource::HuggingFace);
+        assert_eq!(list.models[1].source, ModelSource::App);
+        assert_eq!(
+            list.models[1].folder,
+            fs::canonicalize(&app).unwrap().to_string_lossy()
+        );
+        assert_eq!(
+            list.models[1].size_bytes,
+            fs::metadata(app.join("Llama-3.2-3B-Instruct-Q4_K_M.gguf"))
+                .unwrap()
+                .len()
+        );
+        assert_eq!(list.searched.len(), 2);
+    }
+
+    #[test]
+    fn projectors_encoders_split_parts_whisper_and_broken_files_are_not_language_models() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("models");
+        fake_gguf(
+            &dir.join("mmproj-model-f16.gguf"),
+            3,
+            &[("general.architecture", "clip")],
+            100,
+        );
+        fake_gguf(
+            &dir.join("nomic-embed.gguf"),
+            3,
+            &[("general.architecture", "nomic-bert")],
+            100,
+        );
+        fake_gguf(&dir.join("no-arch.gguf"), 3, &[("general.name", "x")], 100);
+        fake_gguf(
+            &dir.join("v1.gguf"),
+            1,
+            &[("general.architecture", "llama")],
+            100,
+        );
+        fake_gguf(
+            &dir.join("big-00002-of-00003.gguf"),
+            3,
+            &[("general.architecture", "llama")],
+            100,
+        );
+        fake_gguf(
+            &dir.join("big-00001-of-00003.gguf"),
+            3,
+            &[("general.architecture", "llama")],
+            100,
+        );
+        // A valid GGUF under another extension, a whisper ggml model named .gguf, junk, empty.
+        fake_gguf(
+            &dir.join("llama.bin"),
+            3,
+            &[("general.architecture", "llama")],
+            100,
+        );
+        fake_model(&dir.join("ggml-base.gguf"), true, 100);
+        fs::write(dir.join("random.gguf"), vec![7u8; 256]).unwrap();
+        fs::write(dir.join("empty.gguf"), b"").unwrap();
+        // Cut off inside the architecture string.
+        let full = d.path().join("full.gguf");
+        fake_gguf(&full, 3, &[("general.architecture", "llama")], 0);
+        let bytes = fs::read(&full).unwrap();
+        fs::write(dir.join("cut.gguf"), &bytes[..bytes.len() - 3]).unwrap();
+        let list = scan_llm(&[loc(ModelSource::App, &dir)]);
+        let names: Vec<_> = list.models.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, ["big-00001-of-00003.gguf"]);
+        // The whisper scan does not list GGUF files, and the GGUF scan does not list whisper models.
+        assert!(scan(&[loc(ModelSource::App, &dir)]).models.is_empty());
+        assert_eq!(read_gguf_architecture(&full).as_deref(), Some("llama"));
+    }
+
+    #[test]
+    fn the_llm_scan_changes_nothing_and_looks_only_in_the_app_folder_and_the_hugging_face_cache() {
+        let d = tempfile::tempdir().unwrap();
+        let file = d.path().join("m/model.gguf");
+        fake_gguf(&file, 3, &[("general.architecture", "llama")], 500);
+        let before = (
+            fs::read(&file).unwrap(),
+            fs::metadata(&file).unwrap().modified().unwrap(),
+        );
+        assert_eq!(
+            scan_llm(&[loc(ModelSource::App, &d.path().join("m"))])
+                .models
+                .len(),
+            1
+        );
+        assert_eq!(
+            (
+                fs::read(&file).unwrap(),
+                fs::metadata(&file).unwrap().modified().unwrap()
+            ),
+            before
+        );
+        assert_eq!(fs::read_dir(d.path().join("m")).unwrap().count(), 1);
+        let env = Env {
+            app_data: PathBuf::from("/data/app"),
+            home: Some(PathBuf::from("/home/u")),
+            vars: vec![],
+        };
+        for os in [Os::Linux, Os::MacOs, Os::Windows] {
+            let llm = locations_of(ModelKind::Llm, os, &env);
+            assert_eq!(llm, locations_of(ModelKind::Speaker, os, &env));
+            assert_eq!(llm[0].path, PathBuf::from("/data/app/models"));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_gguf_linked_from_outside_the_folder_is_not_listed() {
+        use std::os::unix::fs::symlink;
+        let d = tempfile::tempdir().unwrap();
+        let outside = d.path().join("outside/model.gguf");
+        fake_gguf(&outside, 3, &[("general.architecture", "llama")], 10);
+        let dir = d.path().join("models");
+        fs::create_dir_all(&dir).unwrap();
+        symlink(&outside, dir.join("model.gguf")).unwrap();
+        assert!(scan_llm(&[loc(ModelSource::App, &dir)]).models.is_empty());
     }
 }

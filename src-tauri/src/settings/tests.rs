@@ -24,9 +24,13 @@ impl Catalog for Known {
     fn speaker_models(&self) -> Vec<String> {
         vec![SPEAKER.into()]
     }
+    fn llm_models(&self) -> Vec<String> {
+        vec![LLM.into()]
+    }
 }
 
 const SPEAKER: &str = "/m/campplus.onnx";
+const LLM: &str = "/m/Qwen2.5-3B-Instruct-Q4_K_M.gguf";
 
 fn known() -> Known {
     Known {
@@ -44,6 +48,8 @@ fn all_changed() -> Settings {
         meeting_language: MeetingLanguage::En,
         locale: Locale::En,
         theme: Theme::Dark,
+        language_model: LanguageModelSetting::Local(LLM.into()),
+        claude_model: ClaudeModel::Haiku,
     }
 }
 
@@ -95,6 +101,8 @@ fn every_setting_round_trips_through_the_file_and_the_memory_store() {
         change("meetingLanguage", json!("en")),
         change("locale", json!("en")),
         change("theme", json!("dark")),
+        change("languageModel", json!({ "local": LLM })),
+        change("claudeModel", json!("haiku")),
     ] {
         assert!(service.update(&c, &known()).unwrap().saved);
     }
@@ -132,7 +140,9 @@ fn defaults_are_today_s_behaviour() {
             "speakerModel": null,
             "meetingLanguage": "auto",
             "locale": "de",
-            "theme": "system"
+            "theme": "system",
+            "languageModel": "none",
+            "claudeModel": "sonnet"
         })
     );
 }
@@ -507,4 +517,76 @@ fn the_speaker_model_is_accepted_only_from_the_scan_and_can_go_back_to_preferred
     assert_eq!(old.speaker_model, None);
     let stored = Settings::from_stored(br#"{"speakerModel":"/m/campplus.onnx"}"#).unwrap();
     assert_eq!(stored.speaker_model.as_deref(), Some(SPEAKER));
+}
+
+#[test]
+fn the_language_model_setting_is_none_local_from_the_scan_or_claude_and_nothing_else() {
+    assert_eq!(
+        Settings::default().language_model,
+        LanguageModelSetting::None
+    );
+    let service = SettingsService::open(Arc::new(MemorySettingsStore::new()));
+    for (value, expected) in [
+        (json!("claude"), LanguageModelSetting::Claude),
+        (
+            json!({ "local": LLM }),
+            LanguageModelSetting::Local(LLM.into()),
+        ),
+        (json!("none"), LanguageModelSetting::None),
+    ] {
+        let s = service
+            .update(&change("languageModel", value.clone()), &known())
+            .unwrap()
+            .settings;
+        assert_eq!(s.language_model, expected);
+        assert_eq!(serde_json::to_value(&s).unwrap()["languageModel"], value);
+    }
+    for bad in [
+        json!("local"),
+        json!("openai"),
+        json!({ "claude": "claude-3-opus" }),
+        json!({ "local": "/etc/passwd" }),
+        json!({ "local": "" }),
+        json!({ "local": LLM, "extra": 1 }),
+        json!(null),
+        json!(true),
+    ] {
+        assert_eq!(
+            service.update(&change("languageModel", bad.clone()), &known()),
+            Err(SettingsError::Invalid {
+                key: Some("languageModel")
+            }),
+            "{bad}"
+        );
+    }
+    for bad in [json!("claude-sonnet-5-5"), json!("gpt"), json!(null)] {
+        assert_eq!(
+            service.update(&change("claudeModel", bad), &known()),
+            Err(SettingsError::Invalid {
+                key: Some("claudeModel")
+            })
+        );
+    }
+    // Refused changes leave the setting as it was.
+    assert_eq!(service.current().language_model, LanguageModelSetting::None);
+    // A stored file: a local id that is not valid text, or an unknown engine, falls back to "none";
+    // a local id that the scan no longer finds is kept (the view shows "Not found any more").
+    let read =
+        |j: serde_json::Value| Settings::from_stored(&serde_json::to_vec(&j).unwrap()).unwrap();
+    assert_eq!(
+        read(json!({ "languageModel": { "local": "a\u{7}b" } })).language_model,
+        LanguageModelSetting::None
+    );
+    assert_eq!(
+        read(json!({ "languageModel": "proxy" })).language_model,
+        LanguageModelSetting::None
+    );
+    assert_eq!(
+        read(json!({ "languageModel": { "local": "/gone/model.gguf" }, "claudeModel": "opus" })),
+        Settings {
+            language_model: LanguageModelSetting::Local("/gone/model.gguf".into()),
+            claude_model: ClaudeModel::Opus,
+            ..Settings::default()
+        }
+    );
 }

@@ -1,13 +1,17 @@
 //! Meeting Companion core: the meeting model, the store and the Tauri commands the UI calls.
 //!
-//! The app opens no network port and makes no network request. The UI is served from the app's
-//! own assets through Tauri's custom protocol, and every command below reads or writes local files.
+//! The app opens no network port. It makes one kind of network request, and only after a person chose
+//! "Claude API (cloud)" in the settings: HTTPS to api.anthropic.com from the core
+//! ([`engines::claude`]). The UI is served from the app's own assets through Tauri's custom protocol,
+//! and every other command reads or writes local files.
 
 pub mod crypto;
 pub mod engines;
+pub mod language_model;
 pub mod log;
 pub mod model;
 pub mod recording;
+pub mod secrets;
 pub mod settings;
 pub mod speakers;
 pub mod store;
@@ -21,18 +25,25 @@ use tauri::{Emitter, Manager, State};
 
 use crypto::KeychainKeyProvider;
 use engines::audio::{AudioSource, FakeAudioSource};
+use engines::claude::UreqTransport;
 use engines::cpal_source::{CpalAudioDevices, CpalAudioSource};
 use engines::devices::{AudioDevices, FakeAudioDevices};
+use engines::llm::{LlmError, ScriptedLanguageModel};
 use engines::models::{self, ModelKind, ModelList, SpeakerModelList};
 use engines::{
     DiarizerProvider, FakeDiarizerProvider, FakeSttProvider, SherpaProvider, SttProvider,
     WhisperProvider,
+};
+use language_model::{
+    EngineDeps, LanguageModelService, LlmTestReply, LocalLlmProvider, LocalModels, NoLocalRuntime,
+    ScriptedLocalProvider,
 };
 use model::{FieldError, Meeting};
 use recording::{
     CaptureState, EventSink, LevelEvent, MicTestError, MicTestState, Reason, RecordError, Recorder,
     SegmentEvent, StartOptions, SwitchedEvent, VoiceEvent,
 };
+use secrets::{ApiKeyStatus, KeychainSecretStore, MemorySecretStore, SecretError, SecretStore};
 use settings::{
     Cached, Catalog, LockedSettingsStore, MemorySettingsStore, SettingsError, SettingsLoad,
     SettingsService, SettingsStore, SettingsUpdate,
@@ -78,6 +89,8 @@ pub struct AppState {
     store: Arc<dyn MeetingStore>,
     recorder: Recorder,
     settings: SettingsService,
+    /// The language model engine; only the settings view's "Test" uses it in this version.
+    llm: LanguageModelService,
     /// Where meetings and transcripts are stored, shown read-only in the settings.
     storage_folder: String,
     smoke: bool,
@@ -89,6 +102,39 @@ pub struct AppState {
 impl AppState {
     fn edit(&self) -> MutexGuard<'_, ()> {
         self.edits.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn catalog(&self) -> CoreCatalog<'_> {
+        CoreCatalog {
+            recorder: &self.recorder,
+            llm: &self.llm,
+        }
+    }
+}
+
+/// What the core knows right now: the recorder's devices and models, and the language models.
+pub struct CoreCatalog<'a> {
+    pub recorder: &'a Recorder,
+    pub llm: &'a LanguageModelService,
+}
+
+impl Catalog for CoreCatalog<'_> {
+    fn input_devices(&self) -> Vec<String> {
+        Catalog::input_devices(self.recorder)
+    }
+    fn speech_models(&self) -> Vec<String> {
+        Catalog::speech_models(self.recorder)
+    }
+    fn speaker_models(&self) -> Vec<String> {
+        Catalog::speaker_models(self.recorder)
+    }
+    /// Only while this build can run local models.
+    fn llm_models(&self) -> Vec<String> {
+        let found = self.llm.local_models();
+        if !found.available {
+            return Vec::new();
+        }
+        found.list.models.into_iter().map(|m| m.id).collect()
     }
 }
 
@@ -409,7 +455,7 @@ fn load_settings(state: State<'_, AppState>, cached: Option<Cached>) -> Settings
     SettingsView {
         load: state
             .settings
-            .load(&cached.unwrap_or_default(), &state.recorder),
+            .load(&cached.unwrap_or_default(), &state.catalog()),
         storage_folder: state.storage_folder.clone(),
     }
 }
@@ -421,7 +467,7 @@ fn update_setting(
     state: State<'_, AppState>,
     change: serde_json::Value,
 ) -> Result<SettingsUpdate, SettingsError> {
-    let update = state.settings.update(&change, &state.recorder)?;
+    let update = state.settings.update(&change, &state.catalog())?;
     let _ = app.emit(EVENT_SETTINGS, &update.settings);
     Ok(update)
 }
@@ -472,6 +518,44 @@ fn list_speech_models(state: State<'_, AppState>) -> ModelList {
 #[tauri::command(async)]
 fn list_speaker_models(state: State<'_, AppState>) -> SpeakerModelList {
     state.recorder.speaker_models()
+}
+
+/// The GGUF language models found on this device, the folders searched, and whether this build can
+/// run them.
+#[tauri::command(async)]
+fn list_llm_models(state: State<'_, AppState>) -> LocalModels {
+    state.llm.local_models()
+}
+
+/// Whether a Claude API key is saved. Never the key.
+#[tauri::command(async)]
+fn get_api_key_status(state: State<'_, AppState>) -> Result<ApiKeyStatus, SecretError> {
+    secrets::api_key_status(state.llm.secrets())
+}
+
+/// Saves or replaces the Claude API key in the OS keychain. The answer is `{ set }` only.
+#[tauri::command(async)]
+fn set_api_key(state: State<'_, AppState>, key: String) -> Result<ApiKeyStatus, SecretError> {
+    let key = zeroize::Zeroizing::new(key);
+    secrets::set_api_key(state.llm.secrets(), &key)
+}
+
+/// Removes the Claude API key from the OS keychain.
+#[tauri::command(async)]
+fn delete_api_key(state: State<'_, AppState>) -> Result<ApiKeyStatus, SecretError> {
+    secrets::delete_api_key(state.llm.secrets())
+}
+
+/// "Test": the fixed sample text through the chosen engine, off the UI thread; cancellable.
+#[tauri::command(async)]
+fn run_llm_test(state: State<'_, AppState>) -> Result<LlmTestReply, LlmError> {
+    let settings = state.settings.current();
+    state.llm.run_test(&settings)
+}
+
+#[tauri::command(async)]
+fn cancel_llm_test(state: State<'_, AppState>) {
+    state.llm.cancel_test();
 }
 
 /// Sends the core's events to the window.
@@ -594,6 +678,28 @@ pub fn run() {
                     ),
                 })
             };
+            let llm_locations = models::locations_of(ModelKind::Llm, models::Os::current(), &env);
+            let fake_llm = smoke
+                || language_model::is_fake(std::env::var(language_model::ENV_LLM).ok().as_deref());
+            let scripted = Arc::new(ScriptedLanguageModel::default());
+            let local: Arc<dyn LocalLlmProvider> = if fake_llm {
+                Arc::new(ScriptedLocalProvider::new(llm_locations, scripted.clone()))
+            } else {
+                Arc::new(NoLocalRuntime {
+                    locations: llm_locations,
+                })
+            };
+            let secret_store: Arc<dyn SecretStore> = if memory {
+                Arc::new(MemorySecretStore::new())
+            } else {
+                Arc::new(KeychainSecretStore::new(app.config().identifier.clone()))
+            };
+            let llm = LanguageModelService::new(EngineDeps {
+                local,
+                transport: Arc::new(UreqTransport::new()),
+                secrets: secret_store,
+                fake: fake_llm.then_some(scripted),
+            });
             let recorder = Recorder::new(
                 audio,
                 stt,
@@ -607,6 +713,7 @@ pub fn run() {
                 store,
                 recorder,
                 settings,
+                llm,
                 storage_folder,
                 smoke,
                 edits: Mutex::new(()),
@@ -643,7 +750,13 @@ pub fn run() {
             update_setting,
             list_input_devices,
             start_mic_test,
-            stop_mic_test
+            stop_mic_test,
+            list_llm_models,
+            get_api_key_status,
+            set_api_key,
+            delete_api_key,
+            run_llm_test,
+            cancel_llm_test
         ])
         .run(tauri::generate_context!())
         .expect("error while running Meeting Companion");

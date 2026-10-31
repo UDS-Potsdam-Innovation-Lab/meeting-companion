@@ -1,14 +1,17 @@
 //! Engines, each behind a trait with a fake for tests: microphone capture ([`audio::AudioSource`],
 //! real: [`cpal_source::CpalAudioSource`]), speech-to-text ([`stt::SpeechToText`], real:
 //! [`whisper::WhisperSpeechToText`]) and speaker detection ([`diarize::Diarizer`], real:
-//! [`sherpa::SherpaDiarizer`]), with models found by [`models`]. Nothing outside this module and the
+//! [`sherpa::SherpaDiarizer`]) and the language model ([`llm::LanguageModel`], real: [`claude`]), with
+//! models found by [`models`]. Nothing outside this module and the
 //! recording pipeline sees an engine type; the UI gets plain segments, voice labels and capture states.
 
 pub mod audio;
+pub mod claude;
 pub mod cpal_source;
 pub mod devices;
 pub mod diarize;
 pub mod level;
+pub mod llm;
 pub mod models;
 pub mod sherpa;
 #[cfg(test)]

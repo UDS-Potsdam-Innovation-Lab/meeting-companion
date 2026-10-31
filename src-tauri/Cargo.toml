@@ -29,6 +29,9 @@ whisper-rs = "0.16"
 # Speaker embeddings (k2-fsa, Apache-2.0); only `SpeakerEmbeddingExtractor` is used. Links the prebuilt
 # static libraries from the checksum-pinned archive (see .cargo/config.toml, scripts/sherpa-onnx.mjs).
 sherpa-onnx = { version = "=2.0.1", default-features = false, features = ["static"] }
+# The Claude API client (job 011): blocking, TLS by rustls with the Mozilla roots, gzip and proxy
+# features off. Used only in src/engines/claude.rs, and only for https://api.anthropic.com/v1/messages.
+ureq = { version = "3.5", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tempfile = "3"
