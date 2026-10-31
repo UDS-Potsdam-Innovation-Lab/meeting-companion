@@ -1083,3 +1083,6 @@ fn dev_builds_optimise_whisper_cpp() {
     let config = include_str!("../../.cargo/config.toml");
     assert!(config.contains("CMAKE_BUILD_TYPE") && config.contains("Release"));
 }
+
+/// Job 008: a stop that never waits on a stuck worker.
+mod stop;

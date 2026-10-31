@@ -271,15 +271,34 @@ fn load_latest_meeting(state: State<'_, AppState>) -> LoadResult {
     load_latest(state.store.as_ref())
 }
 
-#[tauri::command]
-fn save_meeting(state: State<'_, AppState>, meeting: Meeting) -> Result<u64, SaveError> {
+/// `save_meeting`: an ended run stops its recording first. The UI asks for the stop as well but does
+/// not wait for it, so this may run while that stop still holds the recorder; a stop is bounded
+/// ([`recording::STOP_WAIT`]), so this is too.
+pub fn save_from_ui(
+    store: &dyn MeetingStore,
+    recorder: &Recorder,
+    edits: &Mutex<()>,
+    meeting: Meeting,
+    now_ms: u64,
+) -> Result<u64, SaveError> {
     let ended = meeting.run.as_ref().is_some_and(|r| r.ended_at.is_some());
     if ended {
-        // The UI stops recording before it ends the meeting; this makes sure of it.
-        state.recorder.stop_meeting(&meeting.id);
+        recorder.stop_meeting(&meeting.id);
     }
-    let _edit = state.edit();
-    save(state.store.as_ref(), meeting, now_ms())
+    let _edit = edits.lock().unwrap_or_else(|e| e.into_inner());
+    save(store, meeting, now_ms)
+}
+
+// Async: never on the main thread, so a stop in progress cannot freeze the window.
+#[tauri::command(async)]
+fn save_meeting(state: State<'_, AppState>, meeting: Meeting) -> Result<u64, SaveError> {
+    save_from_ui(
+        state.store.as_ref(),
+        &state.recorder,
+        &state.edits,
+        meeting,
+        now_ms(),
+    )
 }
 
 #[tauri::command(async)]

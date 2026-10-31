@@ -40,6 +40,8 @@ export interface FakeRecording {
   settingsStatus?: SettingsLoad["status"];
   devices?: string[];
   micTestError?: MicTestError;
+  /** Answers `stop_recording` (default: off at once); may never settle, settle late or reject. */
+  stop?: () => Promise<CaptureState>;
 }
 
 export const FAKE_SPEAKER_MODELS: SpeakerModelList = {
@@ -167,7 +169,7 @@ export function fakeCore(
             reason: null,
           };
         case "stop_recording":
-          return CAPTURE_OFF;
+          return rec.stop ? rec.stop() : CAPTURE_OFF;
         case "list_speaker_models":
           return rec.speakerModels ?? FAKE_SPEAKER_MODELS;
         case "load_speakers":
