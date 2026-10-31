@@ -211,5 +211,52 @@
  },
  "s16k_states": {
   "screen": 12418
+ },
+ "s17_llm": {
+  "screen": 13200,
+  "back": 13219
+ },
+ "s17b_off": {
+  "screen": 13341,
+  "back": 13360
+ },
+ "s17c_confirm": {
+  "screen": 13435,
+  "back": 13454
+ },
+ "s17d_local": {
+  "screen": 14776,
+  "back": 14798
+ },
+ "s17e_nokey": {
+  "screen": 14909,
+  "back": 14928
+ },
+ "s17j_dark": {
+  "screen": 13828,
+  "back": 13847
+ },
+ "s17k_dark_confirm": {
+  "screen": 13969,
+  "back": 13988
+ },
+ "s17f_board": {
+  "screen": 14088,
+  "back": 14107
+ },
+ "s17g_768": {
+  "screen": 14661,
+  "back": 14678
+ },
+ "s17h_375": {
+  "screen": 15165,
+  "back": 15176
+ },
+ "s17i_375": {
+  "screen": 15050,
+  "back": 15058
+ },
+ "s17s_states": {
+  "screen": 15261
  }
 }
