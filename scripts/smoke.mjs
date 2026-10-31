@@ -1,4 +1,4 @@
-// Starts the built app with the in-memory store, the fake microphone and the fake speech engine, and
+// Starts the built app with the in-memory store, the fake microphone, speech engine and diarizer, and
 // waits until it reports that the agenda setup view rendered. Exit code 0 on success, 1 otherwise. Usage: node scripts/smoke.mjs [path-to-binary]
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -17,6 +17,7 @@ const child = spawn(binary, [], {
     MEETING_COMPANION_SMOKE: "1",
     MEETING_COMPANION_AUDIO: "fake",
     MEETING_COMPANION_STT: "fake",
+    MEETING_COMPANION_DIARIZE: "fake",
   },
   stdio: ["ignore", "pipe", "inherit"],
 });

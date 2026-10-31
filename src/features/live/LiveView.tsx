@@ -10,8 +10,10 @@ import { Nudge, nudgeTitle } from "./Nudge";
 import { advance, canExtend, endRun, extend, liveSnapshot, nudgeDue, nudgeKey } from "./run";
 import { TimerCard } from "./TimerCard";
 import { RecordingControls } from "../transcript/RecordingControls";
-import { TranscriptPanel } from "../transcript/TranscriptPanel";
+import { AT_BOTTOM, TranscriptPanel, type FeedScroll } from "../transcript/TranscriptPanel";
 import { useRecording } from "../transcript/useRecording";
+import { SpeakersView } from "../speakers/SpeakersView";
+import { useSpeakers } from "../speakers/useSpeakers";
 
 export const LIVE_VIEW = "live";
 
@@ -41,6 +43,30 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
   const extendable = canExtend(meeting);
   const onConsent = useCallback((at: number) => update((m) => ({ ...m, recordingConsentAt: at })), [update]);
   const recording = useRecording(meeting.id, onConsent);
+  const speakers = useSpeakers(meeting.id, recording.lines);
+
+  // Frame 06 opens in place of the live view, in the same window; recording goes on. Back returns to
+  // the transcript where the reader left it, with focus on the button that opened the speakers.
+  const [showSpeakers, setShowSpeakers] = useState(false);
+  const [feedScroll, setFeedScroll] = useState<FeedScroll | null>(null);
+  const openSpeakers = () => {
+    const feed = viewRef.current?.querySelector<HTMLElement>(".transcript-feed");
+    setFeedScroll(
+      feed
+        ? { top: feed.scrollTop, pinned: feed.scrollHeight - feed.scrollTop - feed.clientHeight <= AT_BOTTOM }
+        : null,
+    );
+    setShowSpeakers(true);
+  };
+  const speakersHeading = useRef<HTMLHeadingElement>(null);
+  const backFocus = useRef(false);
+  useEffect(() => {
+    if (showSpeakers) speakersHeading.current?.focus();
+    else if (backFocus.current) {
+      backFocus.current = false;
+      viewRef.current?.querySelector<HTMLButtonElement>("[data-speakers-button]")?.focus();
+    }
+  }, [showSpeakers]);
 
   // When a recording control the user was on disappears with the state change it caused (Start
   // recording, Pause on a device error), focus moves to the control that now applies instead of being
@@ -118,6 +144,38 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
     });
   };
 
+  if (showSpeakers) {
+    return (
+      <div className="live-view" ref={viewRef}>
+        <TopBar
+          meetingTitle={meeting.title}
+          actions={
+            <>
+              <RecordingControls
+                capture={recording.capture}
+                busy={recording.busy}
+                onPause={() => void recording.pause()}
+                onResume={() => void recording.start()}
+                chipOnly
+              />
+              <button
+                type="button"
+                className="button button--outline button--small"
+                onClick={() => {
+                  backFocus.current = true;
+                  setShowSpeakers(false);
+                }}
+              >
+                {t("speakers.back")}
+              </button>
+            </>
+          }
+        />
+        <SpeakersView ref={speakersHeading} lines={recording.lines} speakers={speakers} />
+      </div>
+    );
+  }
+
   return (
     <div className="live-view" ref={viewRef}>
       <TopBar
@@ -155,6 +213,9 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
           <TranscriptPanel
             recording={recording}
             consented={!!meeting.recordingConsentAt}
+            speakers={speakers}
+            onOpenSpeakers={openSpeakers}
+            initialScroll={feedScroll}
             onOpenSettings={onOpenSettings}
             hidden={hidden}
           />

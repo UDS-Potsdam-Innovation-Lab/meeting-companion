@@ -8,11 +8,14 @@ import {
   filledMeeting,
   LIVE_ELAPSED_MS,
   LIVE_PARTIAL,
+  LIVE_SPEAKER_CHOICES,
   LIVE_TRANSCRIPT,
   liveConsentedMeeting,
   liveDoneMeeting,
   liveMeeting,
   overBudgetMeeting,
+  SPEAKER_CHOICES,
+  SPEAKER_TRANSCRIPT,
 } from "../features/agenda/fixtures";
 import { isMeetingValid, type Meeting } from "../features/agenda/model";
 import {
@@ -23,9 +26,12 @@ import {
   EVENT_SEGMENT,
   EVENT_SETTINGS,
   EVENT_SWITCHED,
+  EVENT_VOICE,
   MIC_TEST_OFF,
   type CachedSettings,
   type CaptureState,
+  type LineChoice,
+  type LineTarget,
   type MicTestState,
   type SettingChange,
   type Settings,
@@ -35,8 +41,14 @@ import {
   type ModelList,
   type RecordReason,
   type SegmentEvent,
+  type SpeakerModelList,
+  type SpeakerParticipant,
+  type SpeakerState,
+  type Suggestion,
   type TranscriptLoad,
   type TranscriptSegment,
+  type VoiceChoice,
+  type VoiceEvent,
 } from "./ipc";
 
 const KEY = "mock-backend.meetings";
@@ -47,6 +59,8 @@ const LOCKED_KEY = "mock-backend.locked";
 const AUDIO_KEY = "mock-backend.audio";
 /** `none`: no speech model is found. */
 const MODELS_KEY = "mock-backend.models";
+/** `none`: no speaker model is found (recording runs without voices). */
+const SPEAKER_MODELS_KEY = "mock-backend.speakerModels";
 /** The "settings file" of the fake core; survives a reload like the real one. */
 const SETTINGS_KEY = "mock-backend.settings";
 /** `fixed`: the microphone test shows a still state (screenshots). */
@@ -64,6 +78,10 @@ type Fixture =
   | "live-paused"
   | "live-mic-error"
   | "live-no-model"
+  | "speakers"
+  | "speakers-empty"
+  | "speakers-no-model"
+  | "live-speakers"
   | "settings"
   | "settings-no-model"
   | "settings-mic-test"
@@ -82,6 +100,10 @@ const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   "live-paused": liveConsentedMeeting,
   "live-mic-error": liveConsentedMeeting,
   "live-no-model": liveMeeting,
+  speakers: liveConsentedMeeting,
+  "speakers-empty": liveConsentedMeeting,
+  "speakers-no-model": liveConsentedMeeting,
+  "live-speakers": liveConsentedMeeting,
   settings: filledMeeting,
   "settings-no-model": filledMeeting,
   "settings-mic-test": filledMeeting,
@@ -126,6 +148,24 @@ const MODELS: ModelList = {
   searched: [],
 };
 
+const SPEAKER_MODELS: SpeakerModelList = {
+  models: [
+    {
+      id: "/home/user/.local/share/de.udspotsdam.meetingcompanion/models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+      name: "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+      sizeBytes: 28_281_164,
+      source: "app",
+      folder: "/home/user/.local/share/de.udspotsdam.meetingcompanion/models",
+    },
+  ],
+  searched: [],
+};
+
+const SPEAKER_SEARCHED = [
+  "/home/user/.local/share/de.udspotsdam.meetingcompanion/models",
+  "/home/user/.cache/huggingface/hub",
+];
+
 const SEARCHED = [
   "/home/user/.local/share/de.udspotsdam.meetingcompanion/models",
   "/home/user/.local/share/voxtype/models",
@@ -142,6 +182,8 @@ const SCRIPT: { text: string; lang: "de" | "en" }[] = [
   { text: "Gut, dann informieren wir die dritte Schule diese Woche.", lang: "de" },
 ];
 const STEP_MS = 400;
+/** Voices of the scripted lines, in turn. */
+const SCRIPT_VOICES = ["A", "B", "A", "C"];
 
 // ---- recording state (in memory: a reload is a restart) -----------------------------------------
 let capture: CaptureState = CAPTURE_OFF;
@@ -149,11 +191,21 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let step = 0;
 
 function seed(fixture: Fixture) {
-  for (const k of [CORRUPT_KEY, LOCKED_KEY, AUDIO_KEY, MODELS_KEY, SETTINGS_KEY, MIC_TEST_KEY]) {
+  for (const k of [
+    CORRUPT_KEY,
+    LOCKED_KEY,
+    AUDIO_KEY,
+    MODELS_KEY,
+    SETTINGS_KEY,
+    MIC_TEST_KEY,
+    SPEAKER_MODELS_KEY,
+  ]) {
     localStorage.removeItem(k);
   }
   const make = SEEDS[fixture];
-  const meetings: Meeting[] = make ? [make()] : [];
+  const meetings: Stored[] = make ? [make()] : [];
+  if (fixture === "speakers") meetings[0]!.speakers = structuredClone(SPEAKER_CHOICES);
+  if (fixture === "live-speakers") meetings[0]!.speakers = structuredClone(LIVE_SPEAKER_CHOICES);
   localStorage.setItem(KEY, JSON.stringify(meetings));
   localStorage.setItem(TRANSCRIPTS_KEY, "{}");
   if (fixture === "corrupt") localStorage.setItem(CORRUPT_KEY, "1");
@@ -177,6 +229,12 @@ function seed(fixture: Fixture) {
   const id = meetings[0]?.id ?? null;
   if (fixture === "live-switched") {
     pendingSwitch = { meetingId: id!, at: LIVE_TRANSCRIPT.at(-1)!.at, elapsedMs: LIVE_ELAPSED_MS };
+  }
+  if (fixture === "speakers-no-model") localStorage.setItem(SPEAKER_MODELS_KEY, "none");
+  if (fixture === "speakers" || fixture === "live-speakers") setTranscript(id!, SPEAKER_TRANSCRIPT);
+  if (fixture === "speakers-no-model") setTranscript(id!, LIVE_TRANSCRIPT);
+  if (fixture.startsWith("speakers") || fixture === "live-speakers") {
+    capture = { state: "recording", meetingId: id, elapsedMs: LIVE_ELAPSED_MS, level: 0.55, reason: null };
   }
   if (
     fixture === "live-transcript" ||
@@ -212,12 +270,85 @@ let pendingPartial: SegmentEvent | null = null;
 /** A microphone switch a fixture shows once the view listens. */
 let pendingSwitch: SwitchedEvent | null = null;
 
-function all(): Meeting[] {
+/** A meeting as the core stores it: with the speaker choices and guests the UI does not send. */
+type Stored = Meeting & {
+  participants: SpeakerParticipant[];
+  speakers?: { voices: VoiceChoice[]; lines: LineChoice[] };
+};
+
+function all(): Stored[] {
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? "[]") as Meeting[];
+    return JSON.parse(localStorage.getItem(KEY) ?? "[]") as Stored[];
   } catch {
     return [];
   }
+}
+
+function put(m: Stored) {
+  localStorage.setItem(KEY, JSON.stringify([...all().filter((x) => x.id !== m.id), m]));
+}
+
+// ---- speakers (a simplified stand-in for the core's name round) -------------------------------------
+const words = (s: string) =>
+  s
+    .toLocaleLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+const has = (hay: string[], needle: string[]) =>
+  needle.length > 0 && hay.some((_, i) => needle.every((w, j) => hay[i + j] === w));
+
+function suggestions(m: Stored, lines: TranscriptSegment[]): Suggestion[] {
+  const invited = m.participants.filter((p) => !p.guest);
+  const named = new Map<string, Set<string>>();
+  for (const l of lines) {
+    if (!l.voice || l.startMs >= 120_000) continue;
+    const said = words(l.text);
+    for (const p of invited) {
+      if (has(said, words(p.name)) || has(said, words(p.name.split(/\s+/)[0] ?? ""))) {
+        named.set(l.voice, (named.get(l.voice) ?? new Set()).add(p.id));
+      }
+    }
+  }
+  const count = new Map<string, number>();
+  for (const ps of named.values()) for (const p of ps) count.set(p, (count.get(p) ?? 0) + 1);
+  return [...named.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([voice, ps]) => ({
+      voice,
+      candidates: invited.filter((p) => ps.has(p.id)).map((p) => p.id),
+      unsure: ps.size > 1 || [...ps].some((p) => (count.get(p) ?? 0) > 1),
+    }));
+}
+
+function speakerState(m: Stored): SpeakerState {
+  const voices = m.speakers?.voices ?? [];
+  return {
+    participants: m.participants,
+    voices,
+    lines: m.speakers?.lines ?? [],
+    suggestions: suggestions(m, transcripts()[m.id] ?? []).filter(
+      (s) => !voices.some((v) => v.voice === s.voice),
+    ),
+  };
+}
+
+function speakerMeeting(id: string): Stored {
+  const m = all().find((x) => x.id === id);
+  if (!m) throw { kind: "noMeeting" };
+  return m;
+}
+
+function withSpeakers(
+  m: Stored,
+  edit: (s: { voices: VoiceChoice[]; lines: LineChoice[] }) => void,
+): SpeakerState {
+  const speakers = structuredClone(m.speakers ?? { voices: [], lines: [] });
+  edit(speakers);
+  speakers.voices.sort((a, b) => a.voice.localeCompare(b.voice));
+  speakers.lines.sort((a, b) => a.seq - b.seq);
+  const next = { ...m, speakers };
+  put(next);
+  return speakerState(next);
 }
 
 function transcripts(): Record<string, TranscriptSegment[]> {
@@ -259,9 +390,20 @@ function startScript(meetingId: string) {
       final: phase === 2,
       text: phase === 2 ? line.text : words.slice(0, Math.ceil((words.length * (phase + 1)) / 3)).join(" "),
     };
-    if (segment.final) setTranscript(meetingId, [...recorded, segment]);
+    const seq = segment.final ? recorded.length : undefined;
+    const voice =
+      localStorage.getItem(SPEAKER_MODELS_KEY) === "none"
+        ? null
+        : SCRIPT_VOICES[Math.floor(step / 3) % SCRIPT_VOICES.length]!;
+    if (segment.final) setTranscript(meetingId, [...recorded, { ...segment, voice }]);
     setCapture({ ...capture, elapsedMs: capture.elapsedMs + STEP_MS, level: 0.3 + 0.4 * ((step % 4) / 3) });
-    void emit(EVENT_SEGMENT, { ...segment, meetingId } satisfies SegmentEvent);
+    void emit(EVENT_SEGMENT, {
+      ...segment,
+      meetingId,
+      ...(seq === undefined ? {} : { seq }),
+    } satisfies SegmentEvent);
+    // Like the core: the voice follows in its own event, once the line is stored.
+    if (seq !== undefined && voice) void emit(EVENT_VOICE, { meetingId, seq, voice } satisfies VoiceEvent);
   }, STEP_MS);
 }
 
@@ -291,10 +433,17 @@ const ENUMS: Partial<Record<SettingChange["key"], readonly string[]>> = {
 };
 
 /** Like the core: only values in the schema, connected devices and models of the scan. */
+function speakerModelList(): SpeakerModelList {
+  return localStorage.getItem(SPEAKER_MODELS_KEY) === "none"
+    ? { models: [], searched: SPEAKER_SEARCHED }
+    : SPEAKER_MODELS;
+}
+
 function valid(change: SettingChange): boolean {
   const { key, value } = change;
   if (key === "inputDevice") return value === null || DEVICES.includes(value);
   if (key === "speechModel") return value === null || modelList().models.some((m) => m.id === value);
+  if (key === "speakerModel") return value === null || speakerModelList().models.some((m) => m.id === value);
   return ENUMS[key]?.includes(value as string) ?? false;
 }
 
@@ -368,8 +517,18 @@ export function installMockBackend() {
           const now = Date.now();
           const previous = all().find((m) => m.id === meeting.id);
           const list = all().filter((m) => m.id !== meeting.id);
-          // Like the core: consent is kept from the store, never taken from the UI.
-          list.push({ ...meeting, updatedAt: now, recordingConsentAt: previous?.recordingConsentAt ?? null });
+          // Like the core: consent, speaker choices and guests are kept from the store, never taken
+          // from the UI.
+          const guests = (previous?.participants ?? []).filter(
+            (g) => g.guest && !meeting.participants.some((p) => p.id === g.id),
+          );
+          list.push({
+            ...meeting,
+            participants: [...meeting.participants, ...guests],
+            updatedAt: now,
+            recordingConsentAt: previous?.recordingConsentAt ?? null,
+            speakers: previous?.speakers,
+          });
           localStorage.setItem(KEY, JSON.stringify(list));
           if (meeting.run?.endedAt && capture.meetingId === meeting.id) {
             stopScript();
@@ -434,6 +593,69 @@ export function installMockBackend() {
           } satisfies TranscriptLoad;
         case "list_speech_models":
           return modelList();
+        case "list_speaker_models":
+          return speakerModelList();
+        case "load_speakers":
+          return speakerState(speakerMeeting(a.meetingId as string));
+        case "choose_voice": {
+          const m = speakerMeeting(a.meetingId as string);
+          const voice = a.voice as string;
+          const pid = (a.participantId as string | null) ?? null;
+          if (!/^[A-Z]$/.test(voice)) throw { kind: "invalidVoice" };
+          if (!(transcripts()[m.id] ?? []).some((l) => l.voice === voice)) throw { kind: "unknownVoice" };
+          if (pid && !m.participants.some((p) => p.id === pid)) throw { kind: "unknownParticipant" };
+          const suggested = speakerState(m).suggestions.find((s) => s.voice === voice);
+          const source =
+            suggested && !suggested.unsure && suggested.candidates[0] === pid ? "nameRound" : "manual";
+          return withSpeakers(m, (s) => {
+            s.voices = s.voices.filter((v) => v.voice !== voice);
+            s.voices.push({ voice, participantId: pid, source, confirmed: true });
+          });
+        }
+        case "choose_line": {
+          const m = speakerMeeting(a.meetingId as string);
+          const seq = a.seq as number;
+          const target = a.target as LineTarget;
+          if (!(seq >= 0 && seq < (transcripts()[m.id] ?? []).length)) throw { kind: "unknownLine" };
+          if (target.kind === "person" && !m.participants.some((p) => p.id === target.participantId)) {
+            throw { kind: "unknownParticipant" };
+          }
+          return withSpeakers(m, (s) => {
+            s.lines = s.lines.filter((l) => l.seq !== seq);
+            if (target.kind !== "voice") {
+              s.lines.push({ seq, participantId: target.kind === "person" ? target.participantId : null });
+            }
+          });
+        }
+        case "add_guest": {
+          const m = speakerMeeting(a.meetingId as string);
+          const name = String(a.name).trim();
+          if (!name) throw { kind: "invalidName", code: "empty" };
+          if (Array.from(name).length > 80) throw { kind: "invalidName", code: "tooLong" };
+          if (m.participants.some((p) => p.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) {
+            throw { kind: "invalidName", code: "duplicate" };
+          }
+          let n = 1;
+          while (m.participants.some((p) => p.id === `guest-${n}`)) n += 1;
+          const participantId = `guest-${n}`;
+          const next = { ...m, participants: [...m.participants, { id: participantId, name, guest: true }] };
+          put(next);
+          return { participantId, state: speakerState(next) };
+        }
+        case "apply_name_round": {
+          const m = speakerMeeting(a.meetingId as string);
+          const open = speakerState(m).suggestions.filter((x) => !x.unsure && x.candidates.length === 1);
+          return withSpeakers(m, (s) => {
+            for (const x of open) {
+              s.voices.push({
+                voice: x.voice,
+                participantId: x.candidates[0]!,
+                source: "nameRound",
+                confirmed: true,
+              });
+            }
+          });
+        }
         case "load_settings": {
           const stored = storedSettings();
           if (stored) {

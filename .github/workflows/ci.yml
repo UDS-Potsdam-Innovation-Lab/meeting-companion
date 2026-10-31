@@ -23,6 +23,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
+      # whisper.cpp, onnxruntime (sherpa-onnx), the Tauri app and the Rust cache together outgrow the
+      # runner's free disk, and the cache save at the end failed with "No space left on device". The
+      # runner image ships toolchains this project never uses; remove them first.
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/share/swift
+          sudo docker image prune --all --force
+          df -h /
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -51,6 +63,30 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # sherpa-onnx (speaker detection) links prebuilt static libraries. The archive is fetched once,
+      # checked against the SHA-256 pinned in src-tauri/native/sherpa-onnx.sha256 and unpacked into
+      # src-tauri/native/lib, which .cargo/config.toml makes the only place the build links them from.
+      - name: Cache the sherpa-onnx archive
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/native/archive
+          key: sherpa-onnx-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src-tauri/native/sherpa-onnx.sha256') }}
+
+      - name: Fetch and verify the sherpa-onnx libraries (pinned SHA-256)
+        run: node scripts/sherpa-onnx.mjs fetch
+
+      - name: A corrupted sherpa-onnx archive fails the check
+        shell: bash
+        run: |
+          dir=$(mktemp -d)
+          cp src-tauri/native/archive/*.tar.bz2 "$dir/"
+          file=$(ls "$dir"/*.tar.bz2)
+          printf 'corrupt' | dd of="$file" bs=1 seek=1000 count=7 conv=notrunc status=none
+          if node scripts/sherpa-onnx.mjs verify "$file"; then
+            echo "a corrupted archive passed the check"
+            exit 1
+          fi
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
@@ -70,3 +106,14 @@ jobs:
       - name: Smoke test the built app
         if: runner.os != 'Linux'
         run: node scripts/smoke.mjs
+
+      # The cache is saved after the last step. Leave it room: drop what is rebuilt anyway (the app's
+      # own artefacts and the unpacked native libraries; the verified archive stays cached).
+      - name: Free disk space before the cache is saved
+        if: always()
+        shell: bash
+        run: |
+          rm -rf src-tauri/target/release/meeting-companion src-tauri/target/release/bundle \
+            src-tauri/target/*/deps/meeting_companion* src-tauri/target/*/deps/libmeeting_companion* \
+            src-tauri/target/*/incremental src-tauri/native/lib dist dist-e2e playwright-report test-results
+          df -h /

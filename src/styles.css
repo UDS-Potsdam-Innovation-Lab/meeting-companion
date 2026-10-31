@@ -20,6 +20,7 @@
   --overrun-soft: #fce6e6;
   --green: #13804a;
   --green-soft: #e3f4ea;
+  --green-ink: #0b6635;
   /* Dark surfaces of frame 02 (timer card, nudge). */
   --dark: #15161a;
   --dark-3: #2e3038;
@@ -87,6 +88,7 @@
   --overrun-soft: #3d1c1f;
   --green: #4cc98a;
   --green-soft: #16301f;
+  --green-ink: #7fd8a4;
   --dark: #0c0d10;
   --dark-3: #2a2c33;
   --dark-ink: #f2f1ec;
@@ -2519,4 +2521,621 @@ select {
 .switched-notice__actions {
   display: flex;
   gap: 8px;
+}
+
+/* ---- speakers on transcript lines (frame 02) -------------------------------------------------- */
+.transcript-line {
+  position: relative;
+}
+
+.transcript-line__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The line's speaker area: a button that opens "Who said this?". */
+.line-speaker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 24px;
+  min-height: 28px;
+  max-width: 100%;
+  padding: 0 6px 0 0;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.line-speaker:hover:not(:disabled) {
+  background: var(--sunken);
+}
+
+.line-speaker:disabled {
+  cursor: default;
+}
+
+.line-speaker__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line-speaker__voice {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.line-speaker--none {
+  padding: 0;
+}
+
+.line-speaker__empty {
+  width: 24px;
+  height: 24px;
+}
+
+.avatar--voice {
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid var(--line-strong);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.transcript-line__text {
+  padding-left: 36px;
+}
+
+/* "Who said this?": a white card anchored to the line, not modal. */
+/* Placed in window coordinates (placePicker), so the scrolling transcript cannot cut it off. */
+.line-picker {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow), var(--shadow-small);
+}
+
+.line-picker__title {
+  padding: 2px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.line-picker__options {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 44 px: the board is used by touch. */
+.line-picker__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.line-picker__option:hover {
+  background: var(--sunken);
+}
+
+.line-picker__option[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.guest-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.guest-form__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.guest-form__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.guest-form__input {
+  flex: 1 1 140px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 4px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.guest-form .button {
+  min-height: 44px;
+}
+
+.guest-form__error {
+  font-size: 12px;
+  color: var(--overrun);
+}
+
+.transcript-card__speakers {
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.transcript-card__speakers:hover {
+  background: var(--sunken);
+  color: var(--ink-2);
+}
+
+/* ---- speakers view (frame 06) ----------------------------------------------------------------- */
+.speakers {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  align-items: start;
+  gap: 24px;
+  padding: 24px 32px;
+}
+
+.speakers__main,
+.speakers__side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.speakers__eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.speakers__title {
+  margin-top: 4px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.speakers__title:focus {
+  outline: none;
+}
+
+.speakers__title:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.speakers__subtitle {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.speakers__no-model {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--sunken);
+}
+
+.speakers__no-model-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.speakers__no-model-body {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.speakers__folders {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.speakers-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.speakers-card__empty {
+  padding: 20px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.voice-rows {
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+}
+
+.voice-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(200px, 230px);
+  align-items: start;
+  gap: 12px;
+  padding: 12px 12px;
+  border-radius: 12px;
+}
+
+.voice-row + .voice-row {
+  border-top: 1px solid var(--line);
+}
+
+.voice-row--unsure {
+  background: var(--amber-soft);
+}
+
+.voice-row__who {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-top: 4px;
+}
+
+.voice-row__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-row__label {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.voice-row__wave {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.voice-row__share {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.voice-row__quote {
+  font-size: 14px;
+  font-style: italic;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.voice-row__arrow {
+  display: inline-flex;
+  padding-top: 14px;
+  color: var(--muted);
+}
+
+.voice-picker-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The face shows the choice; a native select over it does the picking (keyboard, touch, screen
+   readers). It is transparent but keeps its focus outline. */
+.voice-picker {
+  position: relative;
+  min-height: 44px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.voice-picker--unsure {
+  border: 2px solid var(--accent);
+}
+
+.voice-picker__face {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 10px;
+  pointer-events: none;
+}
+
+.voice-picker__plus {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--sunken);
+  color: var(--ink-2);
+}
+
+.voice-picker__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.voice-picker__title {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-picker__sub {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-picker--confirmed .voice-picker__sub {
+  color: var(--green);
+}
+
+.voice-picker--unsure .voice-picker__sub {
+  color: var(--amber-ink);
+}
+
+.voice-picker__chevron {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.voice-picker__select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: transparent;
+  appearance: none;
+  cursor: pointer;
+}
+
+.voice-picker__select option {
+  color: var(--ink);
+}
+
+.timeline {
+  padding: 16px 20px 18px;
+}
+
+.timeline__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.timeline__heading {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.timeline__note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.timeline__tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline__row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline__label {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.timeline__track {
+  position: relative;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.timeline__round {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-right: 1px dashed var(--line-strong);
+}
+
+.timeline__bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 6px;
+  background: var(--muted);
+}
+
+.timeline__bar--open {
+  background: var(--line-strong);
+}
+
+.invited {
+  padding: 16px 20px 8px;
+}
+
+.invited__heading {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.invited__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.invited__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 8px 0;
+}
+
+.invited__row + .invited__row {
+  border-top: 1px solid var(--line);
+}
+
+.invited__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.invited__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.voice-chip {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green-ink);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.voice-chip--open {
+  background: var(--amber-soft);
+  color: var(--amber-ink);
+  box-shadow: inset 0 0 0 1px var(--warn-line);
+}
+
+.speakers-how {
+  padding: 18px 20px;
+  border-radius: var(--radius-card);
+  background: var(--sunken);
+}
+
+.speakers-how__heading {
+  margin-bottom: 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.speakers-how__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.speakers__apply {
+  min-height: 48px;
+  font-size: 16px;
+}
+
+.speakers__apply[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---- speakers view, narrower windows ------------------------------------------------------------ */
+@media (max-width: 1079px) {
+  .speakers {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 20px 16px;
+  }
+}
+
+@media (max-width: 639px) {
+  .voice-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .voice-row__arrow {
+    display: none;
+  }
+
+  .speakers__title {
+    font-size: 22px;
+  }
+}
+
+.transcript-line--partial .transcript-line__meta {
+  padding-left: 36px;
+}
+
+.speakers__apply-hint {
+  font-size: 13px;
+  color: var(--ink-2);
 }

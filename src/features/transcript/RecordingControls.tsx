@@ -10,6 +10,8 @@ interface Props {
   /** Without these, only the chips are shown (settings view). */
   onPause?: () => void;
   onResume?: () => void;
+  /** Only the REC chip (the speakers view's top bar, as in frame 06). */
+  chipOnly?: boolean;
 }
 
 /** "On-device · DE/EN", "· DE" or "· EN": the default meeting language from the settings. */
@@ -28,7 +30,7 @@ export function DeviceChip() {
  * colour alone), the "On-device · DE/EN" chip, and "Pause" / "Resume". The chip follows the core's
  * capture state: shown while recording or paused, gone when recording is off or failed.
  */
-export function RecordingControls({ capture, busy = false, onPause, onResume }: Props) {
+export function RecordingControls({ capture, busy = false, onPause, onResume, chipOnly = false }: Props) {
   const { t } = useI18n();
   const recording = capture.state === "recording";
   const paused = capture.state === "paused";
@@ -42,7 +44,7 @@ export function RecordingControls({ capture, busy = false, onPause, onResume }: 
           <span className="rec-chip__time">{time}</span>
         </span>
       ) : null}
-      <DeviceChip />
+      {chipOnly ? null : <DeviceChip />}
       {(recording || paused) && onPause && onResume ? (
         // One button that changes its label, so focus stays on it across Pause and Resume.
         <button

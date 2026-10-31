@@ -86,6 +86,8 @@ pub struct Settings {
     pub input_device: Option<String>,
     pub device_lost: DeviceLost,
     pub speech_model: Option<String>,
+    /// Speaker-embedding model id from the core's scan (job 004); `None`: the preferred one.
+    pub speaker_model: Option<String>,
     pub meeting_language: MeetingLanguage,
     pub locale: Locale,
     pub theme: Theme,
@@ -112,6 +114,7 @@ impl Settings {
             input_device: text("inputDevice", MAX_DEVICE_NAME),
             device_lost: field(&map, "deviceLost", d.device_lost),
             speech_model: text("speechModel", MAX_MODEL_ID),
+            speaker_model: text("speakerModel", MAX_MODEL_ID),
             meeting_language: field(&map, "meetingLanguage", d.meeting_language),
             locale: field(&map, "locale", d.locale),
             theme: field(&map, "theme", d.theme),
@@ -136,16 +139,18 @@ pub enum SettingChange {
     InputDevice(Option<String>),
     DeviceLost(DeviceLost),
     SpeechModel(Option<String>),
+    SpeakerModel(Option<String>),
     MeetingLanguage(MeetingLanguage),
     Locale(Locale),
     Theme(Theme),
 }
 
 /// The setting keys, in the UI's names. Errors name the key, never the value.
-pub const KEYS: [&str; 6] = [
+pub const KEYS: [&str; 7] = [
     "inputDevice",
     "deviceLost",
     "speechModel",
+    "speakerModel",
     "meetingLanguage",
     "locale",
     "theme",
@@ -174,6 +179,10 @@ pub trait Catalog {
     fn input_devices(&self) -> Vec<String>;
     /// Ids of the speech models in the core's own scan.
     fn speech_models(&self) -> Vec<String>;
+    /// Ids of the speaker models in the core's own scan.
+    fn speaker_models(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// Parses a change sent by the UI. A key or value outside the schema is refused with the key only.
@@ -216,6 +225,18 @@ pub fn apply(
                 }
             }
             next.speech_model = model;
+        }
+        SettingChange::SpeakerModel(model) => {
+            if let Some(id) = &model {
+                let known = valid_text(id, MAX_MODEL_ID)
+                    && catalog.speaker_models().iter().any(|m| m == id);
+                if !known {
+                    return Err(SettingsError::Invalid {
+                        key: Some("speakerModel"),
+                    });
+                }
+            }
+            next.speaker_model = model;
         }
         SettingChange::DeviceLost(v) => next.device_lost = v,
         SettingChange::MeetingLanguage(v) => next.meeting_language = v,

@@ -1,8 +1,15 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { TopBar } from "../../app/TopBar";
 import { LOCALES, useI18n, type Locale, type MessageKey } from "../../i18n";
-import { listSpeechModels, type ModelList, type RecordReason, type ThemeSetting } from "../../lib/ipc";
-import { GearIcon, MicIcon, MonitorIcon, PlayIcon, StopIcon } from "../../ui/icons";
+import {
+  listSpeakerModels,
+  listSpeechModels,
+  type ModelList,
+  type RecordReason,
+  type SpeakerModelList,
+  type ThemeSetting,
+} from "../../lib/ipc";
+import { GearIcon, MicIcon, MonitorIcon, PlayIcon, StopIcon, WaveIcon } from "../../ui/icons";
 import { formatMegabytes } from "../transcript/format";
 import { LevelMeter } from "../transcript/LevelMeter";
 import { RecordingControls } from "../transcript/RecordingControls";
@@ -489,6 +496,95 @@ function AudioSection() {
 
 // ---- On this device -----------------------------------------------------------------------------
 
+const GONE = "__gone__";
+
+/**
+ * Frame 14d "Speaker model": the sherpa-onnx speaker models the core found on this device (the
+ * smallest is preferred), the chosen one, "None found" with the folders searched, or "Not found any
+ * more" when the chosen file was moved or deleted (recording then uses the preferred one).
+ */
+function SpeakerModelCard() {
+  const { t, locale } = useI18n();
+  const { settings, update } = useSettings();
+  const [models, setModels] = useState<SpeakerModelList | null>(null);
+  const selectId = useId();
+
+  useEffect(() => {
+    let cancelled = false;
+    void listSpeakerModels().then((m) => {
+      if (!cancelled) setModels(m);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const list = models?.models ?? [];
+  const chosen = settings.speakerModel;
+  const gone = models !== null && chosen !== null && !list.some((m) => m.id === chosen);
+  const inUse = list.find((m) => m.id === chosen) ?? list[0] ?? null;
+  const chosenName = chosen ? (chosen.split(/[\\/]/).pop() ?? chosen) : "";
+  const describe = (m: (typeof list)[number]) =>
+    t("settings.speaker.meta", {
+      size: t("model.size", { mb: formatMegabytes(m.sizeBytes, locale) }),
+      source: t(`model.source.${m.source}` as MessageKey),
+    });
+
+  return (
+    <Card title={t("settings.speaker.title")} hint={t("settings.speaker.hint")}>
+      <Row label={t("settings.speaker.label")} hint={t("settings.nextStart")} htmlFor={selectId}>
+        {models === null ? null : list.length === 0 ? (
+          <div className="none-found" data-testid="no-speaker-model">
+            <p className="none-found__title">{t("settings.speaker.none.title")}</p>
+            <p className="none-found__body">{t("settings.speaker.none.body")}</p>
+            <ul className="none-found__folders">
+              {models.searched.map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <>
+            <div className={`device-select${gone ? " device-select--missing" : ""}`}>
+              <span className="device-select__icon" aria-hidden="true">
+                <WaveIcon />
+              </span>
+              <select
+                id={selectId}
+                className="device-select__select"
+                value={gone ? GONE : (inUse?.id ?? "")}
+                aria-describedby={`${selectId}-status`}
+                onChange={(e) => {
+                  if (e.target.value !== GONE) void update({ key: "speakerModel", value: e.target.value });
+                }}
+              >
+                {gone ? (
+                  <option value={GONE} disabled>
+                    {t("settings.speaker.goneOption", { name: chosenName })}
+                  </option>
+                ) : null}
+                {list.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+              <span className="device-select__status" id={`${selectId}-status`}>
+                {gone ? t("settings.speaker.gone") : inUse ? describe(inUse) : null}
+              </span>
+            </div>
+            {gone && inUse ? (
+              <Notice tone="warn" title={t("settings.speaker.gone.title")}>
+                {t("settings.speaker.gone.body", { name: inUse.name, meta: describe(inUse) })}
+              </Notice>
+            ) : null}
+          </>
+        )}
+      </Row>
+    </Card>
+  );
+}
+
 function DeviceSection() {
   const { t, locale } = useI18n();
   const { settings, update, storageFolder } = useSettings();
@@ -571,6 +667,8 @@ function DeviceSection() {
           )}
         </Row>
       </Card>
+
+      <SpeakerModelCard />
 
       <Card
         title={t("settings.language.title")}

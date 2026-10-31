@@ -9,3 +9,5 @@ playwright-report/
 test-results/
 src-tauri/target/
 src-tauri/gen/
+src-tauri/native/archive/
+src-tauri/native/lib/

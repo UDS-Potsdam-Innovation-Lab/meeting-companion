@@ -3,9 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import de from "./de.json";
 import en from "./en.json";
-import { renderApp } from "../test/backend";
+import { FAKE_SPEAKER_MODELS, renderApp } from "../test/backend";
 import {
   filledMeeting,
+  FIXTURE_PARTICIPANTS,
+  liveConsentedMeeting,
+  SPEAKER_CHOICES,
+  SPEAKER_TRANSCRIPT,
   LIVE_PARTIAL,
   LIVE_TIMES,
   LIVE_TRANSCRIPT,
@@ -167,7 +171,13 @@ describe("AC7 (job 006) no literal strings in the settings view and its frame 02
     await user.click(screen.getByRole("button", { name: "⟦settings.open⟧" }));
     // Audio, with the chosen device missing.
     await screen.findByText("⟦settings.audio.missing.title⟧");
-    const data = [...DEVICES, ...MODELS, STORAGE, "Gone Mic"];
+    const data = [
+      ...DEVICES,
+      ...MODELS,
+      ...FAKE_SPEAKER_MODELS.models.map((m) => m.name),
+      STORAGE,
+      "Gone Mic",
+    ];
     expect(literalOffenders(container, meeting, data)).toEqual([]);
     // Recording: the meter shows the meeting.
     await sendState({});
@@ -202,6 +212,68 @@ describe("AC7 (job 006) no literal strings in the settings view and its frame 02
     await user.click(screen.getByRole("tab", { name: /settings.section.device⟧/ }));
     await screen.findByText("⟦model.none.title⟧");
     expect(literalOffenders(r.container, meeting, [...data, "/x/models"])).toEqual([]);
+  });
+});
+
+describe("AC7 (job 004) no literal strings in the speakers view and the line picker", () => {
+  it("filled, guest input, line picker, empty and no-model states come from keys", async () => {
+    const user = userEvent.setup();
+    const meeting = liveConsentedMeeting();
+    const clock = new FakeClock(LIVE_TIMES.running);
+    const speakers = {
+      participants: FIXTURE_PARTICIPANTS,
+      voices: SPEAKER_CHOICES.voices,
+      lines: [{ seq: 9, participantId: "p-jr" }],
+      suggestions: [
+        { voice: "C", candidates: ["p-ls"], unsure: false },
+        { voice: "D", candidates: ["p-ya", "p-jr"], unsure: true },
+      ],
+    };
+    // Transcript text and voice labels are data, like names.
+    const data = [...SPEAKER_TRANSCRIPT.map((l) => l.text), "A", "B", "C", "D", "E"];
+    const { container, unmount } = await renderApp(
+      { meeting, error: null },
+      {
+        keyMode: true,
+        clock,
+        view: "live",
+        recording: {
+          status: { state: "recording", meetingId: meeting.id, elapsedMs: 1_000, level: 0.5, reason: null },
+          transcript: { segments: SPEAKER_TRANSCRIPT, error: null },
+          speakers,
+        },
+      },
+    );
+    const lineButtons = await screen.findAllByRole("button", { name: /⟦speakers.line.suffix⟧$/ });
+    await user.click(lineButtons[0]!);
+    await user.click(screen.getByRole("button", { name: "⟦speakers.addGuest⟧" }));
+    await user.click(screen.getByRole("button", { name: "⟦speakers.guest.add⟧" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("⟦speakers.guest.error.empty⟧");
+    expect(literalOffenders(container, meeting, data)).toEqual([]);
+    await user.keyboard("{Escape}");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: /⟦speakers.footer.listening/ }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("⟦speakers.title.other⟧");
+    await user.selectOptions(screen.getAllByRole("combobox")[4]!, "⟦speakers.addGuest⟧");
+    expect(literalOffenders(container, meeting, data)).toEqual([]);
+    unmount();
+
+    const none = await renderApp(
+      { meeting, error: null },
+      {
+        keyMode: true,
+        clock,
+        view: "live",
+        recording: {
+          status: { state: "paused", meetingId: meeting.id, elapsedMs: 1_000, level: 0, reason: null },
+          speakerModels: { models: [], searched: ["/x/models"] },
+        },
+      },
+    );
+    await user.click(await screen.findByRole("button", { name: /⟦speakers.footer.paused/ }));
+    expect(screen.getByText("⟦speakers.noModel.title⟧")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("⟦speakers.title.empty⟧");
+    expect(literalOffenders(none.container, meeting, ["/x/models"])).toEqual([]);
   });
 });
 

@@ -6,6 +6,8 @@ export const GOALS: readonly Goal[] = ["inform", "discuss", "decide"];
 export interface Participant {
   id: string;
   name: string;
+  /** Added in the speakers view (by the core); not on the invite. */
+  guest?: boolean;
 }
 
 export interface AgendaItem {

@@ -12,6 +12,10 @@ export type Fixture =
   | "live-paused"
   | "live-mic-error"
   | "live-no-model"
+  | "speakers"
+  | "speakers-empty"
+  | "speakers-no-model"
+  | "live-speakers"
   | "settings"
   | "settings-no-model"
   | "settings-mic-test"
@@ -35,7 +39,7 @@ export async function openApp(page: Page, fixture: Fixture, locale: "de" | "en" 
   }, locale);
   await page.goto(`/?fixture=${fixture}`);
   const view =
-    fixture.startsWith("live") || LIVE_UNDER.includes(fixture)
+    fixture.startsWith("live") || fixture.startsWith("speakers") || LIVE_UNDER.includes(fixture)
       ? 'main[data-view="live"]'
       : 'main[data-view="agenda-setup"][aria-busy="false"]';
   await page.locator(view).waitFor();

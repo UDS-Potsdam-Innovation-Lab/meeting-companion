@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::transcript::Voice;
+
 /// Version of the stored JSON. Bump it, and add a migration, when the shape changes.
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -18,6 +20,10 @@ pub const MINUTES_MIN: u32 = 1;
 pub const MINUTES_MAX: u32 = 240;
 /// Most minutes "+5 min" may add to one agenda item in total.
 pub const EXTRA_MINUTES_MAX: i64 = 240;
+/// Longest name of a guest added in the speakers view.
+pub const GUEST_NAME_MAX: usize = 80;
+/// Most line choices ("Who said this?") one meeting keeps.
+pub const MAX_LINE_CHOICES: usize = 20_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +51,55 @@ pub struct Meeting {
     /// it. Optional and left out of the JSON while unset, so files without it load unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording_consent_at: Option<u64>,
+    /// Who the voices and lines of the transcript are, as people chose in the speakers view. Set
+    /// only by the core's speaker commands. Optional and left out while unset, so files without it
+    /// load unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speakers: Option<Speakers>,
+}
+
+/// The people behind the voices and lines of a meeting's transcript. Every entry is a person's
+/// choice; suggestions of the name round are worked out when asked for and never stored.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Speakers {
+    /// Voice → participant, one entry per voice. Applies to every line of the voice, also earlier ones.
+    #[serde(default)]
+    pub voices: Vec<VoiceChoice>,
+    /// Line → participant, for lines without a voice or with the wrong one; keyed by the line's
+    /// sequence number in the transcript.
+    #[serde(default)]
+    pub lines: Vec<LineChoice>,
+}
+
+/// How the person for a voice was found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NameSource {
+    /// The voice said the person's name in the name round, and a person confirmed it.
+    NameRound,
+    /// Picked by hand.
+    Manual,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceChoice {
+    pub voice: Voice,
+    /// The participant, or none ("Unassigned").
+    pub participant_id: Option<String>,
+    pub source: NameSource,
+    /// True for a person's choice (every stored entry); false only for a suggestion.
+    pub confirmed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineChoice {
+    /// Sequence number of the line in the meeting's transcript.
+    pub seq: u64,
+    /// The participant, or none (nobody is shown for the line).
+    pub participant_id: Option<String>,
 }
 
 /// When the meeting and each agenda item ran. All times are milliseconds since the Unix epoch.
@@ -82,6 +137,13 @@ pub struct RunItem {
 pub struct Participant {
     pub id: String,
     pub name: String,
+    /// Added in the speakers view: not on the invite. Left out of the JSON when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub guest: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,9 +284,10 @@ pub fn validate(m: &Meeting) -> Vec<FieldError> {
             errs.push(FieldError::new(format!("participants[{i}].id"), "invalid"));
         }
         let field = format!("participants[{i}].name");
+        let max = if p.guest { GUEST_NAME_MAX } else { NAME_MAX };
         if p.name.trim().is_empty() {
             errs.push(FieldError::new(field, "empty"));
-        } else if char_len(&p.name) > NAME_MAX {
+        } else if char_len(&p.name) > max {
             errs.push(FieldError::new(field, "tooLong"));
         } else if !seen_names.insert(name_key(&p.name)) {
             errs.push(FieldError::new(field, "duplicate"));
@@ -266,8 +329,52 @@ pub fn validate(m: &Meeting) -> Vec<FieldError> {
     if m.recording_consent_at.is_some() && m.run.is_none() {
         errs.push(FieldError::new("recordingConsentAt", "withoutRun"));
     }
+    if let Some(speakers) = &m.speakers {
+        validate_speakers(m, speakers, &mut errs);
+    }
 
     errs
+}
+
+/// Voice and line choices name participants of this meeting, once per voice and line.
+fn validate_speakers(m: &Meeting, s: &Speakers, errs: &mut Vec<FieldError>) {
+    let known = |id: &Option<String>| {
+        id.as_ref()
+            .is_none_or(|id| m.participants.iter().any(|p| &p.id == id))
+    };
+    let mut voices = std::collections::HashSet::new();
+    for (i, v) in s.voices.iter().enumerate() {
+        if !voices.insert(v.voice) {
+            errs.push(FieldError::new(
+                format!("speakers.voices[{i}].voice"),
+                "duplicate",
+            ));
+        }
+        if !known(&v.participant_id) {
+            errs.push(FieldError::new(
+                format!("speakers.voices[{i}].participantId"),
+                "notParticipant",
+            ));
+        }
+    }
+    if s.lines.len() > MAX_LINE_CHOICES {
+        errs.push(FieldError::new("speakers.lines", "tooMany"));
+    }
+    let mut lines = std::collections::HashSet::new();
+    for (i, l) in s.lines.iter().enumerate() {
+        if !lines.insert(l.seq) {
+            errs.push(FieldError::new(
+                format!("speakers.lines[{i}].seq"),
+                "duplicate",
+            ));
+        }
+        if !known(&l.participant_id) {
+            errs.push(FieldError::new(
+                format!("speakers.lines[{i}].participantId"),
+                "notParticipant",
+            ));
+        }
+    }
 }
 
 /// The run state comes from the UI over IPC and is checked like any other input.
@@ -332,10 +439,12 @@ pub(crate) mod tests {
                 Participant {
                     id: "p-1".into(),
                     name: "Mara Klein".into(),
+                    guest: false,
                 },
                 Participant {
                     id: "p-2".into(),
                     name: "Tobias Brandt".into(),
+                    guest: false,
                 },
             ],
             items: vec![AgendaItem {
@@ -349,6 +458,7 @@ pub(crate) mod tests {
             updated_at: 0,
             run: None,
             recording_consent_at: None,
+            speakers: None,
         }
     }
 
@@ -639,5 +749,104 @@ pub(crate) mod tests {
         run.items[1].ended_at = Some(400_000);
         run.ended_at = Some(400_000);
         assert!(validate(&m).is_empty());
+    }
+
+    // ---- speakers (job 004) -----------------------------------------------------------------------
+
+    fn choice(voice: &str, pid: Option<&str>) -> VoiceChoice {
+        VoiceChoice {
+            voice: Voice::parse(voice).unwrap(),
+            participant_id: pid.map(str::to_owned),
+            source: NameSource::Manual,
+            confirmed: true,
+        }
+    }
+
+    #[test]
+    fn meetings_without_speakers_load_and_save_unchanged() {
+        let json = serde_json::to_value(running()).unwrap();
+        assert!(json.get("speakers").is_none());
+        assert!(json["participants"][0].get("guest").is_none());
+        let back: Meeting = serde_json::from_value(json).unwrap();
+        assert_eq!(back.speakers, None);
+        assert!(!back.participants[0].guest);
+    }
+
+    #[test]
+    fn speakers_round_trip_in_camel_case_with_guests() {
+        let mut m = running();
+        m.participants.push(Participant {
+            id: "guest-1".into(),
+            name: "Gast vom Amt".into(),
+            guest: true,
+        });
+        m.speakers = Some(Speakers {
+            voices: vec![
+                VoiceChoice {
+                    source: NameSource::NameRound,
+                    ..choice("A", Some("p-1"))
+                },
+                choice("B", None),
+                choice("C", Some("guest-1")),
+            ],
+            lines: vec![LineChoice {
+                seq: 7,
+                participant_id: Some("p-2".into()),
+            }],
+        });
+        assert!(validate(&m).is_empty(), "{:?}", validate(&m));
+        let json = serde_json::to_value(&m).unwrap();
+        assert_eq!(json["speakers"]["voices"][0]["voice"], "A");
+        assert_eq!(json["speakers"]["voices"][0]["participantId"], "p-1");
+        assert_eq!(json["speakers"]["voices"][0]["source"], "nameRound");
+        assert_eq!(json["speakers"]["voices"][0]["confirmed"], true);
+        assert_eq!(json["speakers"]["lines"][0]["seq"], 7);
+        assert_eq!(json["participants"][2]["guest"], true);
+        let back: Meeting = serde_json::from_value(json).unwrap();
+        assert_eq!(back, m);
+    }
+
+    #[test]
+    fn speakers_name_only_participants_once_per_voice_and_line() {
+        let mut m = running();
+        m.speakers = Some(Speakers {
+            voices: vec![choice("A", Some("p-9")), choice("A", Some("p-1"))],
+            lines: vec![
+                LineChoice {
+                    seq: 1,
+                    participant_id: Some("nobody".into()),
+                },
+                LineChoice {
+                    seq: 1,
+                    participant_id: None,
+                },
+            ],
+        });
+        assert_eq!(
+            codes(&m),
+            vec![
+                ("speakers.voices[0].participantId".into(), "notParticipant"),
+                ("speakers.voices[1].voice".into(), "duplicate"),
+                ("speakers.lines[0].participantId".into(), "notParticipant"),
+                ("speakers.lines[1].seq".into(), "duplicate"),
+            ]
+        );
+        let bad: Result<VoiceChoice, _> = serde_json::from_str(
+            r#"{"voice":"a","participantId":null,"source":"manual","confirmed":true}"#,
+        );
+        assert!(bad.is_err());
+    }
+
+    #[test]
+    fn guest_names_are_at_most_80_characters() {
+        let mut m = running();
+        m.participants.push(Participant {
+            id: "guest-1".into(),
+            name: "x".repeat(80),
+            guest: true,
+        });
+        assert!(validate(&m).is_empty());
+        m.participants[2].name.push('x');
+        assert_eq!(codes(&m), vec![("participants[2].name".into(), "tooLong")]);
     }
 }

@@ -9,10 +9,11 @@ pub mod log;
 pub mod model;
 pub mod recording;
 pub mod settings;
+pub mod speakers;
 pub mod store;
 pub mod transcript;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -22,17 +23,21 @@ use crypto::KeychainKeyProvider;
 use engines::audio::{AudioSource, FakeAudioSource};
 use engines::cpal_source::{CpalAudioDevices, CpalAudioSource};
 use engines::devices::{AudioDevices, FakeAudioDevices};
-use engines::models::{self, ModelList};
-use engines::{FakeSttProvider, SttProvider, WhisperProvider};
+use engines::models::{self, ModelKind, ModelList, SpeakerModelList};
+use engines::{
+    DiarizerProvider, FakeDiarizerProvider, FakeSttProvider, SherpaProvider, SttProvider,
+    WhisperProvider,
+};
 use model::{FieldError, Meeting};
 use recording::{
     CaptureState, EventSink, MicTestError, MicTestState, Reason, RecordError, Recorder,
-    SegmentEvent, StartOptions, SwitchedEvent,
+    SegmentEvent, StartOptions, SwitchedEvent, VoiceEvent,
 };
 use settings::{
     Cached, Catalog, LockedSettingsStore, MemorySettingsStore, SettingsError, SettingsLoad,
     SettingsService, SettingsStore, SettingsUpdate,
 };
+use speakers::{GuestAdded, LineTarget, SpeakerError, SpeakerState};
 use store::{FileMeetingStore, LockedMeetingStore, MeetingStore, MemoryMeetingStore, StoreError};
 use transcript::{
     LockedTranscriptStore, MemoryTranscriptStore, Segment, TranscriptError, TranscriptStore,
@@ -53,6 +58,10 @@ pub const ENV_STT: &str = "MEETING_COMPANION_STT";
 pub const EVENT_CAPTURE: &str = "capture-state";
 /// Event with one transcript segment ([`SegmentEvent`]).
 pub const EVENT_SEGMENT: &str = "transcript-segment";
+/// Event with the voice of a stored final segment ([`VoiceEvent`]).
+pub const EVENT_VOICE: &str = "transcript-voice";
+/// `MEETING_COMPANION_DIARIZE=fake` replaces the speaker model with the scripted fake (no model needed).
+pub const ENV_DIARIZE: &str = "MEETING_COMPANION_DIARIZE";
 /// Event with the settings now in effect ([`settings::Settings`]), after every change.
 pub const EVENT_SETTINGS: &str = "settings-changed";
 /// Event with the microphone test's state ([`MicTestState`]).
@@ -69,6 +78,15 @@ pub struct AppState {
     /// Where meetings and transcripts are stored, shown read-only in the settings.
     storage_folder: String,
     smoke: bool,
+    /// Held by every command that reads, changes and writes the meeting file, so a save from the
+    /// UI and a speaker choice cannot overwrite each other.
+    edits: Mutex<()>,
+}
+
+impl AppState {
+    fn edit(&self) -> MutexGuard<'_, ()> {
+        self.edits.lock().unwrap_or_else(|e| e.into_inner())
+    }
 }
 
 /// What the core knows right now: the connected devices and its own model scan.
@@ -79,6 +97,13 @@ impl Catalog for Recorder {
     fn speech_models(&self) -> Vec<String> {
         self.models().models.into_iter().map(|m| m.id).collect()
     }
+    fn speaker_models(&self) -> Vec<String> {
+        self.speaker_models()
+            .models
+            .into_iter()
+            .map(|m| m.id)
+            .collect()
+    }
 }
 
 /// The settings for a recording session.
@@ -88,6 +113,7 @@ pub fn start_options(s: &settings::Settings) -> StartOptions {
         device: s.input_device.clone(),
         language: s.meeting_language.hint(),
         on_lost: s.device_lost,
+        speaker_model: s.speaker_model.clone(),
     }
 }
 
@@ -144,15 +170,23 @@ pub fn load_latest(store: &dyn MeetingStore) -> LoadResult {
 
 /// Stamps the save time and stores the meeting. Returns the stamp.
 ///
-/// The recording consent is not the UI's to set: whatever the UI sends, the stored value is kept
-/// (only [`confirm_consent`] sets it).
+/// The recording consent and the speakers are not the UI's to set: whatever the UI sends, the
+/// stored values are kept (only [`confirm_consent`] and the speaker commands set them). Guests added
+/// in the speakers view stay participants even if the UI's copy of the meeting does not have them.
 pub fn save(store: &dyn MeetingStore, mut meeting: Meeting, now_ms: u64) -> Result<u64, SaveError> {
     meeting.updated_at = now_ms;
-    meeting.recording_consent_at = store
-        .load(&meeting.id)
-        .ok()
-        .flatten()
-        .and_then(|m| m.recording_consent_at);
+    let stored = store.load(&meeting.id).ok().flatten();
+    meeting.recording_consent_at = stored.as_ref().and_then(|m| m.recording_consent_at);
+    meeting.speakers = stored.as_ref().and_then(|m| m.speakers.clone());
+    for guest in stored
+        .iter()
+        .flat_map(|m| &m.participants)
+        .filter(|p| p.guest)
+    {
+        if !meeting.participants.iter().any(|p| p.id == guest.id) {
+            meeting.participants.push(guest.clone());
+        }
+    }
     match store.save(&meeting) {
         Ok(()) => Ok(now_ms),
         Err(StoreError::Invalid(fields)) => Err(SaveError::Invalid { fields }),
@@ -241,6 +275,7 @@ fn save_meeting(state: State<'_, AppState>, meeting: Meeting) -> Result<u64, Sav
         // The UI stops recording before it ends the meeting; this makes sure of it.
         state.recorder.stop_meeting(&meeting.id);
     }
+    let _edit = state.edit();
     save(state.store.as_ref(), meeting, now_ms())
 }
 
@@ -249,11 +284,93 @@ fn confirm_recording_consent(
     state: State<'_, AppState>,
     meeting_id: String,
 ) -> Result<u64, RecordError> {
+    let _edit = state.edit();
     confirm_consent(state.store.as_ref(), &meeting_id, now_ms())
 }
 
 /// Starts recording with the microphone, model and language from the settings. The model id is
 /// still checked against the core's own scan (an unknown one falls back to the preferred model).
+#[tauri::command(async)]
+fn load_speakers(
+    state: State<'_, AppState>,
+    meeting_id: String,
+) -> Result<SpeakerState, SpeakerError> {
+    speakers::speaker_state(
+        state.store.as_ref(),
+        state.recorder.transcripts(),
+        &meeting_id,
+    )
+}
+
+/// The person for a voice; `participant_id` null = "Unassigned".
+#[tauri::command(async)]
+fn choose_voice(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    voice: String,
+    participant_id: Option<String>,
+) -> Result<SpeakerState, SpeakerError> {
+    let _edit = state.edit();
+    speakers::choose_voice(
+        state.store.as_ref(),
+        state.recorder.transcripts(),
+        &meeting_id,
+        &voice,
+        participant_id.as_deref(),
+        now_ms(),
+    )
+}
+
+/// Who said one line ("Who said this?").
+#[tauri::command(async)]
+fn choose_line(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    seq: u64,
+    target: LineTarget,
+) -> Result<SpeakerState, SpeakerError> {
+    let _edit = state.edit();
+    speakers::choose_line(
+        state.store.as_ref(),
+        state.recorder.transcripts(),
+        &meeting_id,
+        seq,
+        &target,
+        now_ms(),
+    )
+}
+
+#[tauri::command(async)]
+fn add_guest(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    name: String,
+) -> Result<GuestAdded, SpeakerError> {
+    let _edit = state.edit();
+    speakers::add_guest(
+        state.store.as_ref(),
+        state.recorder.transcripts(),
+        &meeting_id,
+        &name,
+        now_ms(),
+    )
+}
+
+/// "Apply names to transcript".
+#[tauri::command(async)]
+fn apply_name_round(
+    state: State<'_, AppState>,
+    meeting_id: String,
+) -> Result<SpeakerState, SpeakerError> {
+    let _edit = state.edit();
+    speakers::apply_name_round(
+        state.store.as_ref(),
+        state.recorder.transcripts(),
+        &meeting_id,
+        now_ms(),
+    )
+}
+
 #[tauri::command(async)]
 fn start_recording(
     state: State<'_, AppState>,
@@ -329,6 +446,12 @@ fn list_speech_models(state: State<'_, AppState>) -> ModelList {
     state.recorder.models()
 }
 
+/// The speaker models found on this device (the preferred one is used) and the folders searched.
+#[tauri::command(async)]
+fn list_speaker_models(state: State<'_, AppState>) -> SpeakerModelList {
+    state.recorder.speaker_models()
+}
+
 /// Sends the core's events to the window.
 struct TauriEvents(tauri::AppHandle);
 
@@ -338,6 +461,9 @@ impl EventSink for TauriEvents {
     }
     fn segment(&self, event: &SegmentEvent) {
         let _ = self.0.emit(EVENT_SEGMENT, event);
+    }
+    fn voice(&self, event: &VoiceEvent) {
+        let _ = self.0.emit(EVENT_VOICE, event);
     }
     fn mic_test(&self, state: &MicTestState) {
         let _ = self.0.emit(EVENT_MIC_TEST, state);
@@ -420,12 +546,27 @@ pub fn run() {
             } else {
                 Arc::new(CpalAudioDevices)
             };
+            let env = models::Env::from_process(app_data.clone());
             let stt: Box<dyn SttProvider> = if smoke || env_is(ENV_STT, "fake") {
                 Box::new(FakeSttProvider::demo())
             } else {
-                let env = models::Env::from_process(app_data);
                 Box::new(WhisperProvider {
-                    locations: models::locations_for(models::Os::current(), &env),
+                    locations: models::locations_of(
+                        ModelKind::Whisper,
+                        models::Os::current(),
+                        &env,
+                    ),
+                })
+            };
+            let diarize: Box<dyn DiarizerProvider> = if smoke || env_is(ENV_DIARIZE, "fake") {
+                Box::new(FakeDiarizerProvider::demo())
+            } else {
+                Box::new(SherpaProvider {
+                    locations: models::locations_of(
+                        ModelKind::Speaker,
+                        models::Os::current(),
+                        &env,
+                    ),
                 })
             };
             let recorder = Recorder::new(
@@ -435,13 +576,15 @@ pub fn run() {
                 Arc::new(TauriEvents(app.handle().clone())),
                 now_ms,
             )
-            .with_devices(devices);
+            .with_devices(devices)
+            .with_diarizer(diarize);
             app.manage(AppState {
                 store,
                 recorder,
                 settings,
                 storage_folder,
                 smoke,
+                edits: Mutex::new(()),
             });
             if smoke {
                 std::thread::spawn(|| {
@@ -465,6 +608,12 @@ pub fn run() {
             recording_status,
             load_transcript,
             list_speech_models,
+            list_speaker_models,
+            load_speakers,
+            choose_voice,
+            choose_line,
+            add_guest,
+            apply_name_round,
             load_settings,
             update_setting,
             list_input_devices,
@@ -595,6 +744,37 @@ mod tests {
     }
 
     #[test]
+    fn a_save_from_the_ui_keeps_the_stored_speakers_and_guests() {
+        use model::{NameSource, Participant, Speakers, VoiceChoice};
+        let store = MemoryMeetingStore::new();
+        let ui_copy = crate::model::tests::running();
+        let mut stored = ui_copy.clone();
+        stored.participants.push(Participant {
+            id: "guest-1".into(),
+            name: "Petra Sand".into(),
+            guest: true,
+        });
+        stored.speakers = Some(Speakers {
+            voices: vec![VoiceChoice {
+                voice: transcript::Voice::parse("A").unwrap(),
+                participant_id: Some("guest-1".into()),
+                source: NameSource::Manual,
+                confirmed: true,
+            }],
+            lines: vec![],
+        });
+        store.save(&stored).unwrap();
+        // The UI's copy has neither the guest nor the speakers, or forges other speakers.
+        let mut forged = ui_copy.clone();
+        forged.speakers = Some(Speakers::default());
+        save(&store, forged, 5).unwrap();
+        save(&store, ui_copy, 6).unwrap();
+        let after = store.load("m-1").unwrap().unwrap();
+        assert_eq!(after.speakers, stored.speakers);
+        assert_eq!(after.participants, stored.participants);
+    }
+
+    #[test]
     fn a_damaged_transcript_is_reported_and_an_empty_one_loads() {
         let dir = tempfile::tempdir().unwrap();
         let keys = crypto::MemoryKeyProvider::new();
@@ -632,6 +812,7 @@ mod tests {
             speech_model: Some("/m/ggml-small.bin".into()),
             meeting_language: settings::MeetingLanguage::De,
             device_lost: settings::DeviceLost::SwitchToDefault,
+            speaker_model: Some("/m/campplus.onnx".into()),
             ..settings::Settings::default()
         };
         assert_eq!(
@@ -641,6 +822,7 @@ mod tests {
                 device: Some("Room mic".into()),
                 language: Some(engines::stt::Lang::De),
                 on_lost: settings::DeviceLost::SwitchToDefault,
+                speaker_model: Some("/m/campplus.onnx".into()),
             }
         );
         let d = start_options(&settings::Settings::default());

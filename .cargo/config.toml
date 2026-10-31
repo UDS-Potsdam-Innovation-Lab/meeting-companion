@@ -1,0 +1,5 @@
+# The sherpa-onnx-sys build script links prebuilt static libraries. Pointing it at this folder makes it
+# use only the libraries that `node scripts/sherpa-onnx.mjs fetch` unpacked from the archive it checked
+# against src-tauri/native/sherpa-onnx.sha256; without them the build fails instead of downloading any.
+[env]
+SHERPA_ONNX_LIB_DIR = { value = "src-tauri/native/lib", relative = true, force = true }

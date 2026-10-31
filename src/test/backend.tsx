@@ -18,6 +18,8 @@ import {
   type LoadResult,
   type ModelList,
   type RecordError,
+  type SpeakerModelList,
+  type SpeakerState,
   type TranscriptLoad,
 } from "../lib/ipc";
 
@@ -28,12 +30,24 @@ export interface FakeRecording {
   models?: ModelList;
   /** `start_recording` fails with this error instead of returning a recording state. */
   startError?: RecordError;
+  /** What `load_speakers` returns first; speaker commands return `speakerReply` (or this). */
+  speakers?: SpeakerState;
+  speakerModels?: SpeakerModelList;
+  /** Answers a speaker command (`choose_voice`, `choose_line`, `add_guest`, `apply_name_round`). */
+  speakerReply?: (cmd: string, args: Record<string, unknown>) => unknown;
   /** Stored settings (`load_settings`); defaults with status "missing" if not given. */
   settings?: Partial<Settings>;
   settingsStatus?: SettingsLoad["status"];
   devices?: string[];
   micTestError?: MicTestError;
 }
+
+export const FAKE_SPEAKER_MODELS: SpeakerModelList = {
+  models: [
+    { id: "/m/campplus.onnx", name: "campplus.onnx", sizeBytes: 28_281_164, source: "app", folder: "/m" },
+  ],
+  searched: ["/m"],
+};
 
 export const FAKE_DEVICES = ["Built-in Audio Analog Stereo", "Jabra Speak 510"];
 
@@ -154,6 +168,23 @@ export function fakeCore(
           };
         case "stop_recording":
           return CAPTURE_OFF;
+        case "list_speaker_models":
+          return rec.speakerModels ?? FAKE_SPEAKER_MODELS;
+        case "load_speakers":
+          return (
+            rec.speakers ?? {
+              participants: load.meeting?.participants ?? [],
+              voices: [],
+              lines: [],
+              suggestions: [],
+            }
+          );
+        case "choose_voice":
+        case "choose_line":
+        case "add_guest":
+        case "apply_name_round":
+          if (rec.speakerReply) return rec.speakerReply(cmd, args as Record<string, unknown>);
+          throw { kind: "storageFailed" };
       }
       throw new Error(`unexpected command ${cmd}`);
     },

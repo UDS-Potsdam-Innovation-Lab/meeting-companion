@@ -11,10 +11,11 @@ use crate::model::Meeting;
 use crate::store::{FileMeetingStore, MemoryMeetingStore};
 use crate::transcript::{FileTranscriptStore, MemoryTranscriptStore};
 
-/// Collects events; on every final segment it checks the segment is already in the store.
+/// Collects events; on every voice event it checks the segment is already stored with that voice.
 struct Events {
     states: Mutex<Vec<(Instant, CaptureState)>>,
     segments: Mutex<Vec<(Instant, SegmentEvent)>>,
+    voices: Mutex<Vec<(Instant, VoiceEvent)>>,
     store: Option<Arc<dyn TranscriptStore>>,
     stored_before_sent: Mutex<bool>,
 }
@@ -24,6 +25,7 @@ impl Events {
         Arc::new(Self {
             states: Mutex::new(Vec::new()),
             segments: Mutex::new(Vec::new()),
+            voices: Mutex::new(Vec::new()),
             store,
             stored_before_sent: Mutex::new(true),
         })
@@ -60,15 +62,19 @@ impl EventSink for Events {
             .push((Instant::now(), state.clone()));
     }
     fn segment(&self, event: &SegmentEvent) {
-        if event.segment.is_final {
-            if let Some(store) = &self.store {
-                let stored = store.load(&event.meeting_id).unwrap();
-                if stored.last() != Some(&event.segment) {
-                    *self.stored_before_sent.lock().unwrap() = false;
-                }
+        self.segments
+            .lock()
+            .unwrap()
+            .push((Instant::now(), event.clone()));
+    }
+    fn voice(&self, event: &VoiceEvent) {
+        if let Some(store) = &self.store {
+            let stored = store.load(&event.meeting_id).unwrap();
+            if stored.get(event.seq as usize).and_then(|s| s.voice) != Some(event.voice) {
+                *self.stored_before_sent.lock().unwrap() = false;
             }
         }
-        self.segments
+        self.voices
             .lock()
             .unwrap()
             .push((Instant::now(), event.clone()));
@@ -369,6 +375,7 @@ fn errors_and_states_serialise_without_engine_types() {
     );
     let ev = SegmentEvent {
         meeting_id: "m-1".into(),
+        seq: None,
         segment: Segment {
             start_ms: 1,
             end_ms: 2,
@@ -376,6 +383,7 @@ fn errors_and_states_serialise_without_engine_types() {
             text: "x".into(),
             lang: Lang::En,
             is_final: false,
+            voice: None,
         },
     };
     assert_eq!(
@@ -485,6 +493,430 @@ fn walk(root: &std::path::Path) -> Vec<String> {
         }
     }
     out
+}
+
+// ---- speaker detection (job 004) ----------------------------------------------------------------------
+
+use crate::engines::diarize::{ScriptedDiarizer, FAKE_MARKER};
+use crate::engines::FakeDiarizerProvider;
+use crate::transcript::Voice;
+
+fn voice(c: char) -> Voice {
+    Voice::parse(&c.to_string()).unwrap()
+}
+
+fn diarizer(
+    make: impl Fn() -> ScriptedDiarizer + Send + Sync + 'static,
+) -> Box<FakeDiarizerProvider> {
+    Box::new(FakeDiarizerProvider {
+        make: Box::new(make),
+    })
+}
+
+/// Three utterances of 1.5 s each, then an open, quiet room.
+fn three_turns() -> FakeAudioSource {
+    FakeAudioSource::new(
+        vec![
+            Tone::silence(300),
+            Tone::speech(1_500),
+            Tone::silence(800),
+            Tone::speech(1_500),
+            Tone::silence(800),
+            Tone::speech(1_500),
+            Tone::silence(800),
+        ],
+        Pace::RealTime,
+    )
+}
+
+impl Events {
+    fn voices(&self) -> Vec<(u64, Voice)> {
+        self.voices
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, e)| (e.seq, e.voice))
+            .collect()
+    }
+    fn final_events(&self) -> Vec<(Instant, SegmentEvent)> {
+        self.segments
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, e)| e.segment.is_final)
+            .cloned()
+            .collect()
+    }
+}
+
+fn stored_voices(transcripts: &dyn TranscriptStore) -> Vec<Option<char>> {
+    transcripts
+        .load("m-1")
+        .unwrap()
+        .iter()
+        .map(|s| s.voice.map(Voice::label))
+        .collect()
+}
+
+#[test]
+fn three_scripted_voices_tag_the_final_segments_a_b_and_c() {
+    let rig = rig_with(three_turns, fake_stt());
+    let recorder = rig
+        .recorder
+        .with_diarizer(diarizer(|| ScriptedDiarizer::new(vec![0, 1, 2])));
+    rig.meetings.save(&consented()).unwrap();
+    recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(8), || rig
+        .events
+        .voices()
+        .len()
+        >= 3));
+    recorder.stop();
+    assert_eq!(
+        rig.events.voices(),
+        [(0, voice('A')), (1, voice('B')), (2, voice('C'))]
+    );
+    assert_eq!(
+        stored_voices(rig.transcripts.as_ref()),
+        [Some('A'), Some('B'), Some('C')]
+    );
+    // Final segments carry their sequence number; partials none.
+    let finals = rig.events.final_events();
+    let seqs: Vec<_> = finals.iter().map(|(_, e)| e.seq).collect();
+    assert_eq!(seqs, [Some(0), Some(1), Some(2)]);
+    assert!(rig
+        .events
+        .segments
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|(_, e)| e.segment.is_final == e.seq.is_some()));
+    // Each voice event follows the record that already holds the voice.
+    assert!(*rig.events.stored_before_sent.lock().unwrap());
+}
+
+#[test]
+fn labels_stay_across_pause_and_resume_and_continue_after_a_restart() {
+    let rig = rig_with(talking, fake_stt());
+    // Speakers 0, 1, then 0 and 1 again after the pause.
+    let recorder = rig
+        .recorder
+        .with_diarizer(diarizer(|| ScriptedDiarizer::new(vec![0, 1])));
+    rig.meetings.save(&consented()).unwrap();
+    recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(6), || rig
+        .events
+        .voices()
+        .len()
+        >= 2));
+    recorder.pause();
+    assert!(recorder.holds_voices(), "kept across Pause");
+    recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(6), || rig
+        .events
+        .voices()
+        .len()
+        >= 4));
+    recorder.stop();
+    assert!(!recorder.holds_voices(), "dropped when recording stops");
+    let labels: Vec<char> = rig.events.voices().iter().map(|(_, v)| v.label()).collect();
+    assert_eq!(labels, ['A', 'B', 'A', 'B']);
+
+    // A restart (a new recorder, same stored transcript): embeddings are gone, so new voices get
+    // labels after the highest stored one.
+    let events = Events::new(Some(rig.transcripts.clone()));
+    let restarted = Recorder::new(
+        Box::new(|| Box::new(talking())),
+        fake_stt(),
+        rig.transcripts.clone(),
+        events.clone(),
+        || 1_000_000,
+    )
+    .with_diarizer(diarizer(|| ScriptedDiarizer::new(vec![0, 1])));
+    restarted.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(6), || events.voices().len() >= 2));
+    restarted.stop();
+    let after: Vec<(u64, char)> = events
+        .voices()
+        .iter()
+        .map(|(s, v)| (*s, v.label()))
+        .collect();
+    assert_eq!(after, [(4, 'C'), (5, 'D')]);
+}
+
+#[test]
+fn a_slow_diarizer_does_not_delay_the_transcript_line() {
+    // 2 s per call: the line still reaches the UI at once; the voice follows in its own event.
+    let rig = rig_with(talking, fake_stt());
+    let recorder = rig.recorder.with_diarizer(diarizer(|| {
+        ScriptedDiarizer::new(vec![0, 1]).slow(Duration::from_secs(2))
+    }));
+    rig.meetings.save(&consented()).unwrap();
+    let started = Instant::now();
+    recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(10), || rig
+        .events
+        .voices()
+        .len()
+        >= 2));
+    recorder.stop();
+    let finals = rig.events.final_events();
+    let voices = rig.events.voices.lock().unwrap().clone();
+    // The first utterance is 0.5–2.3 s into the script and ends with 0.6 s of silence: its final
+    // segment is sent within 3 s of the speech end, not 2 s later.
+    let first_final = finals[0].0.duration_since(started);
+    assert!(
+        first_final <= Duration::from_millis(2_300 + 3_000),
+        "final after {first_final:?}"
+    );
+    assert!(
+        finals[0].1.segment.voice.is_none(),
+        "sent before the voice is known"
+    );
+    let (voice_at, first_voice) = &voices[0];
+    assert_eq!(first_voice.seq, 0);
+    assert!(
+        voice_at.duration_since(finals[0].0) >= Duration::from_millis(1_900),
+        "the voice comes separately, after the engine's 2 s"
+    );
+    assert_eq!(
+        stored_voices(rig.transcripts.as_ref()),
+        [Some('A'), Some('B')]
+    );
+}
+
+#[test]
+fn a_segment_whose_voice_does_not_come_is_stored_after_5_s_without_one() {
+    let rig = rig_with(
+        || {
+            FakeAudioSource::new(
+                vec![Tone::silence(300), Tone::speech(1_500), Tone::silence(800)],
+                Pace::RealTime,
+            )
+        },
+        fake_stt(),
+    );
+    // The engine needs 7 s for one segment.
+    let recorder = rig.recorder.with_diarizer(diarizer(|| {
+        ScriptedDiarizer::new(vec![0]).slow(Duration::from_secs(7))
+    }));
+    rig.meetings.save(&consented()).unwrap();
+    recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(4), || rig
+        .events
+        .finals()
+        .len()
+        == 1));
+    let sent = rig.events.final_events()[0].0;
+    assert!(
+        rig.transcripts.load("m-1").unwrap().is_empty(),
+        "waits for the voice"
+    );
+    assert!(wait_until(Duration::from_secs(7), || rig
+        .transcripts
+        .load("m-1")
+        .unwrap()
+        .len()
+        == 1));
+    let stored_after = sent.elapsed();
+    assert!(
+        stored_after >= Duration::from_millis(4_800)
+            && stored_after <= Duration::from_millis(6_500),
+        "stored after {stored_after:?}"
+    );
+    assert_eq!(stored_voices(rig.transcripts.as_ref()), [None]);
+    recorder.stop();
+    // The late voice is not sent: the stored line has none.
+    assert!(rig.events.voices().is_empty());
+}
+
+#[test]
+fn a_slow_diarizer_delays_neither_capture_ticks_nor_loss_detection() {
+    // The diarizer takes 4 s per segment; the device dies after 2.5 s of audio.
+    let rig = rig_with(|| talking().repeating().failing_after(2_500), fake_stt());
+    let recorder = rig.recorder.with_diarizer(diarizer(|| {
+        ScriptedDiarizer::new(vec![0, 1]).slow(Duration::from_secs(4))
+    }));
+    rig.meetings.save(&consented()).unwrap();
+    let started = Instant::now();
+    recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(6), || recorder
+        .status()
+        .state
+        == Capture::Error));
+    let failed_at = rig
+        .events
+        .states
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|(_, s)| s.state == Capture::Error)
+        .map(|(t, _)| *t)
+        .unwrap();
+    assert!(
+        failed_at.duration_since(started) < Duration::from_millis(2_500 + 2_000),
+        "lost device reported after {:?}",
+        failed_at.duration_since(started)
+    );
+    assert_eq!(recorder.status().reason, Some(Reason::MicrophoneLost));
+    // Ticks kept coming while the diarizer was busy.
+    let ticks = rig
+        .events
+        .states
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(t, s)| {
+            s.state == Capture::Recording && t.duration_since(started) < Duration::from_secs(2)
+        })
+        .count();
+    assert!(ticks >= 5, "{ticks} ticks");
+    recorder.stop();
+}
+
+/// Remembers which speaker model each load asked for.
+struct AskedFor(Arc<Mutex<Vec<Option<String>>>>);
+
+impl crate::engines::DiarizerProvider for AskedFor {
+    fn models(&self) -> crate::engines::models::SpeakerModelList {
+        crate::engines::models::SpeakerModelList::default()
+    }
+    fn load(
+        &self,
+        id: Option<&str>,
+    ) -> Result<Box<dyn crate::engines::diarize::Diarizer>, crate::engines::diarize::DiarizeError>
+    {
+        self.0.lock().unwrap().push(id.map(str::to_owned));
+        Ok(Box::new(ScriptedDiarizer::new(vec![0])))
+    }
+}
+
+#[test]
+fn the_speaker_model_from_the_settings_is_loaded_and_reloaded_only_when_it_changes() {
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let rig = rig_with(talking, fake_stt());
+    let recorder = rig
+        .recorder
+        .with_diarizer(Box::new(AskedFor(asked.clone())));
+    rig.meetings.save(&consented()).unwrap();
+    let with = |id: Option<&str>| StartOptions {
+        speaker_model: id.map(str::to_owned),
+        ..StartOptions::default()
+    };
+    recorder
+        .start_with(&rig.meetings, "m-1", &with(Some("/m/a.onnx")))
+        .unwrap();
+    recorder.pause();
+    // Resume with the same choice: the loaded engine is kept.
+    recorder
+        .start_with(&rig.meetings, "m-1", &with(Some("/m/a.onnx")))
+        .unwrap();
+    recorder.pause();
+    // Another choice (or back to the preferred one): loaded again.
+    recorder
+        .start_with(&rig.meetings, "m-1", &with(None))
+        .unwrap();
+    recorder.stop();
+    assert_eq!(*asked.lock().unwrap(), [Some("/m/a.onnx".to_owned()), None]);
+}
+
+#[test]
+fn without_a_speaker_model_recording_and_transcription_run_as_before() {
+    let rig = rig_with(talking, fake_stt());
+    let recorder = rig.recorder.with_diarizer(Box::new(NoSpeakerModelProvider {
+        searched: vec!["/x/models".into()],
+    }));
+    rig.meetings.save(&consented()).unwrap();
+    recorder.start(&rig.meetings, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(6), || rig
+        .events
+        .finals()
+        .len()
+        >= 2));
+    recorder.stop();
+    assert_eq!(stored_voices(rig.transcripts.as_ref()), [None, None]);
+    assert!(rig.events.voices().is_empty());
+    assert_eq!(recorder.speaker_models().searched, ["/x/models"]);
+    assert!(recorder.speaker_models().models.is_empty());
+}
+
+#[test]
+fn voice_events_carry_only_the_label() {
+    let ev = VoiceEvent {
+        meeting_id: "m-1".into(),
+        seq: 4,
+        voice: voice('B'),
+    };
+    assert_eq!(
+        serde_json::to_value(ev).unwrap(),
+        serde_json::json!({ "meetingId": "m-1", "seq": 4, "voice": "B" })
+    );
+    let fin = SegmentEvent {
+        meeting_id: "m-1".into(),
+        seq: Some(3),
+        segment: Segment {
+            start_ms: 1,
+            end_ms: 2,
+            at: 3,
+            text: "x".into(),
+            lang: Lang::De,
+            is_final: true,
+            voice: Some(voice('A')),
+        },
+    };
+    assert_eq!(
+        serde_json::to_value(fin).unwrap(),
+        serde_json::json!({ "meetingId": "m-1", "seq": 3, "startMs": 1, "endMs": 2, "at": 3, "text": "x", "lang": "de", "final": true, "voice": "A" })
+    );
+}
+
+/// AC6 (job 004): with the fake audio, speech engine and diarizer on real files, only `.meeting` and
+/// `.transcript` files are left; the fake's embedding marker is in neither (after decryption).
+#[test]
+fn a_session_with_speaker_detection_keeps_no_embedding_anywhere() {
+    crate::log::capture();
+    let dir = tempfile::tempdir().unwrap();
+    let meetings_dir = dir.path().join("meetings");
+    let key = DataKey::generate();
+    let keys = MemoryKeyProvider::with_key(key.clone());
+    let store = FileMeetingStore::open(&meetings_dir, &keys).unwrap();
+    store.save(&consented()).unwrap();
+    let transcripts: Arc<dyn TranscriptStore> = Arc::new(store.transcripts());
+    let events = Events::new(Some(transcripts.clone()));
+    let recorder = Recorder::new(
+        Box::new(|| Box::new(three_turns())),
+        fake_stt(),
+        transcripts.clone(),
+        events.clone(),
+        || 1_000_000,
+    )
+    .with_diarizer(diarizer(|| ScriptedDiarizer::new(vec![0, 1, 0])));
+    recorder.start(&store, "m-1", None).unwrap();
+    assert!(wait_until(Duration::from_secs(8), || events.voices().len() >= 3));
+    recorder.pause();
+    recorder.stop();
+    assert!(!recorder.holds_voices());
+
+    let mut names = walk(dir.path());
+    names.sort();
+    assert_eq!(names, ["meetings/m-1.meeting", "meetings/m-1.transcript"]);
+    // Decrypted, the files hold labels but no embedding value.
+    let marker = format!("{FAKE_MARKER}");
+    let marker_short = format!("{:.5}", FAKE_MARKER);
+    let plain_meeting = serde_json::to_string(&store.load("m-1").unwrap().unwrap()).unwrap();
+    let plain_transcript = serde_json::to_string(&transcripts.load("m-1").unwrap()).unwrap();
+    for plain in [&plain_meeting, &plain_transcript] {
+        assert!(!plain.contains(&marker), "{plain}");
+        assert!(!plain.contains(&marker_short), "{plain}");
+    }
+    assert!(plain_transcript.contains("\"voice\":\"A\""));
+    let raw = std::fs::read(meetings_dir.join("m-1.transcript")).unwrap();
+    let marker_bytes = FAKE_MARKER.to_le_bytes();
+    assert!(!raw.windows(4).any(|w| w == marker_bytes));
+    for line in crate::log::take_captured() {
+        assert!(!line.contains(MARKER), "{line}");
+        assert!(!line.contains(&marker), "{line}");
+    }
 }
 
 /// An engine that is slower than the 1.5 s stall limit on every window (whisper in a debug build).
@@ -610,7 +1042,7 @@ fn a_lagging_engine_keeps_the_buffer_bounded_and_the_ticks_coming() {
     rig.meetings.save(&consented()).unwrap();
     rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
     std::thread::sleep(Duration::from_millis(5_500));
-    let sink = rig.recorder.inner().worker.as_ref().unwrap().0.clone();
+    let sink = rig.recorder.inner().worker.as_ref().unwrap().sink.clone();
     assert!(sink.dropped() > 0);
     assert!(sink.high_water() <= sink.capacity());
     assert_eq!(rig.recorder.status().state, Capture::Recording);
