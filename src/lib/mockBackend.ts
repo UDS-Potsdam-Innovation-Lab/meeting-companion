@@ -22,6 +22,7 @@ import {
   CAPTURE_OFF,
   DEFAULT_SETTINGS,
   EVENT_CAPTURE,
+  EVENT_LEVEL,
   EVENT_MIC_TEST,
   EVENT_SEGMENT,
   EVENT_SETTINGS,
@@ -30,6 +31,7 @@ import {
   MIC_TEST_OFF,
   type CachedSettings,
   type CaptureState,
+  type LevelEvent,
   type LineChoice,
   type LineTarget,
   type MicTestState,
@@ -65,6 +67,8 @@ const SPEAKER_MODELS_KEY = "mock-backend.speakerModels";
 const SETTINGS_KEY = "mock-backend.settings";
 /** `fixed`: the microphone test shows a still state (screenshots). */
 const MIC_TEST_KEY = "mock-backend.mic-test";
+/** The level the fake microphone delivers: `speech` (default), `silence` or `none` (no events). */
+const LEVEL_KEY = "mock-backend.level";
 
 type Fixture =
   | "empty"
@@ -89,7 +93,10 @@ type Fixture =
   | "settings-dark"
   | "settings-missing"
   | "live-mic-missing"
-  | "live-switched";
+  | "live-switched"
+  | "live-level-speech"
+  | "live-level-silence"
+  | "live-no-signal";
 
 const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   filled: filledMeeting,
@@ -112,6 +119,9 @@ const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   "settings-missing": filledMeeting,
   "live-mic-missing": liveConsentedMeeting,
   "live-switched": liveConsentedMeeting,
+  "live-level-speech": liveConsentedMeeting,
+  "live-level-silence": liveConsentedMeeting,
+  "live-no-signal": liveConsentedMeeting,
 };
 
 /** Input devices of the fake core: the system default is not one of them. */
@@ -199,6 +209,7 @@ function seed(fixture: Fixture) {
     SETTINGS_KEY,
     MIC_TEST_KEY,
     SPEAKER_MODELS_KEY,
+    LEVEL_KEY,
   ]) {
     localStorage.removeItem(k);
   }
@@ -242,7 +253,9 @@ function seed(fixture: Fixture) {
     fixture === "live-mic-error" ||
     fixture === "settings-recording" ||
     fixture === "live-switched" ||
-    fixture === "settings-dark"
+    fixture === "settings-dark" ||
+    fixture.startsWith("live-level") ||
+    fixture === "live-no-signal"
   ) {
     setTranscript(id!, LIVE_TRANSCRIPT);
   }
@@ -251,11 +264,18 @@ function seed(fixture: Fixture) {
     fixture === "live-transcript" ||
     fixture === "settings-recording" ||
     fixture === "settings-dark" ||
-    fixture === "live-switched"
+    fixture === "live-switched" ||
+    fixture === "live-level-speech"
   ) {
     capture = { state: "recording", meetingId: id, elapsedMs: LIVE_ELAPSED_MS, level: 0.55, reason: null };
     pendingPartial = { ...LIVE_PARTIAL, meetingId: id! };
   }
+  if (fixture === "live-level-silence" || fixture === "live-no-signal") {
+    capture = { state: "recording", meetingId: id, elapsedMs: LIVE_ELAPSED_MS, level: 0.05, reason: null };
+  }
+  if (fixture === "live-level-silence") localStorage.setItem(LEVEL_KEY, "silence");
+  if (fixture === "live-no-signal") localStorage.setItem(LEVEL_KEY, "none");
+  if (capture.state === "recording") startLevels(capture.meetingId);
   if (fixture === "live-paused") {
     capture = { state: "paused", meetingId: id, elapsedMs: LIVE_ELAPSED_MS, level: 0, reason: null };
   }
@@ -366,6 +386,50 @@ function setTranscript(id: string, segments: TranscriptSegment[]) {
 function setCapture(next: CaptureState) {
   capture = next;
   void emit(EVENT_CAPTURE, capture);
+  if (next.state === "recording") startLevels(next.meetingId);
+  else stopLevels();
+}
+
+// ---- the level stream (job 007) -------------------------------------------------------------------
+/** Level history of the frame (design/build/soundwave.py), one value per 100 ms, repeating. */
+const SPEECH_LEVELS = [
+  0.1, 0.32, 0.58, 0.41, 0.83, 0.52, 0.22, 0.47, 0.92, 0.68, 0.36, 0.63, 1.0, 0.74, 0.28, 0.55, 0.88, 0.59,
+  0.33, 0.71, 0.45, 0.8, 0.5, 0.26, 0.66, 0.95, 0.6, 0.38, 0.77, 0.54,
+];
+const SILENCE_LEVELS = [
+  0.06, 0.1, 0.04, 0.13, 0.07, 0.03, 0.09, 0.15, 0.05, 0.04, 0.11, 0.07, 0.03, 0.1, 0.06, 0.14, 0.04, 0.08,
+  0.12, 0.05, 0.09, 0.04, 0.13, 0.06, 0.03, 0.1, 0.07, 0.12, 0.05, 0.08,
+];
+/** Like the core: 25 level events a second while audio arrives. */
+const LEVEL_EVERY_MS = 40;
+let levelTimer: ReturnType<typeof setInterval> | null = null;
+let levelSource: string | null | undefined;
+
+/** A fixed sequence by the clock, so screenshots under a fixed clock are stable. */
+function levelAt(now: number): number {
+  const kind = localStorage.getItem(LEVEL_KEY);
+  const list = kind === "silence" ? SILENCE_LEVELS : SPEECH_LEVELS;
+  return list[Math.floor(now / 100) % list.length]!;
+}
+
+function startLevels(source: string | null) {
+  if (levelTimer !== null && levelSource === source) return;
+  stopLevels();
+  if (localStorage.getItem(LEVEL_KEY) === "none") return;
+  levelSource = source;
+  levelTimer = setInterval(() => {
+    const level = levelAt(Date.now());
+    void emit(EVENT_LEVEL, { meetingId: source, level, peak: Math.min(1, level * 0.6) } satisfies LevelEvent);
+  }, LEVEL_EVERY_MS);
+}
+
+function stopLevels() {
+  if (levelTimer === null) return;
+  clearInterval(levelTimer);
+  levelTimer = null;
+  // The last event before capture stops says 0.
+  void emit(EVENT_LEVEL, { meetingId: levelSource ?? null, level: 0, peak: 0 } satisfies LevelEvent);
+  levelSource = undefined;
 }
 
 function stopScript() {
@@ -454,6 +518,7 @@ function emitTest(state: MicTestState) {
 function stopTest() {
   if (testTimer !== null) clearInterval(testTimer);
   testTimer = null;
+  if (levelSource === null) stopLevels();
 }
 
 function startTest(): MicTestState {
@@ -461,6 +526,7 @@ function startTest(): MicTestState {
   if (localStorage.getItem(MIC_TEST_KEY) === "fixed") {
     const fixed: MicTestState = { state: "running", remainingMs: 6_400, level: 0.6, reason: null };
     setTimeout(() => emitTest(fixed), 0);
+    startLevels(null);
     return fixed;
   }
   const started = Date.now();
@@ -471,13 +537,9 @@ function startTest(): MicTestState {
       emitTest(MIC_TEST_OFF);
       return;
     }
-    emitTest({
-      state: "running",
-      remainingMs,
-      level: 0.3 + 0.4 * Math.abs(Math.sin(remainingMs / 300)),
-      reason: null,
-    });
-  }, 150);
+    emitTest({ state: "running", remainingMs, level: levelAt(Date.now()), reason: null });
+  }, 200);
+  startLevels(null);
   return { state: "running", remainingMs: 10_000, level: 0, reason: null };
 }
 

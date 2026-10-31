@@ -23,7 +23,10 @@ export type Fixture =
   | "settings-dark"
   | "settings-missing"
   | "live-mic-missing"
-  | "live-switched";
+  | "live-switched"
+  | "live-level-speech"
+  | "live-level-silence"
+  | "live-no-signal";
 
 /** Fixtures whose meeting is running: they open in the live view (the settings ones on top of it). */
 const LIVE_UNDER: Fixture[] = ["settings-recording", "settings-dark"];

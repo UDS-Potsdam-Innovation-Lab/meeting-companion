@@ -1,14 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useI18n, type MessageKey } from "../../i18n";
 import { useClock } from "../../lib/clock";
-import type { RecordReason } from "../../lib/ipc";
+import type { CaptureState, RecordReason } from "../../lib/ipc";
 import { GearIcon, MicIcon } from "../../ui/icons";
 import { LineSpeaker } from "../speakers/LineSpeaker";
 import { voiceCount } from "../speakers/model";
 import type { Speakers } from "../speakers/useSpeakers";
 import { useSettings } from "../settings/useSettings";
 import { formatClock } from "./format";
-import { LevelMeter } from "./LevelMeter";
+import { SoundWave, useNoSignal, type WaveState } from "../../ui/SoundWave";
 import type { Recording } from "./useRecording";
 
 /** New final lines are announced at most this often, as a count, never line by line. */
@@ -55,6 +55,8 @@ export function TranscriptPanel({
   const { capture, lines, partial } = recording;
   const active = capture.state === "recording" || capture.state === "paused";
   const error = capture.state === "error" ? capture.reason : null;
+  const noSignal = useNoSignal(capture.state === "recording", capture.meetingId);
+  const wave = waveState(capture.state, error, noSignal);
 
   return (
     <section className="transcript-card" aria-labelledby="transcript-heading">
@@ -96,24 +98,18 @@ export function TranscriptPanel({
           />
         ) : null}
       </div>
-      {active || lines.length > 0 ? (
+      {active || lines.length > 0 || wave === "lost" ? (
         <div className="transcript-card__footer">
-          <LevelMeter level={capture.level} active={capture.state === "recording"} />
+          <SoundWave state={wave} source={capture.meetingId} />
           <button
             type="button"
-            className="transcript-card__speakers"
+            className={`transcript-card__speakers transcript-card__speakers--${wave}`}
             onClick={onOpenSpeakers}
             data-speakers-button=""
           >
-            {tp(
-              capture.state === "recording"
-                ? "speakers.footer.listening"
-                : capture.state === "paused"
-                  ? "speakers.footer.paused"
-                  : "speakers.footer.off",
-              voiceCount(lines),
-            )}
+            {tp(FOOTER_KEYS[wave], voiceCount(lines))}
           </button>
+          <WaveStatus state={wave} />
         </div>
       ) : null}
       <Announcer received={recording.received} />
@@ -225,6 +221,50 @@ function Feed({
         </ol>
       ) : null}
     </div>
+  );
+}
+
+/** The footer's status word per wave state ("Listening · 3 speakers"). */
+const FOOTER_KEYS: Record<WaveState, string> = {
+  listening: "speakers.footer.listening",
+  paused: "speakers.footer.paused",
+  noSignal: "speakers.footer.noSignal",
+  lost: "speakers.footer.lost",
+  off: "speakers.footer.off",
+};
+
+/**
+ * What the sound wave shows: listening (or "No signal" after 500 ms without a level), paused, the
+ * microphone lost (gone mid-meeting, or none found on resume), or off.
+ */
+export function waveState(
+  state: CaptureState["state"],
+  error: RecordReason | null,
+  noSignal: boolean,
+): WaveState {
+  if (state === "recording") return noSignal ? "noSignal" : "listening";
+  if (state === "paused") return "paused";
+  if (error === "microphoneLost" || error === "noMicrophone") return "lost";
+  return "off";
+}
+
+const STATUS_KEYS: Partial<Record<WaveState, MessageKey>> = {
+  listening: "wave.listening",
+  paused: "wave.paused",
+  noSignal: "wave.noSignal",
+};
+
+/**
+ * Says the wave's state once per change ("No signal"), never per level. "Microphone lost" is left to
+ * the error notice's alert, so it is not said twice.
+ */
+function WaveStatus({ state }: { state: WaveState }) {
+  const { t } = useI18n();
+  const key = STATUS_KEYS[state];
+  return (
+    <span className="visually-hidden" role="status" data-testid="wave-status">
+      {key ? t(key) : null}
+    </span>
   );
 }
 

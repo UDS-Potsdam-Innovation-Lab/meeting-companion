@@ -1411,28 +1411,181 @@ select {
   color: var(--muted);
 }
 
-.level-meter {
+/* ---- sound wave (job 007, frame 15) -------------------------------------------------------------
+   A scrolling level history as mirrored bars (one per 100 ms, newest on the right, the oldest fade
+   out). The bars' heights and the row's offset are written by SoundWave.tsx per animation frame;
+   nothing here transitions. Flat states draw a 2 px line, "No signal" a dashed one. */
+.sound-wave {
+  --wave-bar: 3px;
+  --wave-gap: 2px;
+  --wave-height: 20px;
+  --wave-bars: 20;
+  position: relative;
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  height: 20px;
+  justify-content: flex-end;
+  width: calc(var(--wave-bars) * var(--wave-bar) + (var(--wave-bars) - 1) * var(--wave-gap));
+  height: var(--wave-height);
+  overflow: hidden;
 }
 
-.level-meter__bar {
-  width: 3px;
-  border-radius: 2px;
+.sound-wave--settings {
+  --wave-bar: 4px;
+  --wave-gap: 3px;
+  --wave-height: 32px;
+  --wave-bars: 30;
+}
+
+.sound-wave__row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--wave-gap);
+  height: 100%;
+  /* the oldest bars fade out, as in the frame (35 / 55 / 75 / 90 %) */
+  mask-image: linear-gradient(to right, transparent 0, var(--surface) 20%);
+  will-change: transform;
+}
+
+.sound-wave__bar {
+  flex: none;
+  width: var(--wave-bar);
+  height: 2px;
+  border-radius: calc(var(--wave-bar) / 2);
   background: var(--accent);
-  transition: height 0.15s ease-out;
 }
 
-.level-meter--flat .level-meter__bar {
-  height: 3px !important;
-  background: var(--line-strong);
+.sound-wave__line {
+  width: 100%;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--muted);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .level-meter__bar {
-    transition: none;
+.sound-wave[data-state="noSignal"] .sound-wave__line {
+  height: 0;
+  border-top: 2px dashed var(--muted);
+  border-radius: 0;
+  background: none;
+}
+
+/* Reduced motion: one static level bar, no transition, no animation. */
+.sound-wave__track {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.sound-wave--settings .sound-wave__track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.sound-wave__value {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: none;
+  animation: none;
+}
+
+.sound-wave--reduced[data-state="noSignal"] .sound-wave__track {
+  border-style: dashed;
+  border-color: var(--muted);
+}
+
+/* The footer's status word: "!" badges with the text, never colour alone. */
+.transcript-card__speakers--noSignal,
+.transcript-card__speakers--lost,
+.meter-box__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.transcript-card__speakers--listening,
+.transcript-card__speakers--noSignal {
+  color: var(--ink);
+}
+
+.transcript-card__speakers--lost,
+.meter-box__status--lost {
+  color: var(--overrun);
+}
+
+.meter-box__status {
+  margin-right: 6px;
+  color: var(--ink);
+}
+
+.meter-box__status::after {
+  content: "·";
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+.transcript-card__speakers--noSignal::before,
+.transcript-card__speakers--lost::before,
+.meter-box__status::before {
+  content: "!";
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--surface);
+  background: var(--warn-line);
+}
+
+.transcript-card__speakers--lost::before,
+.meter-box__status--lost::before {
+  background: var(--overrun);
+}
+
+/* Narrow windows: 12 bars in the footer, 14 in the settings; "Microphone lost" needs the room. */
+@media (max-width: 639px) {
+  .sound-wave {
+    --wave-bars: 12;
+  }
+
+  .sound-wave--settings {
+    --wave-bar: 3px;
+    --wave-gap: 2px;
+    --wave-bars: 14;
+  }
+
+  .transcript-card__footer .sound-wave[data-state="lost"] {
+    display: none;
+  }
+}
+
+/* Board (1920×1080): legible from 3 m. */
+@media (min-width: 1800px) and (min-height: 1000px) {
+  .transcript-card__footer .sound-wave {
+    --wave-bar: 5px;
+    --wave-gap: 3px;
+    --wave-height: 32px;
+  }
+
+  .transcript-card__footer {
+    gap: 12px;
+    padding: 16px 28px;
+  }
+
+  .transcript-card__speakers {
+    font-size: 16px;
   }
 }
 
@@ -2085,14 +2238,6 @@ select {
   padding: 10px 14px;
   border-radius: 10px;
   background: var(--sunken);
-}
-
-.meter-box .level-meter {
-  height: 30px;
-}
-
-.meter-box .level-meter__bar {
-  width: 4px;
 }
 
 .meter-box__text {

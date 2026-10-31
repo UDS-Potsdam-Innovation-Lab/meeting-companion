@@ -164,6 +164,10 @@
   "speakers.footer.listening.other": "Listening · {count} speakers",
   "speakers.footer.paused.one": "Paused · {count} speaker",
   "speakers.footer.paused.other": "Paused · {count} speakers",
+  "speakers.footer.noSignal.one": "No signal · {count} speaker",
+  "speakers.footer.noSignal.other": "No signal · {count} speakers",
+  "speakers.footer.lost.one": "Microphone lost · {count} speaker",
+  "speakers.footer.lost.other": "Microphone lost · {count} speakers",
   "speakers.back": "Back to meeting",
   "speakers.eyebrow": "Speakers",
   "speakers.title.one": "{count} voice detected · {matched} matched",
@@ -255,6 +259,7 @@
   "settings.test.level.recording": "Shows the running recording.",
   "settings.test.none": "No test running",
   "settings.test.recordingDevice": "Recording · {name}",
+  "settings.test.pausedDevice": "Recording paused · {name}",
   "settings.test.running": "Microphone test running",
   "settings.test.left": "{time} left",
   "settings.test.start": "Test microphone",
@@ -319,5 +324,9 @@
   "settings.speaker.gone": "Not found any more",
   "settings.speaker.goneOption": "{name} (not found any more)",
   "settings.speaker.gone.title": "The chosen model was moved or deleted.",
-  "settings.speaker.gone.body": "Until you choose again, the app uses {name} ({meta})."
+  "settings.speaker.gone.body": "Until you choose again, the app uses {name} ({meta}).",
+  "wave.listening": "Listening",
+  "wave.paused": "Paused",
+  "wave.noSignal": "No signal",
+  "wave.lost": "Microphone lost"
 }
