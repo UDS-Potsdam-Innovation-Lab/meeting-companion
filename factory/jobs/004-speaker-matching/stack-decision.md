@@ -18,3 +18,7 @@ CONFIRMED as proposed in spec.md: official `sherpa-onnx = "=2.0.1"` crate (speak
 
 - Include the per-line "Who said this?" picker on transcript lines (works without a model; also fixes wrong labels). Stored as line overrides in the meeting file, as the spec proposes.
 - The orchestrator will place a speaker model on the dev machine after the merge; the job itself does not download models.
+
+## Stack change during build (human, 2026-10-31)
+
+ACCEPTED: sherpa-onnx =2.0.1 static is linked via `SHERPA_ONNX_LIB_DIR` from `src-tauri/native/lib`, filled by `node scripts/sherpa-onnx.mjs fetch` (SHA-256 checked against `src-tauri/native/sherpa-onnx.sha256`; on Linux the libraries' weak C++ std symbols are renamed with objcopy to avoid the onnxruntime/whisper.cpp libstdc++ clash). Every checkout runs the fetch step once; CI runs it.

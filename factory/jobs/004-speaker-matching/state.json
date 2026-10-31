@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "build",
+  "stage": "review",
   "round": 1,
   "max_round": 3,
   "reviews": {
@@ -19,6 +19,6 @@
   "history": [],
   "decision": null,
   "waiting": null,
-  "note": "Stack confirmed; building",
-  "updated": "2026-10-30T20:19:05Z"
+  "note": "Round 1 reviews and CI running (stack change accepted)",
+  "updated": "2026-10-31T08:48:26Z"
 }
