@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "review",
+  "stage": "needs-human",
   "round": 1,
   "max_round": 3,
   "reviews": {
@@ -17,8 +17,8 @@
     "code": "PASS"
   },
   "history": [],
-  "decision": null,
-  "waiting": null,
-  "note": "All reviews PASS; waiting for CI",
-  "updated": "2026-10-31T18:39:38Z"
+  "decision": "ESCALATE (human gate)",
+  "waiting": "merge approval",
+  "note": "All reviews PASS, CI green; human gate (first listening port)",
+  "updated": "2026-10-31T18:57:46Z"
 }
