@@ -182,6 +182,8 @@ export interface Settings {
   deviceLost: DeviceLost;
   /** `null`: the preferred model of the core's scan. */
   speechModel: string | null;
+  /** `null`: the preferred speaker model of the core's scan. */
+  speakerModel: string | null;
   meetingLanguage: MeetingLanguage;
   locale: LocaleSetting;
   theme: ThemeSetting;
@@ -191,6 +193,7 @@ export const DEFAULT_SETTINGS: Settings = {
   inputDevice: null,
   deviceLost: "stop",
   speechModel: null,
+  speakerModel: null,
   meetingLanguage: "auto",
   locale: "de",
   theme: "system",
@@ -200,6 +203,7 @@ export type SettingChange =
   | { key: "inputDevice"; value: string | null }
   | { key: "deviceLost"; value: DeviceLost }
   | { key: "speechModel"; value: string | null }
+  | { key: "speakerModel"; value: string | null }
   | { key: "meetingLanguage"; value: MeetingLanguage }
   | { key: "locale"; value: LocaleSetting }
   | { key: "theme"; value: ThemeSetting };

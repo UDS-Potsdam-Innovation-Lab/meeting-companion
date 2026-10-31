@@ -21,7 +21,12 @@ impl Catalog for Known {
     fn speech_models(&self) -> Vec<String> {
         self.models.clone()
     }
+    fn speaker_models(&self) -> Vec<String> {
+        vec![SPEAKER.into()]
+    }
 }
+
+const SPEAKER: &str = "/m/campplus.onnx";
 
 fn known() -> Known {
     Known {
@@ -35,6 +40,7 @@ fn all_changed() -> Settings {
         input_device: Some(DEVICE.into()),
         device_lost: DeviceLost::SwitchToDefault,
         speech_model: Some(MODEL.into()),
+        speaker_model: Some(SPEAKER.into()),
         meeting_language: MeetingLanguage::En,
         locale: Locale::En,
         theme: Theme::Dark,
@@ -85,6 +91,7 @@ fn every_setting_round_trips_through_the_file_and_the_memory_store() {
         change("inputDevice", json!(DEVICE)),
         change("deviceLost", json!("switchToDefault")),
         change("speechModel", json!(MODEL)),
+        change("speakerModel", json!(SPEAKER)),
         change("meetingLanguage", json!("en")),
         change("locale", json!("en")),
         change("theme", json!("dark")),
@@ -122,6 +129,7 @@ fn defaults_are_today_s_behaviour() {
             "inputDevice": null,
             "deviceLost": "stop",
             "speechModel": null,
+            "speakerModel": null,
             "meetingLanguage": "auto",
             "locale": "de",
             "theme": "system"
@@ -473,4 +481,30 @@ fn device_names_model_paths_and_values_never_reach_logs_or_errors() {
             assert!(!line.contains(needle), "leaked into: {line}");
         }
     }
+}
+
+#[test]
+fn the_speaker_model_is_accepted_only_from_the_scan_and_can_go_back_to_preferred() {
+    let base = Settings::default();
+    let ok = parse_change(&serde_json::json!({ "key": "speakerModel", "value": SPEAKER })).unwrap();
+    let next = apply(&base, ok, &known()).unwrap();
+    assert_eq!(next.speaker_model.as_deref(), Some(SPEAKER));
+    for bad in ["/etc/passwd", MODEL, "", "x\u{0}y"] {
+        let change =
+            parse_change(&serde_json::json!({ "key": "speakerModel", "value": bad })).unwrap();
+        assert_eq!(
+            apply(&next, change, &known()),
+            Err(SettingsError::Invalid {
+                key: Some("speakerModel")
+            }),
+            "{bad:?}"
+        );
+    }
+    let back = parse_change(&serde_json::json!({ "key": "speakerModel", "value": null })).unwrap();
+    assert_eq!(apply(&next, back, &known()).unwrap().speaker_model, None);
+    // Stored files without the key (job 006) load with the preferred model.
+    let old = Settings::from_stored(br#"{"speechModel":"/m/ggml-base.bin"}"#).unwrap();
+    assert_eq!(old.speaker_model, None);
+    let stored = Settings::from_stored(br#"{"speakerModel":"/m/campplus.onnx"}"#).unwrap();
+    assert_eq!(stored.speaker_model.as_deref(), Some(SPEAKER));
 }

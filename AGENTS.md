@@ -66,7 +66,7 @@ STATUS: CONFIGURED
     of at most 3 s; encrypted append-only `<id>.transcript` store, one record per final segment with an optional `voice`), `src/recording/`
     (`Recorder`: consent gate, transcript worker, diarizer thread, capture states, the chosen microphone and "switch to the system default",
     `mic_test.rs` the 10 s microphone test), `src/settings/` (`SettingsStore`: the sealed
-    `<app_data>/settings` file, closed schema, `SettingsService`), `src/speakers/` (name-round suggestions and the voice/line choices stored in
+    `<app_data>/settings` file, closed schema incl. `speakerModel`, `SettingsService`), `src/speakers/` (name-round suggestions and the voice/line choices stored in
     the meeting file), `src/log.rs` (the only log output; never content).
   - `e2e/` — Playwright specs (axe, keyboard, layout); `e2e/screenshots/` for `npm run screenshot`.
   - `.github/workflows/ci.yml` — lint, test, compile and smoke test. Linux (`ubuntu-latest`) is the only

@@ -309,5 +309,15 @@
   "recording.switched.title": "Switched to the system microphone",
   "recording.switched.body": "{name} stopped at {time}. Recording carries on with the system default.",
   "recording.switched.bodyNoName": "The microphone stopped at {time}. Recording carries on with the system default.",
-  "recording.switched.dismiss": "Dismiss"
+  "recording.switched.dismiss": "Dismiss",
+  "settings.speaker.title": "Speaker model",
+  "settings.speaker.hint": "Tells voices apart so names can be matched. Optional.",
+  "settings.speaker.label": "Tell voices apart with",
+  "settings.speaker.meta": "{size} · {source}",
+  "settings.speaker.none.title": "None found",
+  "settings.speaker.none.body": "The app looks for sherpa-onnx speaker models (….onnx) in these folders. Without one, lines can still be assigned by hand.",
+  "settings.speaker.gone": "Not found any more",
+  "settings.speaker.goneOption": "{name} (not found any more)",
+  "settings.speaker.gone.title": "The chosen model was moved or deleted.",
+  "settings.speaker.gone.body": "Until you choose again, the app uses {name} ({meta})."
 }

@@ -309,5 +309,15 @@
   "recording.switched.title": "Zum Systemmikrofon gewechselt",
   "recording.switched.body": "{name} ist um {time} ausgefallen. Die Aufnahme läuft mit dem Systemstandard weiter.",
   "recording.switched.bodyNoName": "Das Mikrofon ist um {time} ausgefallen. Die Aufnahme läuft mit dem Systemstandard weiter.",
-  "recording.switched.dismiss": "Ausblenden"
+  "recording.switched.dismiss": "Ausblenden",
+  "settings.speaker.title": "Sprechermodell",
+  "settings.speaker.hint": "Unterscheidet Stimmen, damit Namen zugeordnet werden können. Optional.",
+  "settings.speaker.label": "Stimmen unterscheiden mit",
+  "settings.speaker.meta": "{size} · {source}",
+  "settings.speaker.none.title": "Keines gefunden",
+  "settings.speaker.none.body": "Die App sucht sherpa-onnx-Sprechermodelle (….onnx) in diesen Ordnern. Ohne Modell lassen sich Zeilen trotzdem von Hand zuordnen.",
+  "settings.speaker.gone": "Nicht mehr gefunden",
+  "settings.speaker.goneOption": "{name} (nicht mehr gefunden)",
+  "settings.speaker.gone.title": "Das gewählte Modell wurde verschoben oder gelöscht.",
+  "settings.speaker.gone.body": "Bis du neu wählst, verwendet die App {name} ({meta})."
 }

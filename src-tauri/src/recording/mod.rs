@@ -203,6 +203,8 @@ pub struct StartOptions {
     pub language: Option<Lang>,
     /// What happens when the microphone disappears while recording.
     pub on_lost: DeviceLost,
+    /// Speaker model id from the core's scan; `None` or an id no longer found: the preferred one.
+    pub speaker_model: Option<String>,
 }
 
 struct Shared {
@@ -255,6 +257,8 @@ struct Worker {
     sink: AudioSink,
     handle: JoinHandle<Returned>,
     model: Option<String>,
+    /// The speaker model id its diarizer was loaded for.
+    speaker_model: Option<String>,
     meeting_id: String,
 }
 
@@ -263,8 +267,8 @@ struct Inner {
     worker: Option<Worker>,
     /// A loaded engine kept between sessions, with the model id it was asked for.
     engine: Option<(Option<String>, Box<dyn SpeechToText>)>,
-    /// A loaded speaker engine kept between sessions.
-    diarizer: Option<Box<dyn Diarizer>>,
+    /// A loaded speaker engine kept between sessions, with the model id it was asked for.
+    diarizer: Option<(Option<String>, Box<dyn Diarizer>)>,
     /// The voices of the meeting recorded last, kept across Pause/Resume (memory only).
     voices: Option<(String, VoiceTracker)>,
     /// Recorded time per meeting in this app session.
@@ -432,16 +436,17 @@ impl Recorder {
         // A microphone test gives the device back before the meeting takes it.
         self.stop_test();
         // Speaker detection is optional: without a model, recording runs without voices.
-        let diarizer = inner
-            .diarizer
-            .take()
-            .or_else(|| match self.diarize.load(None) {
+        let speaker_model = opts.speaker_model.clone();
+        let diarizer = match inner.diarizer.take() {
+            Some((id, d)) if id == speaker_model => Some(d),
+            _ => match self.diarize.load(speaker_model.as_deref()) {
                 Ok(d) => Some(d),
                 Err(e) => {
                     crate::log!("speaker detection is off: {e}");
                     None
                 }
-            });
+            },
+        };
         let tracker = match inner.voices.take() {
             Some((id, t)) if id == meeting_id => t,
             _ => VoiceTracker::new(writer.highest_voice().map_or(0, |v| v.index() + 1)),
@@ -452,14 +457,14 @@ impl Recorder {
             Ok(s) => s,
             Err(reason) => {
                 inner.engine = Some((wanted, engine));
-                inner.diarizer = diarizer;
+                inner.diarizer = diarizer.map(|d| (speaker_model.clone(), d));
                 inner.voices = Some((meeting_id.to_owned(), tracker));
                 return Err(self.refuse(meeting_id, reason));
             }
         };
         if let Err(e) = source.start(sink.clone()) {
             inner.engine = Some((wanted, engine));
-            inner.diarizer = diarizer;
+            inner.diarizer = diarizer.map(|d| (speaker_model.clone(), d));
             inner.voices = Some((meeting_id.to_owned(), tracker));
             let reason = match (e, &opts.device) {
                 (AudioError::NoMicrophone, Some(_)) => Reason::ChosenMicrophoneMissing,
@@ -516,6 +521,7 @@ impl Recorder {
             sink,
             handle,
             model: wanted,
+            speaker_model,
             meeting_id: meeting_id.to_owned(),
         });
         Ok(state)
@@ -564,7 +570,7 @@ impl Recorder {
                 Ok(returned) => {
                     inner.engine = Some((w.model, returned.stt));
                     if let Some((diarizer, tracker)) = returned.speakers {
-                        inner.diarizer = Some(diarizer);
+                        inner.diarizer = Some((w.speaker_model, diarizer));
                         inner.voices = Some((w.meeting_id, tracker));
                     }
                 }

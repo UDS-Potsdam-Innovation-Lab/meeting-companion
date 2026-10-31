@@ -774,6 +774,52 @@ fn a_slow_diarizer_delays_neither_capture_ticks_nor_loss_detection() {
     recorder.stop();
 }
 
+/// Remembers which speaker model each load asked for.
+struct AskedFor(Arc<Mutex<Vec<Option<String>>>>);
+
+impl crate::engines::DiarizerProvider for AskedFor {
+    fn models(&self) -> crate::engines::models::SpeakerModelList {
+        crate::engines::models::SpeakerModelList::default()
+    }
+    fn load(
+        &self,
+        id: Option<&str>,
+    ) -> Result<Box<dyn crate::engines::diarize::Diarizer>, crate::engines::diarize::DiarizeError>
+    {
+        self.0.lock().unwrap().push(id.map(str::to_owned));
+        Ok(Box::new(ScriptedDiarizer::new(vec![0])))
+    }
+}
+
+#[test]
+fn the_speaker_model_from_the_settings_is_loaded_and_reloaded_only_when_it_changes() {
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let rig = rig_with(talking, fake_stt());
+    let recorder = rig
+        .recorder
+        .with_diarizer(Box::new(AskedFor(asked.clone())));
+    rig.meetings.save(&consented()).unwrap();
+    let with = |id: Option<&str>| StartOptions {
+        speaker_model: id.map(str::to_owned),
+        ..StartOptions::default()
+    };
+    recorder
+        .start_with(&rig.meetings, "m-1", &with(Some("/m/a.onnx")))
+        .unwrap();
+    recorder.pause();
+    // Resume with the same choice: the loaded engine is kept.
+    recorder
+        .start_with(&rig.meetings, "m-1", &with(Some("/m/a.onnx")))
+        .unwrap();
+    recorder.pause();
+    // Another choice (or back to the preferred one): loaded again.
+    recorder
+        .start_with(&rig.meetings, "m-1", &with(None))
+        .unwrap();
+    recorder.stop();
+    assert_eq!(*asked.lock().unwrap(), [Some("/m/a.onnx".to_owned()), None]);
+}
+
 #[test]
 fn without_a_speaker_model_recording_and_transcription_run_as_before() {
     let rig = rig_with(talking, fake_stt());

@@ -514,3 +514,60 @@ describe("AC6 General", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 });
+
+describe("Job 004: the speaker model in On this device (frame 14d)", () => {
+  const TWO = {
+    models: [
+      {
+        id: "/m/campplus.onnx",
+        name: "campplus.onnx",
+        sizeBytes: 28_281_164,
+        source: "app" as const,
+        folder: "/m",
+      },
+      {
+        id: "/hf/resnet34.onnx",
+        name: "wespeaker_en_voxceleb_resnet34.onnx",
+        sizeBytes: 26_500_000,
+        source: "huggingFace" as const,
+        folder: "/hf",
+      },
+    ],
+    searched: ["/m", "/hf"],
+  };
+
+  async function open(rec: FakeRecording) {
+    const user = userEvent.setup();
+    const utils = await setup(rec);
+    await user.click(settingsButton());
+    await user.click(screen.getByRole("tab", { name: /On this device/ }));
+    return { user, ...utils };
+  }
+
+  it("lists the models found, uses the preferred one and stores a choice", async () => {
+    const { user, core } = await open({ speakerModels: TWO });
+    const select = await screen.findByRole("combobox", { name: "Tell voices apart with" });
+    expect(select).toHaveValue("/m/campplus.onnx");
+    expect(select).toHaveAccessibleDescription("28 MB · Meeting Companion");
+    await user.selectOptions(select, "/hf/resnet34.onnx");
+    expect(changes(core)).toEqual([{ key: "speakerModel", value: "/hf/resnet34.onnx" }]);
+    await waitFor(() => expect(select).toHaveValue("/hf/resnet34.onnx"));
+  });
+
+  it("says None found and lists the folders searched", async () => {
+    await open({ speakerModels: { models: [], searched: ["/data/app/models", "/home/u/.cache/hf"] } });
+    expect(await screen.findByText("None found")).toBeVisible();
+    expect(screen.getByText("/home/u/.cache/hf")).toBeVisible();
+  });
+
+  it("a chosen model that has disappeared reads Not found any more, with the one used instead", async () => {
+    await open({
+      speakerModels: TWO,
+      settings: { speakerModel: "/gone/wespeaker_en_voxceleb_resnet34.onnx" },
+    });
+    const select = await screen.findByRole("combobox", { name: "Tell voices apart with" });
+    expect(select).toHaveAccessibleDescription("Not found any more");
+    expect(screen.getByText("The chosen model was moved or deleted.")).toBeVisible();
+    expect(screen.getByText(/the app uses campplus\.onnx \(28 MB · Meeting Companion\)/)).toBeVisible();
+  });
+});

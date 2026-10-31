@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import de from "./de.json";
 import en from "./en.json";
-import { renderApp } from "../test/backend";
+import { FAKE_SPEAKER_MODELS, renderApp } from "../test/backend";
 import {
   filledMeeting,
   FIXTURE_PARTICIPANTS,
@@ -171,7 +171,13 @@ describe("AC7 (job 006) no literal strings in the settings view and its frame 02
     await user.click(screen.getByRole("button", { name: "⟦settings.open⟧" }));
     // Audio, with the chosen device missing.
     await screen.findByText("⟦settings.audio.missing.title⟧");
-    const data = [...DEVICES, ...MODELS, STORAGE, "Gone Mic"];
+    const data = [
+      ...DEVICES,
+      ...MODELS,
+      ...FAKE_SPEAKER_MODELS.models.map((m) => m.name),
+      STORAGE,
+      "Gone Mic",
+    ];
     expect(literalOffenders(container, meeting, data)).toEqual([]);
     // Recording: the meter shows the meeting.
     await sendState({});

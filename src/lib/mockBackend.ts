@@ -433,10 +433,17 @@ const ENUMS: Partial<Record<SettingChange["key"], readonly string[]>> = {
 };
 
 /** Like the core: only values in the schema, connected devices and models of the scan. */
+function speakerModelList(): SpeakerModelList {
+  return localStorage.getItem(SPEAKER_MODELS_KEY) === "none"
+    ? { models: [], searched: SPEAKER_SEARCHED }
+    : SPEAKER_MODELS;
+}
+
 function valid(change: SettingChange): boolean {
   const { key, value } = change;
   if (key === "inputDevice") return value === null || DEVICES.includes(value);
   if (key === "speechModel") return value === null || modelList().models.some((m) => m.id === value);
+  if (key === "speakerModel") return value === null || speakerModelList().models.some((m) => m.id === value);
   return ENUMS[key]?.includes(value as string) ?? false;
 }
 
@@ -587,9 +594,7 @@ export function installMockBackend() {
         case "list_speech_models":
           return modelList();
         case "list_speaker_models":
-          return localStorage.getItem(SPEAKER_MODELS_KEY) === "none"
-            ? { models: [], searched: SPEAKER_SEARCHED }
-            : SPEAKER_MODELS;
+          return speakerModelList();
         case "load_speakers":
           return speakerState(speakerMeeting(a.meetingId as string));
         case "choose_voice": {

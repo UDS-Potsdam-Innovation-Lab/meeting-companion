@@ -97,6 +97,13 @@ impl Catalog for Recorder {
     fn speech_models(&self) -> Vec<String> {
         self.models().models.into_iter().map(|m| m.id).collect()
     }
+    fn speaker_models(&self) -> Vec<String> {
+        self.speaker_models()
+            .models
+            .into_iter()
+            .map(|m| m.id)
+            .collect()
+    }
 }
 
 /// The settings for a recording session.
@@ -106,6 +113,7 @@ pub fn start_options(s: &settings::Settings) -> StartOptions {
         device: s.input_device.clone(),
         language: s.meeting_language.hint(),
         on_lost: s.device_lost,
+        speaker_model: s.speaker_model.clone(),
     }
 }
 
@@ -804,6 +812,7 @@ mod tests {
             speech_model: Some("/m/ggml-small.bin".into()),
             meeting_language: settings::MeetingLanguage::De,
             device_lost: settings::DeviceLost::SwitchToDefault,
+            speaker_model: Some("/m/campplus.onnx".into()),
             ..settings::Settings::default()
         };
         assert_eq!(
@@ -813,6 +822,7 @@ mod tests {
                 device: Some("Room mic".into()),
                 language: Some(engines::stt::Lang::De),
                 on_lost: settings::DeviceLost::SwitchToDefault,
+                speaker_model: Some("/m/campplus.onnx".into()),
             }
         );
         let d = start_options(&settings::Settings::default());
