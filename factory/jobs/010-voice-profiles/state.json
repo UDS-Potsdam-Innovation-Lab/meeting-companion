@@ -10,10 +10,15 @@
   "stage": "spec",
   "round": 0,
   "max_round": 3,
-  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
+  "reviews": {
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
+  },
   "history": [],
   "decision": null,
-  "waiting": null,
-  "note": "Spec being written",
-  "updated": "2026-10-31T14:28:29Z"
+  "waiting": "legal check + stack decision",
+  "note": "Spec written; waits for GDPR Art. 9 legal check, stack (axum, qrcodegen) and FigCraft design",
+  "updated": "2026-10-31T14:30:55Z"
 }

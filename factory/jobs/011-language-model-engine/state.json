@@ -10,10 +10,15 @@
   "stage": "spec",
   "round": 0,
   "max_round": 3,
-  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
+  "reviews": {
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
+  },
   "history": [],
   "decision": null,
-  "waiting": null,
-  "note": "Spec being written",
-  "updated": "2026-10-31T14:28:29Z"
+  "waiting": "design",
+  "note": "Spec written; FigCraft frames needed (workspace 3), human gate at merge",
+  "updated": "2026-10-31T14:30:55Z"
 }
