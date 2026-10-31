@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import de from "./de.json";
 import en from "./en.json";
-import { FAKE_SPEAKER_MODELS, renderApp } from "../test/backend";
+import { FAKE_LLM_MODELS, FAKE_SPEAKER_MODELS, renderApp } from "../test/backend";
 import {
   filledMeeting,
   FIXTURE_PARTICIPANTS,
@@ -356,5 +356,81 @@ describe("AC7 (job 009) no literal strings in agenda-free mode", () => {
     );
     expect(screen.getByText("⟦free.topics.empty.title⟧")).toBeInTheDocument();
     expect(literalOffenders(r.container, empty)).toEqual([]);
+  });
+});
+
+describe("AC5 (job 011) no literal strings in the language model section", () => {
+  it("engine choice, confirmation, local list, gone, key states and test results come from keys", async () => {
+    const user = userEvent.setup();
+    const meeting = filledMeeting();
+    const data = [
+      ...FAKE_LLM_MODELS.models.map((m) => m.name),
+      ...FAKE_LLM_MODELS.searched,
+      "x.gguf",
+      "⟦model.foundIn⟧",
+    ];
+    const open = async () => {
+      await user.click(screen.getByRole("button", { name: "⟦settings.open⟧" }));
+      await user.click(screen.getByRole("tab", { name: /settings.section.llm⟧/ }));
+    };
+    const first = await renderApp(
+      { meeting, error: null },
+      { keyMode: true, recording: { llmTest: () => Promise.reject({ kind: "rateLimited" }) } },
+    );
+    await open();
+    await user.click(screen.getByRole("radio", { name: /settings.llm.claude⟧/ }));
+    await screen.findByText("⟦settings.llm.confirm.title⟧");
+    expect(literalOffenders(first.container, meeting, data)).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "⟦settings.llm.confirm.use⟧" }));
+    await screen.findByText("⟦settings.llm.key.none⟧");
+    await user.type(screen.getByLabelText("⟦settings.llm.key.field⟧"), "bad key");
+    await user.click(screen.getByRole("button", { name: "⟦settings.llm.key.save⟧" }));
+    await screen.findByText("⟦settings.llm.key.invalid⟧");
+    expect(literalOffenders(first.container, meeting, data)).toEqual([]);
+    await user.click(screen.getByRole("radio", { name: /settings.llm.local⟧/ }));
+    await screen.findByText("⟦settings.llm.local.title⟧");
+    await user.click(screen.getByRole("button", { name: "⟦settings.llm.test.run⟧" }));
+    await screen.findByText("⟦settings.llm.error.rateLimited.title⟧");
+    expect(literalOffenders(first.container, meeting, data)).toEqual([]);
+    first.unmount();
+
+    // A chosen model that is gone, nothing found, a saved key and a reply.
+    const second = await renderApp(
+      { meeting, error: null },
+      {
+        keyMode: true,
+        recording: {
+          settings: { languageModel: { local: "/gone/x.gguf" } },
+          llmModels: { models: [], searched: ["/m"], available: true },
+        },
+      },
+    );
+    await open();
+    await screen.findByText("⟦settings.llm.local.gone.title⟧");
+    expect(literalOffenders(second.container, meeting, data)).toEqual([]);
+    second.unmount();
+    const third = await renderApp(
+      { meeting, error: null },
+      { keyMode: true, recording: { settings: { languageModel: "claude" }, apiKeySet: true } },
+    );
+    await open();
+    await screen.findByText("⟦settings.llm.key.saved⟧");
+    await user.click(screen.getByRole("button", { name: "⟦settings.llm.key.remove⟧" }));
+    await screen.findByText("⟦settings.llm.key.removeConfirm.title⟧");
+    await user.click(screen.getByRole("button", { name: "⟦settings.llm.test.run⟧" }));
+    const reply = await screen.findByTestId("llm-reply-text");
+    expect(literalOffenders(third.container, meeting, [...data, reply.textContent ?? ""])).toEqual([]);
+  });
+
+  it("the sample text shown is the text the core sends, in both languages", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const core = readFileSync(join(__dirname, "../../src-tauri/src/language_model.rs"), "utf8");
+    for (const dict of [de, en]) {
+      const shown = dict["settings.llm.test.sample"];
+      const sent = shown.slice(shown.indexOf(": ") + 2, -1);
+      expect(sent.length).toBeGreaterThan(40);
+      expect(core).toContain(`"${sent}"`);
+    }
   });
 });

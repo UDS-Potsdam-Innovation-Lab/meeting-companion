@@ -44,7 +44,8 @@ STATUS: CONFIGURED
   (`vite build --mode e2e`, `.env.e2e` sets `VITE_MOCK_IPC=1`; open `/?fixture=empty|filled|over|corrupt|locked|live|live-done`
   or the transcript fixtures `live-transcript|live-paused|live-mic-error|live-no-model`, the settings fixtures
   `settings|settings-no-model|settings-mic-test|settings-recording|settings-dark|settings-missing` (they open the
-  settings view) and `live-mic-missing|live-switched`, the sound-wave fixtures `live-level-speech|live-level-silence|live-no-signal`
+  settings view), the language model fixtures `settings-llm-off|settings-llm-local|settings-llm-none-found|settings-llm-claude|settings-llm-claude-nokey|settings-llm-error`
+  (they open frame 17; `&theme=dark` opens a settings fixture in the dark theme) and `live-mic-missing|live-switched`, the sound-wave fixtures `live-level-speech|live-level-silence|live-no-signal`
   (the mock core sends a fixed level sequence by the clock; wave screenshots install Playwright's clock and run the last 3 s on it),
   and the speaker fixtures `speakers|speakers-empty|speakers-no-model|live-speakers` (open frame 06 with the footer button),
   and the agenda-free fixtures `free` (setup) and `live-free|live-free-empty` (frame 16);
@@ -64,12 +65,20 @@ STATUS: CONFIGURED
     `AudioDevices` + `FakeAudioDevices` (input devices by name), `stt.rs` `SpeechToText` + `ScriptedSpeechToText`,
     `whisper.rs` whisper.cpp, `diarize.rs` `Diarizer` + `ScriptedDiarizer` and the in-memory
     `VoiceClusterer`/`VoiceTracker` (voice labels `A`–`Z`), `sherpa.rs` `SherpaDiarizer` (sherpa-onnx
-    `SpeakerEmbeddingExtractor` only), `models.rs` the read-only search for whisper ggml and sherpa-onnx
-    speaker models already on the device — the one list of model folders per OS), `src/transcript/` (`Transcriber` pipeline, windows
+    `SpeakerEmbeddingExtractor` only), `models.rs` the read-only search for whisper ggml, sherpa-onnx
+    speaker models and GGUF language models (`ModelKind::Llm`) already on the device — the one list of model folders per OS;
+    `llm.rs` `LanguageModel` + `ScriptedLanguageModel`, `Prompt::build` (fixed `&'static str` instructions, untrusted
+    content cut at its limit, escaped and wrapped in `<untrusted_content>`), `run_cancellable`; `claude.rs` the Claude
+    API engine behind the `Transport` trait (`UreqTransport`: ureq 3 + rustls, `https://api.anthropic.com/v1/messages` only,
+    no proxy, 10 s connect / 60 s total, no retry)), `src/language_model.rs` (`build_engine` from the `languageModel`
+    setting, never a fallback; `LocalLlmProvider` with `NoLocalRuntime` in this build, see below; `LanguageModelService`:
+    the settings view's cancellable "Test"), `src/secrets.rs` (`SecretStore`: `KeychainSecretStore`, account
+    `anthropic-api-key`, and `MemorySecretStore`; the UI only learns `{ set }`), `src/transcript/` (`Transcriber` pipeline, windows
     of at most 3 s; encrypted append-only `<id>.transcript` store, one record per final segment with an optional `voice`), `src/recording/`
     (`Recorder`: consent gate, transcript worker, diarizer thread, capture states, the chosen microphone and "switch to the system default",
     `mic_test.rs` the 10 s microphone test), `src/settings/` (`SettingsStore`: the sealed
-    `<app_data>/settings` file, closed schema incl. `speakerModel`, `SettingsService`), `src/engines/level.rs` (the input
+    `<app_data>/settings` file, closed schema incl. `speakerModel`, `languageModel` (`"none"` | `{ "local": id }` | `"claude"`)
+    and `claudeModel` (`sonnet` | `haiku` | `opus`), `SettingsService`), `src/engines/level.rs` (the input
     level measured in `AudioSink::push`, scaled RMS `min(1, rms × 4)`, sent as the `capture-level` event 25×/s while audio
     arrives, by the recording's monitor thread and the microphone test; numbers only, never stored or logged), `src/speakers/` (name-round suggestions and the voice/line choices stored in
     the meeting file), `src/log.rs` (the only log output; never content).
@@ -120,6 +129,11 @@ STATUS: CONFIGURED
   After a new fetch: `cargo clean --manifest-path src-tauri/Cargo.toml -p sherpa-onnx-sys`.
   `node scripts/sherpa-onnx.mjs verify` checks archive and libraries; CI runs both and checks that a
   corrupted archive fails.
+- Network: the only outbound connection is the Claude API (HTTPS to api.anthropic.com from `engines/claude.rs`), made
+  only while a person has chosen "Claude API (cloud)"; `src/config.test.ts` pins the one HTTP client, its host and
+  its settings. The local language model runtime (llama.cpp) is not linked yet: `llama-cpp-sys-2` and `whisper-rs-sys`
+  both ship static `libggml*.a` under the same names, so one silently replaces the other. "On this device" shows as
+  not available until a follow-up links one shared ggml.
 - Rules: no literal user-facing strings in JSX (ESLint `react/jsx-no-literals` and a key-mode test);
   user text is rendered as text only (`react/no-danger`); no Tauri HTTP/shell plugins and a CSP whose
   `connect-src` allows only IPC (`src/config.test.ts`).
@@ -127,4 +141,6 @@ STATUS: CONFIGURED
   (smoke run: in-memory store, fake microphone and engine, exits 0 once the agenda setup view has rendered),
   `MEETING_COMPANION_AUDIO=fake` (generated tones instead of the microphone), `MEETING_COMPANION_STT=fake`
   (scripted German/English segments instead of whisper; no model needed), `MEETING_COMPANION_DIARIZE=fake`
-  (scripted voices instead of the speaker model; no model needed).
+  (scripted voices instead of the speaker model; no model needed), `MEETING_COMPANION_LLM=fake` (the scripted language
+  model instead of Claude, and local GGUF models from the scan run by it; also in the smoke run). The real keychain
+  test of the API key is `#[ignore]` (`-- --ignored keychain`).

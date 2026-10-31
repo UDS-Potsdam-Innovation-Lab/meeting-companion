@@ -284,10 +284,13 @@ describe("AC3 (job 011) the one network path: HTTPS to api.anthropic.com from en
       const name = /name = "([^"]+)"/.exec(block)?.[1];
       const version = /version = "([^"]+)"/.exec(block)?.[1];
       const list = /dependencies = \[([^\]]*)\]/.exec(block)?.[1] ?? "";
-      deps.set(`${name} ${version}`, [...list.matchAll(/"([^"]+)"/g)].map((m) => m[1]!));
+      deps.set(
+        `${name} ${version}`,
+        [...list.matchAll(/"([^"]+)"/g)].map((m) => m[1]!),
+      );
     }
     const resolve = (dep: string) =>
-      deps.has(dep) ? dep : [...deps.keys()].find((k) => k.startsWith(`${dep} `)) ?? dep;
+      deps.has(dep) ? dep : ([...deps.keys()].find((k) => k.startsWith(`${dep} `)) ?? dep);
     const closure = new Set<string>();
     const visit = (n: string) => {
       const key = resolve(n);
@@ -299,7 +302,15 @@ describe("AC3 (job 011) the one network path: HTTPS to api.anthropic.com from en
     const names = [...closure].map((k) => k.split(" ")[0]);
     expect(names).toContain("rustls");
     expect(names).toContain("webpki-roots");
-    for (const crate of ["native-tls", "openssl", "openssl-sys", "tokio", "hyper", "socks", "rustls-platform-verifier"])
+    for (const crate of [
+      "native-tls",
+      "openssl",
+      "openssl-sys",
+      "tokio",
+      "hyper",
+      "socks",
+      "rustls-platform-verifier",
+    ])
       expect(names, crate).not.toContain(crate);
     expect(cargo).not.toMatch(/native-tls|socks-proxy|win-system-proxy|platform-verifier/);
   });

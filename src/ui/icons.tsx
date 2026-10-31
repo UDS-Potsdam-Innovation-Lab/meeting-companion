@@ -146,3 +146,17 @@ export const HalfIcon = () => (
     <path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor" />
   </svg>
 );
+
+/** The language model section (frame 17). */
+export const SparkleIcon = () => (
+  <svg {...base}>
+    <path d="M8 2.5 9.3 6.7 13.5 8 9.3 9.3 8 13.5 6.7 9.3 2.5 8 6.7 6.7Z" />
+  </svg>
+);
+
+/** "Cloud": text leaves the device (frame 17). */
+export const CloudIcon = () => (
+  <svg {...base}>
+    <path d="M4.5 12.5h7a2.5 2.5 0 0 0 .3-5 3.5 3.5 0 0 0-6.8-.8A2.9 2.9 0 0 0 4.5 12.5Z" />
+  </svg>
+);

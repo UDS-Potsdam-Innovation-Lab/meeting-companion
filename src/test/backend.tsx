@@ -21,6 +21,8 @@ import {
   type SpeakerModelList,
   type SpeakerState,
   type TranscriptLoad,
+  type LlmModelList,
+  type LlmTestReply,
 } from "../lib/ipc";
 
 /** How the fake core answers the recording commands. Events are sent by the test with `emit`. */
@@ -42,7 +44,43 @@ export interface FakeRecording {
   micTestError?: MicTestError;
   /** Answers `stop_recording` (default: off at once); may never settle, settle late or reject. */
   stop?: () => Promise<CaptureState>;
+  /** The language models found (default: {@link FAKE_LLM_MODELS}). */
+  llmModels?: LlmModelList;
+  /** Whether an API key is saved at the start. */
+  apiKeySet?: boolean;
+  /** The keychain is locked: every key command fails with `keychainUnavailable`. */
+  keychainUnavailable?: boolean;
+  /** Answers `run_llm_test` (default: a reply at once); may reject with `{ kind }` or settle late. */
+  llmTest?: () => Promise<LlmTestReply>;
 }
+
+export const FAKE_LLM_MODELS: LlmModelList = {
+  models: [
+    {
+      id: "/m/Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+      name: "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+      sizeBytes: 1_986_000_000,
+      source: "huggingFace",
+      folder: "/m",
+    },
+    {
+      id: "/m/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      name: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      sizeBytes: 2_019_000_000,
+      source: "app",
+      folder: "/m",
+    },
+  ],
+  searched: ["/m", "/home/u/.cache/huggingface/hub"],
+  available: true,
+};
+
+export const FAKE_LLM_REPLY: LlmTestReply = {
+  text: "The team launches the beta on 14 November without offline mode and tells the third pilot school this week.",
+  truncated: false,
+  outputTruncated: false,
+  elapsedMs: 1_400,
+};
 
 export const FAKE_SPEAKER_MODELS: SpeakerModelList = {
   models: [
@@ -82,6 +120,12 @@ export interface FakeCore {
   readyViews: string[];
   /** Every command the UI sent, in order, with its arguments. */
   calls: { cmd: string; args: unknown }[];
+  /** Every answer the fake core gave (resolved or rejected), in order. */
+  responses: unknown[];
+  /** Every event the fake core sent. */
+  events: { event: string; payload: unknown }[];
+  /** Whether a key is in the fake keychain (the key itself is not kept). */
+  apiKeySet: boolean;
   /** The last meeting the core accepted. */
   last: () => Meeting | undefined;
 }
@@ -96,10 +140,35 @@ export function fakeCore(
     saved: [],
     readyViews: [],
     calls: [],
+    responses: [],
+    events: [],
+    apiKeySet: rec.apiKeySet ?? false,
     last: () => core.saved[core.saved.length - 1],
   };
-  mockIPC(
-    (cmd, args) => {
+  const send = (event: string, payload: unknown) => {
+    core.events.push({ event, payload: structuredClone(payload) });
+    void emit(event, payload);
+  };
+  const answer = (cmd: string, args: unknown): unknown => {
+    try {
+      const out = handle(cmd, args);
+      if (out instanceof Promise)
+        return out.then(
+          (v) => (core.responses.push(v), v),
+          (e) => {
+            core.responses.push(e);
+            throw e;
+          },
+        );
+      core.responses.push(out);
+      return out;
+    } catch (e) {
+      core.responses.push(e);
+      throw e;
+    }
+  };
+  const handle = (cmd: string, args: unknown): unknown => {
+    {
       core.calls.push({ cmd, args: structuredClone(args) });
       if (cmd === "load_latest_meeting") return structuredClone(load);
       if (cmd === "save_meeting") {
@@ -132,10 +201,42 @@ export function fakeCore(
         }
         case "update_setting": {
           const { key, value } = (args as { change: { key: keyof Settings; value: never } }).change;
+          if (key === "languageModel") {
+            const v = value as Settings["languageModel"];
+            const list = rec.llmModels ?? FAKE_LLM_MODELS;
+            const ok =
+              v === "none" ||
+              v === "claude" ||
+              (typeof v === "object" && list.available && list.models.some((m) => m.id === v.local));
+            if (!ok) throw { kind: "invalid", key };
+          }
           core.settings = { ...core.settings, [key]: value };
-          void emit(EVENT_SETTINGS, core.settings);
+          send(EVENT_SETTINGS, core.settings);
           return { settings: core.settings, saved: true };
         }
+        case "list_llm_models":
+          return rec.llmModels ?? FAKE_LLM_MODELS;
+        case "get_api_key_status":
+          if (rec.keychainUnavailable) throw { kind: "keychainUnavailable" };
+          return { set: core.apiKeySet };
+        case "set_api_key": {
+          if (rec.keychainUnavailable) throw { kind: "keychainUnavailable" };
+          // Like the core: trimmed, 1–512 printable ASCII characters without spaces.
+          const key = String((args as { key?: unknown }).key ?? "").trim();
+          if (!/^[\x21-\x7e]{1,512}$/.test(key)) throw { kind: "invalidKey" };
+          core.apiKeySet = true;
+          return { set: true };
+        }
+        case "delete_api_key":
+          if (rec.keychainUnavailable) throw { kind: "keychainUnavailable" };
+          core.apiKeySet = false;
+          return { set: false };
+        case "run_llm_test":
+          if (core.settings.languageModel === "none") throw { kind: "notConfigured" };
+          if (core.settings.languageModel === "claude" && !core.apiKeySet) throw { kind: "noApiKey" };
+          return rec.llmTest ? rec.llmTest() : FAKE_LLM_REPLY;
+        case "cancel_llm_test":
+          return null;
         case "list_input_devices":
           return rec.devices ?? FAKE_DEVICES;
         case "start_mic_test":
@@ -189,9 +290,9 @@ export function fakeCore(
           throw { kind: "storageFailed" };
       }
       throw new Error(`unexpected command ${cmd}`);
-    },
-    { shouldMockEvents: true },
-  );
+    }
+  };
+  mockIPC(answer, { shouldMockEvents: true });
   return core;
 }
 
