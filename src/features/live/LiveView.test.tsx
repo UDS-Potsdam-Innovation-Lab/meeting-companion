@@ -1,8 +1,11 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { I18nProvider } from "../../i18n";
 import { FakeClock } from "../../lib/clock";
+import { CAPTURE_OFF, type CaptureState } from "../../lib/ipc";
 import { renderApp } from "../../test/backend";
+import { CONFIRM_MS, EndMeeting } from "./EndMeeting";
 import { filledMeeting, LIVE_TIMES, liveDoneMeeting, liveMeeting } from "../agenda/fixtures";
 import { createMeeting, type Meeting } from "../agenda/model";
 import { MINUTE } from "./run";
@@ -381,5 +384,124 @@ describe("AC6 persistence, resume and End meeting", () => {
       ["i-3", false, 0],
       ["i-4", false, 0],
     ]);
+  });
+});
+
+describe("Job 008: End meeting while recording", () => {
+  const recordingLive: CaptureState = {
+    state: "recording",
+    meetingId: "fixture-live",
+    elapsedMs: 60_000,
+    level: 0.4,
+    reason: null,
+  };
+  const unhandled: unknown[] = [];
+  const onUnhandled = (e: PromiseRejectionEvent) => unhandled.push(e.reason);
+  const onProcessUnhandled = (reason: unknown) => unhandled.push(reason);
+  beforeEach(() => {
+    unhandled.length = 0;
+    window.addEventListener("unhandledrejection", onUnhandled);
+    process.on("unhandledRejection", onProcessUnhandled);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    window.removeEventListener("unhandledrejection", onUnhandled);
+    process.off("unhandledRejection", onProcessUnhandled);
+  });
+
+  /** A `stop_recording` the test settles by hand (or never). */
+  function deferredStop() {
+    let resolve!: (s: CaptureState) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<CaptureState>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { stop: () => promise, resolve, reject };
+  }
+
+  const inSetup = () => document.querySelector('main[data-view="agenda-setup"]') !== null;
+
+  it("AC1 the confirm click ends the meeting and opens setup without waiting for stop_recording", async () => {
+    const user = userEvent.setup();
+    const never = deferredStop();
+    const { core } = await renderApp(
+      { meeting: liveMeeting(), error: null },
+      {
+        clock: new FakeClock(LIVE_TIMES.running),
+        view: "live",
+        recording: { status: recordingLive, stop: never.stop },
+      },
+    );
+    expect(screen.getByTestId("rec-chip")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "End meeting" }));
+    await user.click(screen.getByRole("button", { name: "Click again to end" }));
+    // The stop was asked for and never answers; the meeting has ended anyway.
+    expect(core.calls.some((c) => c.cmd === "stop_recording")).toBe(true);
+    await waitFor(() => expect(core.saved).toHaveLength(2));
+    const [ended, fresh] = core.saved;
+    expect(ended!.id).toBe("fixture-live");
+    expect(ended!.run!.endedAt).toBe(LIVE_TIMES.running);
+    expect(fresh!.id).not.toBe("fixture-live");
+    expect(fresh!.run).toBeUndefined();
+    expect(inSetup()).toBe(true);
+    expect(screen.getByLabelText("Title")).toHaveValue("New meeting");
+    expect(screen.queryByTestId("rec-chip")).toBeNull();
+  });
+
+  for (const outcome of ["resolves", "rejects"] as const) {
+    it(`AC2 ends exactly once when stop_recording ${outcome} after the 6 s disarm`, async () => {
+      const late = deferredStop();
+      const { core } = await renderApp(
+        { meeting: liveMeeting(), error: null },
+        {
+          clock: new FakeClock(LIVE_TIMES.running),
+          view: "live",
+          recording: { status: recordingLive, stop: late.stop },
+        },
+      );
+      vi.useFakeTimers();
+      fireEvent.click(screen.getByRole("button", { name: "End meeting" }));
+      const confirm = screen.getByRole("button", { name: "Click again to end" });
+      fireEvent.click(confirm);
+      fireEvent.click(confirm);
+      await act(() => vi.advanceTimersByTimeAsync(10_000));
+      expect(screen.queryByRole("button", { name: "End meeting" })).toBeNull();
+      await act(async () => {
+        if (outcome === "resolves") late.resolve(CAPTURE_OFF);
+        else late.reject({ kind: "failed", reason: "engineFailed" });
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(core.saved).toHaveLength(2);
+      expect(core.saved[0]!.run!.endedAt).toBe(LIVE_TIMES.running);
+      expect(core.calls.filter((c) => c.cmd === "stop_recording")).toHaveLength(1);
+      expect(inSetup()).toBe(true);
+      expect(screen.queryByRole("button", { name: "End meeting" })).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull();
+      // The new meeting shows recording as off.
+      expect(screen.queryByTestId("rec-chip")).toBeNull();
+      expect(unhandled).toEqual([]);
+    });
+  }
+
+  it("AC2 the end button cannot end twice and does not disarm after the confirm click", async () => {
+    vi.useFakeTimers();
+    const onEnd = vi.fn();
+    render(
+      <I18nProvider>
+        <EndMeeting onEnd={onEnd} />
+      </I18nProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "End meeting" }));
+    const confirm = screen.getByRole("button", { name: "Click again to end" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    fireEvent.keyDown(confirm, { key: "Escape" });
+    await act(() => vi.advanceTimersByTimeAsync(CONFIRM_MS + 4_000));
+    fireEvent.click(screen.getByRole("button", { name: "Click again to end" }));
+    expect(onEnd).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Click again to end" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "End meeting" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Keep going" })).toBeNull();
   });
 });

@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { LIVE_TIMES } from "../src/features/agenda/fixtures";
+
+/** Longer than the 6 s the End meeting confirm stays armed (`CONFIRM_MS` in EndMeeting.tsx). */
+const SLOW_STOP_MS = 10_000;
 import {
   expectInOrder,
   expectNoAxeViolations,
@@ -151,6 +154,29 @@ test.describe("AC6 restart and End meeting", () => {
     expect(stored).toHaveLength(2);
     expect(stored[0].id).toBe("fixture-live");
     expect(stored[0].run.endedAt).toBe(LIVE_TIMES.running);
+  });
+
+  test("job 008: with recording on and a slow stop, End meeting opens agenda setup within 1 s", async ({
+    page,
+  }) => {
+    // The core takes longer to answer `stop_recording` than the confirm stays armed.
+    await page.addInitScript(
+      (ms) => localStorage.setItem("mock-backend.stop-delay-ms", String(ms)),
+      SLOW_STOP_MS,
+    );
+    await openLiveAt(page, LIVE_TIMES.running, "live-transcript");
+    await expect(page.getByTestId("rec-chip")).toBeVisible();
+    await page.getByRole("button", { name: "End meeting" }).click();
+    await page.getByRole("button", { name: "Click again to end" }).click();
+    await expect(page.locator('main[data-view="agenda-setup"][aria-busy="false"]')).toBeVisible({
+      timeout: 1_000,
+    });
+    await expect(page.getByLabel("Title", { exact: true })).toHaveValue("New meeting");
+    await expect(page.getByTestId("rec-chip")).toHaveCount(0);
+    const stored = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("mock-backend.meetings") ?? "[]"),
+    );
+    expect(stored.find((m: { id: string }) => m.id === "fixture-live").run.endedAt).toBe(LIVE_TIMES.running);
   });
 
   test("the live view makes no network request beyond its own assets", async ({ page }) => {

@@ -135,13 +135,16 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
     if (nudgeHasFocus()) refocus.current = true;
     setDismissed((d) => new Set(d).add(key));
   };
+  const ended = useRef(false);
   const onEnd = () => {
-    // Capture stops before the meeting ends.
-    void recording.stop().then(() => {
-      update((m) => endRun(m, clock.now()));
-      // Wrap-up (frame 04) does not exist yet: a new meeting opens in setup.
-      startNew();
-    });
+    if (ended.current) return;
+    ended.current = true;
+    // The meeting ends at once. Capture stops in the background: the core closes the microphone
+    // first, and saving the ended run stops it as well. A slow or failed stop changes nothing here.
+    void recording.stop();
+    update((m) => endRun(m, clock.now()));
+    // Wrap-up (frame 04) does not exist yet: a new meeting opens in setup.
+    startNew();
   };
 
   if (showSpeakers) {
