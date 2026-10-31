@@ -1,0 +1,19 @@
+{
+  "id": "012-phone-web-view",
+  "issue": 12,
+  "title": "Local phone web view",
+  "branch": "factory/012-phone-web-view",
+  "builder": "builder-012-phone-web-view",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "spec",
+  "round": 0,
+  "max_round": 3,
+  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
+  "history": [],
+  "decision": null,
+  "waiting": null,
+  "note": "Spec being written",
+  "updated": "2026-10-31T15:39:11Z"
+}

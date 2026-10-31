@@ -1,0 +1,19 @@
+{
+  "id": "014-help-legal",
+  "issue": 14,
+  "title": "Help and legal notes area",
+  "branch": "factory/014-help-legal",
+  "builder": "builder-014-help-legal",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "spec",
+  "round": 0,
+  "max_round": 3,
+  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
+  "history": [],
+  "decision": null,
+  "waiting": null,
+  "note": "Spec being written",
+  "updated": "2026-10-31T15:39:11Z"
+}

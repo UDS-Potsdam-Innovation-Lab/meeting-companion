@@ -1,0 +1,19 @@
+{
+  "id": "013-speaker-tests",
+  "issue": 13,
+  "title": "Better tests for speaker recognition",
+  "branch": "factory/013-speaker-tests",
+  "builder": "builder-013-speaker-tests",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "spec",
+  "round": 0,
+  "max_round": 3,
+  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
+  "history": [],
+  "decision": null,
+  "waiting": null,
+  "note": "Spec being written",
+  "updated": "2026-10-31T15:39:11Z"
+}
