@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "build",
+  "stage": "review",
   "round": 1,
   "max_round": 3,
   "reviews": {
@@ -19,6 +19,6 @@
   "history": [],
   "decision": null,
   "waiting": null,
-  "note": "Design approved; builder working",
-  "updated": "2026-10-31T11:39:49Z"
+  "note": "Round 1 reviews running",
+  "updated": "2026-10-31T11:57:23Z"
 }
