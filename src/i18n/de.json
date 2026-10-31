@@ -359,5 +359,6 @@
   "error.topicTitle.tooLong": "Der Titel darf höchstens {max} Zeichen lang sein (jetzt {count}).",
   "half.title": "Die Hälfte der Zeit ist um",
   "half.body": "Noch {minutes} Min., endet {time}",
-  "half.dismiss": "Ausblenden"
+  "half.dismiss": "Ausblenden",
+  "half.announcement": "Die Hälfte der Zeit ist um. Noch {minutes} Min., endet {time}."
 }

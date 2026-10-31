@@ -3,14 +3,13 @@ import { useI18n, type I18n } from "../../i18n";
 import { formatClock } from "../../lib/time";
 import type { FreeSnapshot } from "./free";
 
-/** "Half the time is gone" and "N min left, ends HH:MM", as one sentence for the live region. */
+/** "Half the time is gone", "N min left, ends HH:MM", and both as sentences for the live region. */
 export function halfTimeText(i18n: Pick<I18n, "t" | "locale">, snapshot: FreeSnapshot) {
+  const params = { minutes: snapshot.minutesLeft, time: formatClock(i18n.locale, snapshot.scheduledEnd) };
   return {
     title: i18n.t("half.title"),
-    body: i18n.t("half.body", {
-      minutes: snapshot.minutesLeft,
-      time: formatClock(i18n.locale, snapshot.scheduledEnd),
-    }),
+    body: i18n.t("half.body", params),
+    announcement: i18n.t("half.announcement", params),
   };
 }
 

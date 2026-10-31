@@ -120,10 +120,7 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
   if (visibleKey !== announced.key) {
     let text = "";
     if (showNudge && current) text = `${nudgeTitle(i18n, current)} ${t("nudge.body")}`;
-    else if (showHalf && freeSnap) {
-      const half = halfTimeText(i18n, freeSnap);
-      text = `${half.title}. ${half.body}`;
-    }
+    else if (showHalf && freeSnap) text = halfTimeText(i18n, freeSnap).announcement;
     setAnnounced({ key: visibleKey, text });
   }
 

@@ -94,7 +94,9 @@ export function TopicsCard({ topics, canAdd, onAdd, onTap }: Props) {
           ))}
         </ul>
       )}
-      {topics.length > 0 && !current ? <p className="topics-card__hint">{t("free.topics.noneCurrent")}</p> : null}
+      {topics.length > 0 && !current ? (
+        <p className="topics-card__hint">{t("free.topics.noneCurrent")}</p>
+      ) : null}
 
       <div className="topics-card__footer">
         {adding && canAdd ? (

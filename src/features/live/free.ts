@@ -11,7 +11,8 @@ export const HALF_AT = 0.5;
 
 const topicsOf = (run: Run) => run.topics ?? [];
 const isOpen = (s: Span) => s.endedAt === null;
-const closeAt = (s: Span, now: number): Span => (isOpen(s) ? { ...s, endedAt: Math.max(now, s.startedAt) } : s);
+const closeAt = (s: Span, now: number): Span =>
+  isOpen(s) ? { ...s, endedAt: Math.max(now, s.startedAt) } : s;
 
 /** The topic "talking now", if any. */
 export const currentTopic = (run: Run): Topic | null =>
@@ -111,7 +112,7 @@ export function freeSnapshot(m: Meeting, run: Run, now: number): FreeSnapshot {
     remainingMs,
     over,
     minutesLeft: over ? 0 : Math.floor(remainingMs / MINUTE),
-    minutesOver: over ? Math.floor(-remainingMs / MINUTE) : 0,
+    minutesOver: over ? Math.floor((now - end) / MINUTE) : 0,
     fraction,
     halfTimeDue: availableMs > 0 && !over && elapsedMs >= availableMs * HALF_AT,
     topics: topicsOf(run).map((topic) => ({

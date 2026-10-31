@@ -359,5 +359,6 @@
   "error.topicTitle.tooLong": "Keep the title to {max} characters or fewer (now {count}).",
   "half.title": "Half the time is gone",
   "half.body": "{minutes} min left, ends {time}",
-  "half.dismiss": "Dismiss"
+  "half.dismiss": "Dismiss",
+  "half.announcement": "Half the time is gone. {minutes} min left, ends {time}."
 }
