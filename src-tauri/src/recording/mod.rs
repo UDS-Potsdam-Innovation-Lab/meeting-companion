@@ -13,6 +13,10 @@
 //!   is known or after [`VOICE_WAIT`] without one. Without a speaker model, segments are stored at once
 //!   and have no voice. Embeddings and centroids stay in memory, are kept across Pause/Resume, and are
 //!   dropped when recording stops.
+//! - A stop or pause never waits on a stuck engine: the microphone closes first, the worker gets
+//!   [`STOP_WAIT`] to finish, then every final segment sent so far is stored (without a voice if it
+//!   has none yet) and a worker still inside an engine is left behind. It stores and sends nothing
+//!   more for the meeting, its audio is dropped, and the next session loads a fresh engine.
 //! - A failing or silent device (no audio for [`STALL`]) ends the session with an error state within
 //!   2 s, and the source is closed.
 //! - The microphone is the system default or the device chosen in the settings ([`StartOptions`]).
@@ -25,7 +29,6 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -51,6 +54,17 @@ pub const VOICE_WAIT: Duration = Duration::from_secs(5);
 /// Most segment clips waiting for the diarizer (each at most 3 s of audio). A segment that finds the
 /// queue full gets no voice.
 pub const DIARIZE_QUEUE: usize = 8;
+/// How long a stop or pause waits for the worker to finish the cut-off utterance and the voices still
+/// being worked out. Then every final segment sent so far is stored (without a voice if it has none
+/// yet), and a worker still stuck in an engine is left behind: it stores and sends nothing more, and
+/// its engine is not reused.
+pub const STOP_WAIT: Duration = Duration::from_millis(1_000);
+/// Extra time after [`STOP_WAIT`] for a worker that is finishing to hand its engines back.
+const STOP_GRACE: Duration = Duration::from_millis(250);
+/// How long a worker that ends gives the diarizer's thread to hand its engine back.
+const DIARIZER_RETURN: Duration = Duration::from_millis(100);
+/// How long a worker that ends on its own (a lost device) waits for the diarizer's thread.
+const DIARIZER_WAIT: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -235,27 +249,62 @@ impl Shared {
         snapshot
     }
 
-    fn fail(&self, reason: Reason) -> CaptureState {
-        self.close_source();
-        crate::log!("recording stopped: {reason:?}");
-        self.set(|s| {
+    /// Like [`Self::set`], unless `gone` is set: a session that was stopped or left behind changes
+    /// the state no more. The flag is read under the state's lock, so it cannot race the halt.
+    fn set_unless(&self, gone: &AtomicBool, f: impl FnOnce(&mut CaptureState)) {
+        let snapshot = {
+            let mut s = self.status();
+            if gone.load(Ordering::SeqCst) {
+                return;
+            }
+            f(&mut s);
+            s.clone()
+        };
+        self.events.capture(&snapshot);
+    }
+
+    /// Ends the session with an error state and closes the source, unless the session was left
+    /// behind (then the source may already belong to the next one).
+    fn fail_unless(&self, abandoned: &AtomicBool, reason: Reason) {
+        let snapshot = {
+            let mut s = self.status();
+            if abandoned.load(Ordering::SeqCst) {
+                return;
+            }
+            self.close_source();
+            crate::log!("recording stopped: {reason:?}");
             s.state = Capture::Error;
             s.level = 0.0;
             s.reason = Some(reason);
-        })
+            s.clone()
+        };
+        self.events.capture(&snapshot);
     }
 }
 
 /// What a session's worker hands back when it ends: the engines, to reuse, and the meeting's voices.
+/// An engine that panicked is not handed back.
 struct Returned {
-    stt: Box<dyn SpeechToText>,
+    stt: Option<Box<dyn SpeechToText>>,
     speakers: Option<(Box<dyn Diarizer>, VoiceTracker)>,
 }
 
-/// The running worker's sink and thread, the model id its engine was loaded for, and its meeting.
+/// What the halt and the worker both see of one session.
+#[derive(Default)]
+struct Session {
+    /// A halt began: the monitor stops ticking, switching and reporting.
+    stopping: AtomicBool,
+    /// The halt stopped waiting for this worker: it changes no state and closes no source any more.
+    abandoned: AtomicBool,
+}
+
+/// The running worker's sink and result, the model id its engine was loaded for, and its meeting.
+/// Its thread is never joined: a worker stuck in an engine is left behind (see [`STOP_WAIT`]).
 struct Worker {
     sink: AudioSink,
-    handle: JoinHandle<Returned>,
+    done: Receiver<Returned>,
+    session: Arc<Session>,
+    delivery: Arc<Mutex<Delivery>>,
     model: Option<String>,
     /// The speaker model id its diarizer was loaded for.
     speaker_model: Option<String>,
@@ -273,6 +322,40 @@ struct Inner {
     voices: Option<(String, VoiceTracker)>,
     /// Recorded time per meeting in this app session.
     recorded: Option<(String, u64)>,
+    /// The last worker a halt stopped waiting for: if it ever finishes, its engines are taken back.
+    left_behind: Option<LeftBehind>,
+}
+
+/// A worker that did not stop in time, and the model ids its engines were loaded for.
+struct LeftBehind {
+    done: Receiver<Returned>,
+    model: Option<String>,
+    speaker_model: Option<String>,
+}
+
+impl Inner {
+    /// Takes back the engines of a worker left behind that has finished since (a slow engine, not a
+    /// stuck one), so they need not be loaded again. Its voices are not taken back: a stop drops them.
+    fn reclaim(&mut self) {
+        let Some(l) = &self.left_behind else {
+            return;
+        };
+        match l.done.try_recv() {
+            Ok(returned) => {
+                let Some(l) = self.left_behind.take() else {
+                    return;
+                };
+                if let (None, Some(stt)) = (&self.engine, returned.stt) {
+                    self.engine = Some((l.model, stt));
+                }
+                if let (None, Some((diarizer, _voices))) = (&self.diarizer, returned.speakers) {
+                    self.diarizer = Some((l.speaker_model, diarizer));
+                }
+            }
+            Err(mpsc::TryRecvError::Disconnected) => self.left_behind = None,
+            Err(mpsc::TryRecvError::Empty) => {}
+        }
+    }
 }
 
 pub struct Recorder {
@@ -424,6 +507,7 @@ impl Recorder {
             }
         };
         let wanted = model_id.map(str::to_owned);
+        inner.reclaim();
         let mut engine = match inner.engine.take() {
             Some((id, engine)) if id == wanted => engine,
             _ => match self.stt.load(model_id) {
@@ -495,6 +579,21 @@ impl Recorder {
         let shared = self.shared.clone();
         let worker_sink = sink.clone();
         let id = meeting_id.to_owned();
+        let session = Arc::new(Session::default());
+        let delivery = Arc::new(Mutex::new(Delivery {
+            shared: self.shared.clone(),
+            meeting_id: meeting_id.to_owned(),
+            next_seq: writer.next_seq(),
+            writer,
+            waiting: VecDeque::new(),
+            jobs: None,
+            results: None,
+            stop_by: None,
+            closed: false,
+        }));
+        let (done_tx, done) = mpsc::channel();
+        let worker_session = session.clone();
+        let worker_delivery = delivery.clone();
         // "Switch to the system default" applies to a chosen device; losing the default stops.
         let fallback =
             (opts.on_lost == DeviceLost::SwitchToDefault && opts.device.is_some()).then(|| {
@@ -503,23 +602,31 @@ impl Recorder {
                     now_ms: self.now_ms,
                 }
             });
-        let handle = std::thread::Builder::new()
+        let spawned = std::thread::Builder::new()
             .name("transcript".into())
             .spawn(move || {
-                run(
+                let returned = run(
                     shared,
                     worker_sink,
                     transcriber,
-                    writer,
+                    worker_delivery,
+                    worker_session,
                     id,
                     speakers,
                     fallback,
-                )
-            })
-            .map_err(|_| self.refuse(meeting_id, Reason::EngineFailed))?;
+                );
+                // Nobody listens any more if the halt stopped waiting.
+                let _ = done_tx.send(returned);
+            });
+        if spawned.is_err() {
+            self.shared.close_source();
+            return Err(self.refuse(meeting_id, Reason::EngineFailed));
+        }
         inner.worker = Some(Worker {
             sink,
-            handle,
+            done,
+            session,
+            delivery,
             model: wanted,
             speaker_model,
             meeting_id: meeting_id.to_owned(),
@@ -547,7 +654,9 @@ impl Recorder {
     }
 
     /// Stops recording (End meeting, another meeting). The state becomes `off`, and the meeting's
-    /// voice embeddings and centroids are dropped.
+    /// voice embeddings and centroids are dropped. Returns within [`STOP_WAIT`] plus a short grace,
+    /// also when an engine hangs: the microphone is closed first, every final segment sent so far is
+    /// stored, and a stuck worker is left behind.
     pub fn stop(&self) -> CaptureState {
         let mut inner = self.inner();
         let state = self.halt(&mut inner, Capture::Off, true);
@@ -563,18 +672,50 @@ impl Recorder {
     }
 
     fn halt(&self, inner: &mut Inner, next: Capture, emit: bool) -> CaptureState {
+        let worker = inner.worker.take();
+        if let Some(w) = &worker {
+            // Before the source closes, so the monitor cannot switch to another one after it.
+            w.session.stopping.store(true, Ordering::SeqCst);
+        }
         self.shared.close_source();
-        if let Some(w) = inner.worker.take() {
+        if let Some(w) = worker {
+            lock(&w.delivery).stop_by = Some(Instant::now() + STOP_WAIT);
             w.sink.end();
-            match w.handle.join() {
+            match w.done.recv_timeout(STOP_WAIT + STOP_GRACE) {
                 Ok(returned) => {
-                    inner.engine = Some((w.model, returned.stt));
+                    if let Some(stt) = returned.stt {
+                        inner.engine = Some((w.model, stt));
+                    }
                     if let Some((diarizer, tracker)) = returned.speakers {
                         inner.diarizer = Some((w.speaker_model, diarizer));
                         inner.voices = Some((w.meeting_id, tracker));
                     }
                 }
-                Err(_) => crate::log!("the transcript worker stopped unexpectedly"),
+                Err(e) => {
+                    {
+                        // Under the state's lock, so the worker cannot change the state after this.
+                        let _status = self.shared.status();
+                        w.session.abandoned.store(true, Ordering::SeqCst);
+                    }
+                    match e {
+                        RecvTimeoutError::Timeout => {
+                            crate::log!("the transcript worker did not stop in time; left behind");
+                            inner.left_behind = Some(LeftBehind {
+                                done: w.done,
+                                model: w.model,
+                                speaker_model: w.speaker_model,
+                            });
+                        }
+                        RecvTimeoutError::Disconnected => {
+                            crate::log!("the transcript worker stopped unexpectedly")
+                        }
+                    }
+                }
+            }
+            // Whatever the worker still holds: the final segments it sent are stored now, and it
+            // stores and sends nothing more.
+            if let Err(reason) = lock(&w.delivery).close() {
+                crate::log!("the end of the transcript could not be stored: {reason:?}");
             }
             // A source the worker switched to while this halt began is closed too.
             self.shared.close_source();
@@ -616,6 +757,10 @@ impl Drop for Recorder {
     }
 }
 
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// One segment's audio for the diarizer.
 struct Job {
     seq: u64,
@@ -633,23 +778,32 @@ struct Waiting {
     voice: Option<Option<Voice>>,
 }
 
-/// The diarizer's thread and the channels to it.
+/// The diarizer's thread, seen from the worker: how to cancel it and where its engine comes back.
 struct Speakers {
-    jobs: Option<SyncSender<Job>>,
-    results: Receiver<(u64, Option<Voice>)>,
     cancel: Arc<AtomicBool>,
-    thread: JoinHandle<(Box<dyn Diarizer>, VoiceTracker)>,
+    back: Receiver<(Box<dyn Diarizer>, VoiceTracker)>,
 }
 
-/// Sends segments and voices to the UI and stores final segments in order.
+/// Sends segments and voices to the UI and stores final segments in order. Shared by the worker and
+/// the halt: the worker never holds it while an engine runs, so a halt can always store what was
+/// sent and close it, also while the worker is stuck.
 struct Delivery {
     shared: Arc<Shared>,
     meeting_id: String,
     writer: Box<dyn TranscriptWriter>,
     next_seq: u64,
     waiting: VecDeque<Waiting>,
-    speakers: Option<Speakers>,
+    /// Clips to the diarizer's thread, and the voices from it (none without speaker detection).
+    jobs: Option<SyncSender<Job>>,
+    results: Option<Receiver<(u64, Option<Voice>)>>,
+    /// Set by a halt: no segment waits for its voice beyond this.
+    stop_by: Option<Instant>,
+    /// Closed by a halt: nothing more is stored or sent for this session.
+    closed: bool,
 }
+
+/// The longest a waiting worker holds the delivery at a time.
+const POLL: Duration = Duration::from_millis(20);
 
 impl Delivery {
     fn send(&self, seq: Option<u64>, segment: Segment) {
@@ -662,6 +816,9 @@ impl Delivery {
 
     /// Sends each segment at once; queues each final one's clip for the diarizer.
     fn segments(&mut self, segments: Vec<Segment>, clips: Vec<Vec<f32>>) -> Result<(), Reason> {
+        if self.closed {
+            return Ok(());
+        }
         let mut clips = clips.into_iter();
         for segment in segments {
             if !segment.is_final {
@@ -672,7 +829,7 @@ impl Delivery {
             self.next_seq += 1;
             let clip = clips.next();
             self.send(Some(seq), segment.clone());
-            let queued = match (self.speakers.as_ref().and_then(|s| s.jobs.as_ref()), clip) {
+            let queued = match (self.jobs.as_ref(), clip) {
                 (Some(jobs), Some(audio)) => jobs
                     .try_send(Job {
                         seq,
@@ -700,18 +857,30 @@ impl Delivery {
         }
     }
 
+    /// No voice comes any more for the segments still waiting.
+    fn give_up_voices(&mut self) {
+        for w in &mut self.waiting {
+            w.voice.get_or_insert(None);
+        }
+    }
+
     /// Takes in the voices that arrived and stores every segment that is ready, in order.
     fn settle(&mut self) -> Result<(), Reason> {
+        if self.closed {
+            return Ok(());
+        }
         let arrived: Vec<_> = self
-            .speakers
+            .results
             .as_ref()
-            .map(|s| s.results.try_iter().collect())
+            .map(|r| r.try_iter().collect())
             .unwrap_or_default();
         for (seq, voice) in arrived {
             self.resolve(seq, voice);
         }
+        let now = Instant::now();
+        let stopped = self.stop_by.is_some_and(|t| now >= t);
         while let Some(front) = self.waiting.front() {
-            if front.voice.is_none() && Instant::now() < front.deadline {
+            if front.voice.is_none() && now < front.deadline && !stopped {
                 break;
             }
             let Some(w) = self.waiting.pop_front() else {
@@ -734,44 +903,63 @@ impl Delivery {
         Ok(())
     }
 
-    /// At the end of a session: waits for the voices still being worked out (each at most until
-    /// its deadline) and stores everything.
-    fn finish(&mut self) -> Result<(), Reason> {
-        loop {
-            self.settle()?;
-            let Some(front) = self.waiting.front() else {
-                return Ok(());
-            };
-            let wait = front.deadline.saturating_duration_since(Instant::now());
-            let got = match &self.speakers {
-                Some(s) => s.results.recv_timeout(wait),
-                None => Err(RecvTimeoutError::Disconnected),
-            };
-            match got {
-                Ok((seq, voice)) => self.resolve(seq, voice),
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => {
-                    for w in &mut self.waiting {
-                        w.voice.get_or_insert(None);
-                    }
-                }
-            }
+    /// One step of waiting for the voices still being worked out: stores what is ready and waits at
+    /// most [`POLL`] for the next voice. True once nothing waits any more.
+    fn poll(&mut self) -> Result<bool, Reason> {
+        self.settle()?;
+        let Some(front) = self.waiting.front() else {
+            return Ok(true);
+        };
+        if self.closed {
+            return Ok(true);
         }
+        let until = self
+            .stop_by
+            .map_or(front.deadline, |t| t.min(front.deadline));
+        let wait = until.saturating_duration_since(Instant::now()).min(POLL);
+        let got = match &self.results {
+            Some(r) => r.recv_timeout(wait),
+            None => Err(RecvTimeoutError::Disconnected),
+        };
+        match got {
+            Ok((seq, voice)) => self.resolve(seq, voice),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => self.give_up_voices(),
+        }
+        Ok(false)
     }
 
-    /// Stops the diarizer's thread and hands back its engine and the meeting's voices.
-    fn close(&mut self) -> Option<(Box<dyn Diarizer>, VoiceTracker)> {
-        let mut s = self.speakers.take()?;
-        s.cancel.store(true, Ordering::SeqCst);
-        s.jobs = None;
-        match s.thread.join() {
-            Ok(back) => Some(back),
-            Err(_) => {
-                crate::log!("speaker detection stopped unexpectedly");
-                None
-            }
+    /// Stores every final segment still waiting (with the voice it has, or none) and closes the
+    /// session's delivery: from now on nothing is stored or sent for it, and the diarizer gets no
+    /// more clips.
+    fn close(&mut self) -> Result<(), Reason> {
+        if self.closed {
+            return Ok(());
         }
+        let arrived: Vec<_> = self
+            .results
+            .as_ref()
+            .map(|r| r.try_iter().collect())
+            .unwrap_or_default();
+        for (seq, voice) in arrived {
+            self.resolve(seq, voice);
+        }
+        self.give_up_voices();
+        let stored = self.settle();
+        self.closed = true;
+        self.waiting.clear();
+        self.jobs = None;
+        self.results = None;
+        stored
     }
+}
+
+/// At the end of a session: waits for the voices still being worked out (each at most until its
+/// deadline, and not beyond a halt's `stop_by`) and stores everything. The delivery is held for at
+/// most [`POLL`] at a time.
+fn finish(delivery: &Mutex<Delivery>) -> Result<(), Reason> {
+    while !lock(delivery).poll()? {}
+    Ok(())
 }
 
 /// The diarizer's thread: works out the voice of each queued clip, in order. Clips are dropped right
@@ -803,14 +991,20 @@ struct Fallback {
 
 impl Fallback {
     /// Closes the lost source and starts the system default on the same sink, so the pipeline,
-    /// the recorded time and the capture state carry on. `false` if the default cannot be opened.
-    fn switch(&self, shared: &Shared, sink: &AudioSink) -> bool {
+    /// the recorded time and the capture state carry on. `false` if the default cannot be opened,
+    /// or if the session is being stopped meanwhile (then the new source is closed at once).
+    fn switch(&self, shared: &Shared, sink: &AudioSink, stopping: &AtomicBool) -> bool {
         shared.close_source();
         let mut source = (self.audio)();
         sink.recover();
         match source.start(sink.clone()) {
             Ok(()) => {
-                *shared.source.lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
+                let mut slot = shared.source.lock().unwrap_or_else(|e| e.into_inner());
+                if stopping.load(Ordering::SeqCst) {
+                    source.stop();
+                    return false;
+                }
+                *slot = Some(source);
                 crate::log!("microphone lost: switched to the system default");
                 true
             }
@@ -831,11 +1025,15 @@ const FLUSH_GRACE: Duration = Duration::from_millis(250);
 /// ticks, so a busy engine neither looks like a lost microphone nor freezes the state. Speaker
 /// detection hangs off the speech side: the speech thread hands clips to the diarizer's own thread
 /// and stores lines as their voices arrive, so neither capture nor loss detection waits for it.
+/// Once a halt begins, the monitor stops; once the halt stops waiting (`abandoned`), the worker
+/// changes no state any more, and the closed delivery stores and sends nothing.
+#[allow(clippy::too_many_arguments)]
 fn run(
     shared: Arc<Shared>,
     sink: AudioSink,
     mut transcriber: Transcriber,
-    writer: Box<dyn TranscriptWriter>,
+    delivery: Arc<Mutex<Delivery>>,
+    session: Arc<Session>,
     meeting_id: String,
     speakers: Option<(Box<dyn Diarizer>, VoiceTracker)>,
     fallback: Option<Fallback>,
@@ -844,28 +1042,23 @@ fn run(
     let speakers = speakers.and_then(|(diarizer, tracker)| {
         let (jobs, job_rx) = mpsc::sync_channel(DIARIZE_QUEUE);
         let (result_tx, results) = mpsc::channel();
+        let (back_tx, back) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let c = cancel.clone();
         std::thread::Builder::new()
             .name("speakers".into())
-            .spawn(move || diarize(diarizer, tracker, job_rx, result_tx, c))
+            .spawn(move || {
+                let _ = back_tx.send(diarize(diarizer, tracker, job_rx, result_tx, c));
+            })
             .map_err(|_| crate::log!("speaker detection could not start"))
             .ok()
-            .map(|thread| Speakers {
-                jobs: Some(jobs),
-                results,
-                cancel,
-                thread,
+            .map(|_| {
+                let mut d = lock(&delivery);
+                d.jobs = Some(jobs);
+                d.results = Some(results);
+                Speakers { cancel, back }
             })
     });
-    let mut delivery = Delivery {
-        shared: shared.clone(),
-        meeting_id: meeting_id.clone(),
-        next_seq: writer.next_seq(),
-        writer,
-        waiting: VecDeque::new(),
-        speakers,
-    };
     let elapsed_ms = AtomicU64::new(transcriber.recorded_ms());
     let level_bits = AtomicU32::new(0f32.to_bits());
     let done = AtomicBool::new(false);
@@ -873,25 +1066,27 @@ fn run(
     let lost: Mutex<Option<Reason>> = Mutex::new(None);
     let report = |reason: Reason| {
         if !reported.swap(true, SeqCst) {
-            shared.fail(reason);
+            shared.fail_unless(&session.abandoned, reason);
         }
     };
     let tick = |elapsed: u64, level: f32| {
-        shared.set(|s| {
+        shared.set_unless(&session.stopping, |s| {
             s.elapsed_ms = elapsed;
             s.level = (level * 4.0).min(1.0);
         });
     };
     let has_fallback = fallback.is_some();
+    let mut engine_ok = true;
     std::thread::scope(|scope| {
         let stt = scope.spawn(|| {
             let outcome: Result<(), Reason> = loop {
                 let taken = sink.take(Duration::from_millis(100));
                 if !taken.samples.is_empty() {
+                    // The engine runs outside the delivery, so a halt never waits for it.
                     match transcriber.push(&taken.samples) {
                         Ok(segments) => {
                             let clips = transcriber.take_clips();
-                            if let Err(r) = delivery.segments(segments, clips) {
+                            if let Err(r) = lock(&delivery).segments(segments, clips) {
                                 break Err(r);
                             }
                         }
@@ -899,7 +1094,7 @@ fn run(
                     }
                     elapsed_ms.store(transcriber.recorded_ms(), SeqCst);
                     level_bits.store(transcriber.level().to_bits(), SeqCst);
-                } else if let Err(r) = delivery.settle() {
+                } else if let Err(r) = lock(&delivery).settle() {
                     break Err(r);
                 }
                 let gone = lost.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -912,9 +1107,9 @@ fn run(
                         .map_err(Reason::from)
                         .and_then(|segments| {
                             let clips = transcriber.take_clips();
-                            delivery.segments(segments, clips)
+                            lock(&delivery).segments(segments, clips)
                         })
-                        .and_then(|()| delivery.finish());
+                        .and_then(|()| finish(&delivery));
                     break match (lost_now, flushed) {
                         (Some(r), _) => Err(r),
                         (None, result) => result,
@@ -922,7 +1117,12 @@ fn run(
                 }
             };
             elapsed_ms.store(transcriber.recorded_ms(), SeqCst);
-            shared.status().elapsed_ms = transcriber.recorded_ms();
+            {
+                let mut s = shared.status();
+                if !session.abandoned.load(SeqCst) {
+                    s.elapsed_ms = transcriber.recorded_ms();
+                }
+            }
             if let Err(reason) = outcome {
                 report(reason);
             }
@@ -931,7 +1131,7 @@ fn run(
         let mut last_tick = Instant::now();
         let mut lost_since: Option<Instant> = None;
         let mut fallback = fallback;
-        while !done.load(SeqCst) {
+        while !done.load(SeqCst) && !stt.is_finished() && !session.stopping.load(SeqCst) {
             std::thread::sleep(Duration::from_millis(25));
             let (failed, ended) = sink.peek();
             let reason = failed.map(Reason::from).or_else(|| {
@@ -940,7 +1140,7 @@ fn run(
             // One switch per session: if the default is lost as well, recording stops.
             if reason.is_some() && !ended && !reported.load(SeqCst) {
                 if let Some(f) = fallback.take() {
-                    if f.switch(&shared, &sink) {
+                    if f.switch(&shared, &sink, &session.stopping) {
                         shared.events.switched(&SwitchedEvent {
                             meeting_id: meeting_id.clone(),
                             at: (f.now_ms)(),
@@ -967,11 +1167,39 @@ fn run(
                 );
             }
         }
-        stt.join().expect("speech-to-text thread panicked");
+        // A halt may stop waiting for this join (the engine may never return).
+        if stt.join().is_err() {
+            crate::log!("speech-to-text stopped unexpectedly");
+            engine_ok = false;
+            report(Reason::EngineFailed);
+        }
     });
-    let speakers = delivery.close();
+    // The diarizer gets no more clips; its engine comes back once the clip it works on is done.
+    let stop_by = {
+        let mut d = lock(&delivery);
+        d.jobs = None;
+        d.stop_by
+    };
+    let speakers = speakers.and_then(|s| {
+        s.cancel.store(true, SeqCst);
+        let wait = stop_by.map_or(DIARIZER_WAIT, |t| {
+            t.saturating_duration_since(Instant::now())
+                .max(DIARIZER_RETURN)
+        });
+        match s.back.recv_timeout(wait) {
+            Ok(back) => Some(back),
+            Err(RecvTimeoutError::Timeout) => {
+                crate::log!("speaker detection did not stop in time; left behind");
+                None
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                crate::log!("speaker detection stopped unexpectedly");
+                None
+            }
+        }
+    });
     Returned {
-        stt: transcriber.into_engine(),
+        stt: engine_ok.then(|| transcriber.into_engine()),
         speakers,
     }
 }
