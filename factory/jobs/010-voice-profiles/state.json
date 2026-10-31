@@ -1,0 +1,19 @@
+{
+  "id": "010-voice-profiles",
+  "issue": 10,
+  "title": "Voice profiles (opt-in)",
+  "branch": "factory/010-voice-profiles",
+  "builder": "builder-010-voice-profiles",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "spec",
+  "round": 0,
+  "max_round": 3,
+  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
+  "history": [],
+  "decision": null,
+  "waiting": null,
+  "note": "Spec being written",
+  "updated": "2026-10-31T14:28:29Z"
+}

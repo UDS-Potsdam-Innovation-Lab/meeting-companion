@@ -1,0 +1,19 @@
+{
+  "id": "011-language-model-engine",
+  "issue": 11,
+  "title": "Language model engine",
+  "branch": "factory/011-language-model-engine",
+  "builder": "builder-011-language-model-engine",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "spec",
+  "round": 0,
+  "max_round": 3,
+  "reviews": { "security": "pending", "ux": "pending", "ui": "pending", "code": "pending" },
+  "history": [],
+  "decision": null,
+  "waiting": null,
+  "note": "Spec being written",
+  "updated": "2026-10-31T14:28:29Z"
+}

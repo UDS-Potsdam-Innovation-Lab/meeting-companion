@@ -8,8 +8,8 @@ while running and `[x] … → <job-id> (<stage>)` when done.
 - [x] Local live transcription (frame 02, centre): microphone capture, on-device speech-to-text in German and English behind an engine interface, transcript written to disk continuously; recording only after the facilitator confirms everyone was informed → 003-live-transcription (merged)
 - [x] Speakers matched to attendees (frame 06): diarization, name round at check-in, manual assignment, names applied backwards, opt-in voice profiles → 004-speaker-matching (merged)
 - [x] Speaker model in Settings (follow-up of 006, after 004): `speakerModel` setting checked against 004's scan, picker with "None found" / "Not found any more" states (frame 14d), the diarizer uses the chosen model → done in 004-speaker-matching (merged)
-- [ ] Voice profiles (opt-in, frame 06 toggle): remember a person's voice across meetings; consent on that person's own device, encrypted embeddings per person, deletion by that person. Biometric data (GDPR Art. 9): legal check before building, human gate
-- [ ] Language model engine: local model or Claude API behind one interface, API key in the OS keychain
+- [~] Voice profiles (opt-in, frame 06 toggle): remember a person's voice across meetings; consent on that person's own device, encrypted embeddings per person, deletion by that person. Biometric data (GDPR Art. 9): legal check before building, human gate
+- [~] Language model engine: local model or Claude API behind one interface, API key in the OS keychain
 - [ ] Captures (frame 02, right column): quick capture of decisions, to-dos and questions; suggestions from the transcript that a person confirms, edits or dismisses
 - [ ] Live mind map (frame 03): topics grouped by agenda item, decisions/to-dos/questions/parked as leaves, topic details with transcript links
 - [ ] Wrap-up (frame 04): summary, decisions, to-dos with owner and due date, time report; export as Markdown and PDF; in agenda-free meetings, seed the next meeting's agenda from the topics
