@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { LIVE_TIMES } from "../src/features/agenda/fixtures";
+import { FREE_TIMES, LIVE_TIMES } from "../src/features/agenda/fixtures";
 import { expectNoHorizontalScroll, expectTargetsAtLeast24px } from "./a11y";
 import { openApp } from "./helpers";
 
@@ -217,6 +217,70 @@ for (const size of [...WINDOWS, ...SHORT_WINDOWS]) {
         page.getByRole("button", { name: "End meeting" }),
       );
       await expect(page.getByTestId("partial-line")).toBeVisible();
+    });
+  });
+}
+
+// Job 009: agenda-free setup and the free live view (frame 16) in the same windows.
+for (const size of WINDOWS) {
+  const label = `${size.width}×${size.height}`;
+  test.describe(`agenda-free mode at ${label}`, () => {
+    test.use({ viewport: size });
+
+    test(`setup reflows; the switch and Start meeting are usable`, async ({ page }) => {
+      await openApp(page, "free");
+      await expectResponsive(page);
+      await expectUsable(
+        page.getByRole("button", { name: "With agenda" }),
+        page.getByRole("button", { name: "Start meeting" }),
+      );
+    });
+
+    test(`free live view with the nudge and the add field; key controls usable`, async ({ page }) => {
+      await page.clock.setFixedTime(FREE_TIMES.half);
+      await openApp(page, "live-free");
+      await expect(page.locator(".nudge")).toBeVisible();
+      await expectResponsive(page);
+      const t = await box(page.locator(".timer-card"));
+      const c = await box(page.locator(".topics-card"));
+      if (size.width >= 800) {
+        expect(Math.round(t.width)).toBe(300);
+        expect((await box(page.locator(".nudge"))).x).toBeGreaterThan(t.x + t.width);
+      } else {
+        expect(t.width).toBeGreaterThan(size.width - 40);
+      }
+      expect(c.y).toBeGreaterThanOrEqual(t.y + t.height);
+      await expectUsable(
+        page.getByRole("button", { name: /^Teacher onboarding/ }),
+        page.getByRole("button", { name: "Add topic" }),
+        page.getByRole("button", { name: "Dismiss" }),
+        page.getByRole("button", { name: "Pause" }),
+        page.getByRole("button", { name: "End meeting" }),
+      );
+      await page.getByRole("button", { name: "Add topic" }).click();
+      await page.getByRole("button", { name: "Add", exact: true }).click();
+      await expectResponsive(page);
+      await expectUsable(
+        page.getByRole("textbox", { name: "New topic" }),
+        page.getByRole("button", { name: "Cancel" }),
+      );
+    });
+  });
+}
+
+for (const size of SHORT_WINDOWS) {
+  test.describe(`free live view in a short window ${size.width}×${size.height}`, () => {
+    test.use({ viewport: size });
+
+    test(`nothing is cut off; Add topic, Dismiss and End meeting can be reached`, async ({ page }) => {
+      await page.clock.setFixedTime(FREE_TIMES.half);
+      await openApp(page, "live-free");
+      await expectResponsive(page);
+      await expectUsable(
+        page.getByRole("button", { name: "Add topic" }),
+        page.getByRole("button", { name: "Dismiss" }),
+        page.getByRole("button", { name: "End meeting" }),
+      );
     });
   });
 }
