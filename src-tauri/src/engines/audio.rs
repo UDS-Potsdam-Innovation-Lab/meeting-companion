@@ -8,6 +8,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use super::level::{Level, LevelCell};
+
 /// Sample rate of every [`AudioSource`]: the rate speech-to-text engines (whisper) expect.
 pub const SAMPLE_RATE: u32 = 16_000;
 /// Most audio the in-memory buffer holds. When the engine falls behind, the oldest samples go.
@@ -67,6 +69,8 @@ pub struct Taken {
 pub struct AudioSink {
     inner: Arc<(Mutex<BufferState>, Condvar)>,
     capacity: usize,
+    /// The input level, measured as samples arrive (outside the buffer's lock).
+    level: Arc<LevelCell>,
 }
 
 impl Default for AudioSink {
@@ -90,6 +94,7 @@ impl AudioSink {
                 Condvar::new(),
             )),
             capacity,
+            level: Arc::default(),
         }
     }
 
@@ -97,7 +102,8 @@ impl AudioSink {
         self.inner.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Adds samples; drops the oldest ones beyond the capacity.
+    /// Adds samples; drops the oldest ones beyond the capacity. The level is measured after the
+    /// buffer's lock is released, so the lock is held no longer than for the copy.
     pub fn push(&self, samples: &[f32]) {
         let mut s = self.lock();
         if s.ended {
@@ -115,6 +121,12 @@ impl AudioSink {
         s.high_water = s.high_water.max(s.samples.len());
         drop(s);
         self.inner.1.notify_all();
+        self.level.measure(samples);
+    }
+
+    /// The level of the newest measured block (see [`LevelCell`]).
+    pub fn level(&self) -> Level {
+        self.level.get()
     }
 
     /// The source failed; the pipeline stops.
@@ -345,6 +357,8 @@ impl AudioSource for FakeAudioSource {
         let handle = std::thread::spawn(move || {
             let chunk = samples_for_ms(100);
             let mut sent: u64 = 0;
+            // Real time is kept against the start, so the pace does not drift with each chunk.
+            let began = std::time::Instant::now();
             while !stop2.load(Ordering::SeqCst) {
                 if let Some(limit) = fail_after {
                     if sent >= limit {
@@ -366,7 +380,8 @@ impl AudioSource for FakeAudioSource {
                 }
                 sent += 100;
                 if pace == Pace::RealTime {
-                    std::thread::sleep(Duration::from_millis(100));
+                    let due = began + Duration::from_millis(sent);
+                    std::thread::sleep(due.saturating_duration_since(std::time::Instant::now()));
                 }
             }
         });
