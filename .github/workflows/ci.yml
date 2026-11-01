@@ -75,6 +75,24 @@ jobs:
       - name: Fetch and verify the sherpa-onnx libraries (pinned SHA-256)
         run: node scripts/sherpa-onnx.mjs fetch
 
+      # One ggml for whisper.cpp and llama.cpp (job 016): built once from the ggml tree of the pinned
+      # llama-cpp-sys-2, into src-tauri/native/ggml/prefix, which .cargo/config.toml makes the only ggml
+      # both crates link. CI builds it for the baseline CPU (GGML_NATIVE=OFF), so a cached copy runs on
+      # any runner. A rebuild also cleans the two sys crates, so no stale copy of an older build stays.
+      - name: Cache the shared ggml
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/native/ggml/prefix
+          key: ggml-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src-tauri/Cargo.lock', 'scripts/ggml.mjs', 'src-tauri/native/ggml/CMakeLists.txt', 'src-tauri/native/ggml/whisper-shared-ggml.cmake') }}
+
+      - name: Build the shared ggml (whisper.cpp and llama.cpp link this one copy)
+        shell: bash
+        env:
+          GGML_NATIVE: "OFF"
+        run: |
+          node scripts/ggml.mjs build
+          node scripts/ggml.mjs verify
+
       - name: A corrupted sherpa-onnx archive fails the check
         shell: bash
         run: |
@@ -143,6 +161,12 @@ jobs:
 
       - name: Compile the desktop app
         run: npm run tauri build -- --no-bundle
+
+      # Job 016: exactly one ggml (no symbol of the listed set defined twice), whisper.cpp and llama.cpp
+      # both linked, and no cpp-httplib, curl or llama-server code. Reads the ELF symbol table with nm.
+      - name: One ggml, both engines and no HTTP client in the release app
+        if: runner.os == 'Linux'
+        run: node scripts/ggml-check.mjs src-tauri/target/release/meeting-companion
 
       - name: The release app holds no speaker corpus
         shell: bash
