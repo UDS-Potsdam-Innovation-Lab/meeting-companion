@@ -19,6 +19,6 @@
   "history": [],
   "decision": "APPROVE (human)",
   "waiting": "merge approval",
-  "note": "Approved; merge conflict with 012 — builder merging main into the branch",
-  "updated": "2026-11-01T16:39:00Z"
+  "note": "Approved; main merged into branch (7fe0304), CI running",
+  "updated": "2026-11-01T16:50:06Z"
 }

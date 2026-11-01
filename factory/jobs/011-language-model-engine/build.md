@@ -141,3 +141,24 @@ b5f0ce2 test(smoke): run the smoke test with the fake language model
 2ce3aac feat(settings): language model section (frame 17)
 a4a1969 feat(llm): language model engine with Claude API, keychain key and fake
 ```
+
+## Merge of main
+
+`git merge main` (main had job 012, phone web view) as merge commit `7fe0304`; no rebase, pushed history untouched.
+
+Conflicts and resolution (both features kept in each):
+- `src-tauri/Cargo.toml`: kept `ureq` (011) and `axum`/`hyper`/`hyper-util`/`tokio`/`if-addrs`/`qrcodegen`/`subtle` (012).
+- `src-tauri/Cargo.lock`: took main's lock, then `cargo update --workspace` re-resolved it; cargo added only `ureq 3.5.0`, `ureq-proto 0.6.5`, `utf8-zero 0.8.1` (same versions as on the branch). Not hand-edited.
+- `src-tauri/src/lib.rs`: module doc now states both the one outgoing request (Claude API, opt-in) and the one listening port (phone view, opt-in); both command sets (`list_llm_models` … `cancel_llm_test`, `phone_view_open`/`phone_view_close`) registered; setup builds both `LanguageModelService` and `PhoneViewServer`.
+- `src/i18n/de.json`, `en.json`: both key sets (`settings.llm.*`, `legal.privacy.languageModel.*`, `phone.*`, `phoneView.error.*`).
+- `src/lib/ipc.ts`, `src/lib/mockBackend.ts`, `src/ui/icons.tsx`: both sections/commands/storage keys/icons (`SparkleIcon`, `CloudIcon`, `PowerIcon`, `QrIcon`).
+- `src/config.test.ts` (job 003 AC6): forbids `reqwest`/`curl`/`isahc`/`attohttpc`/`tauri-plugin-`, pins `ureq` to the one rustls-only line (011) and the HTTP server deps to 012's exact three lines.
+
+Two 011 config tests failed after the merge, because 012 is the first code with a listener and an `http://` string. Adjusted them without loosening anything for the rest of the core:
+- "the only URL in the core's code": the phone view's SVG namespace `http://www.w3.org/2000/svg` in `phone_view/qr.rs` is excluded by exact match (an XML name, not a request); the Claude Messages URL is still the only other URL.
+- "no listening socket": now checks every file outside `phone_view/`; 012's "AC5 no network" test still checks the phone view's single bind to one private address.
+
+Test results after the merge:
+- `npm run lint` → exit 0 (tsc, ESLint, Prettier, cargo fmt, clippy -D warnings).
+- `npm test` → exit 0: Vitest 22 files, 274 passed; cargo test 303 passed, 0 failed, 6 ignored; Playwright 246 passed.
+- `bash $FACTORY_HOME/scripts/gitleaks.sh <worktree>` → exit 0, 156 commits scanned, no leaks.

@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "build",
+  "stage": "needs-human",
   "round": 1,
   "max_round": 3,
   "reviews": {
@@ -18,7 +18,7 @@
   },
   "history": [],
   "decision": null,
-  "waiting": null,
-  "note": "Building",
-  "updated": "2026-11-01T16:37:17Z"
+  "waiting": "AC3 decision",
+  "note": "0.55: name-round DER 16.7%→1.4%, 6/6 right, but 7 voices for 6 speakers (AC3 wants 6); others unchanged",
+  "updated": "2026-11-01T16:40:37Z"
 }
