@@ -9,6 +9,8 @@
 //
 //   node scripts/ggml.mjs build     build once (again only when the pinned crate or the options change)
 //   node scripts/ggml.mjs verify    exit 1 unless prefix/ holds a build of the pinned crate's ggml
+//   node scripts/ggml.mjs outputs   exit 1 if a sys crate output was not built against prefix/ (part of
+//                                   verify; reads only prefix/SOURCE and the target dir, no cargo, no env)
 //   node scripts/ggml.mjs path      print the prefix folder
 //
 // Both sys crates keep a copy of the archives in their build output, and cargo does not rerun their
@@ -17,7 +19,7 @@
 // prefix) would bring a second ggml back. The CMake hooks therefore stamp each crate's build folder with
 // the prefix's SOURCE (which names the build), and `build` cleans every profile whose stamp is missing
 // or differs (`cargo clean -p <crate>`; CARGO_TARGET_DIR is honoured); `verify` fails on one.
-// Options: --force (rebuild even when up to date).
+// Options: --force (rebuild even when up to date), --prefix <dir> (another prefix folder, for tests).
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
@@ -29,7 +31,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = join(root, "src-tauri/Cargo.toml");
 const wrapper = join(root, "src-tauri/native/ggml");
 const buildDir = join(wrapper, "build");
-const prefix = join(wrapper, "prefix");
+const prefixAt = process.argv.indexOf("--prefix");
+const prefix =
+  prefixAt > 0 && process.argv[prefixAt + 1] ? process.argv[prefixAt + 1] : join(wrapper, "prefix");
 const stampFile = join(prefix, "SOURCE");
 const targetDir = process.env.CARGO_TARGET_DIR ?? join(root, "src-tauri/target");
 const SYS_CRATES = ["whisper-rs-sys", CRATE];
@@ -212,19 +216,24 @@ function verify() {
       `${prefix} does not hold ggml ${crate.ggml} from ${CRATE} ${crate.version}: run node scripts/ggml.mjs build`,
     );
   }
+  outputs();
+  console.log(`ggml: ${prefix} holds ggml ${crate.ggml} from ${CRATE} ${crate.version}`);
+}
+
+/** Fails when a sys crate output in the target dir was not built against this prefix. */
+function outputs() {
   const stale = staleOutputs();
   if (stale.length > 0) {
     fail(
       `not built against ${prefix}: ${stale.map((s) => s.path).join(", ")}: run node scripts/ggml.mjs build`,
     );
   }
-  console.log(
-    `ggml: ${prefix} holds ggml ${crate.ggml} from ${CRATE} ${crate.version}; no stale sys crate output`,
-  );
+  console.log(`ggml: every sys crate output in ${targetDir} was built against ${prefix}`);
 }
 
 const command = process.argv[2];
 if (command === "build") build();
 else if (command === "verify") verify();
+else if (command === "outputs") outputs();
 else if (command === "path") console.log(prefix);
-else fail("usage: node scripts/ggml.mjs build|verify|path [--force]");
+else fail("usage: node scripts/ggml.mjs build|verify|outputs|path [--force] [--prefix <dir>]");

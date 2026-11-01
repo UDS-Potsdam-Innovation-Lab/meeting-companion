@@ -169,7 +169,9 @@ STATUS: CONFIGURED
   (`whisper-shared-ggml.cmake`, `llama-shared-ggml.cmake`) stamp each crate's build folder with `prefix/SOURCE`, and
   `build` runs `cargo clean -p` for every profile whose whisper-rs-sys or llama-cpp-sys-2 output is unstamped or
   stamped by another build (e.g. a whisper-rs-sys with its own ggml restored by CI's Rust cache; it honours
-  `CARGO_TARGET_DIR`). `verify` exits 1 unless the prefix holds the pinned crate's ggml and no stale output exists. `.cargo/config.toml` points CMake's
+  `CARGO_TARGET_DIR`). `verify` exits 1 unless the prefix holds the pinned crate's ggml and no stale output exists; `outputs` runs only
+  the stale-output check (it reads `prefix/SOURCE` and the target dir, no cargo, no environment; `--prefix <dir>`
+  points it at another prefix, as the hermetic tests in `src/config.test.ts` do). `.cargo/config.toml` points CMake's
   `find_package(ggml)` there for both crates (`CMAKE_PREFIX_PATH`): llama-cpp-sys-2 with its `system-ggml-static`
   feature, whisper.cpp with `WHISPER_USE_SYSTEM_GGML=ON` (it then compiles against ggml 0.26.0's headers). Because
   whisper-rs-sys still asks rustc for `static=ggml*` from its own build folder only, the CMake hook

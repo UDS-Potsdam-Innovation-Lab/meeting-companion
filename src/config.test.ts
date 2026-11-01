@@ -561,43 +561,53 @@ describe("AC1 (job 016) ggml-check on recorded symbol lists", () => {
   });
 });
 
-describe("job 016 round 2: a cached sys crate output not built against the shared ggml is found", () => {
-  const source = join(root, "src-tauri/native/ggml/prefix/SOURCE");
-  const verify = (target: string) =>
-    spawnSync(process.execPath, [join(root, "scripts/ggml.mjs"), "verify"], {
+describe("job 016: a cached sys crate output not built against the shared ggml is found", () => {
+  // Hermetic: a fake prefix and a fake target dir in a temp folder; `outputs` reads only those, so the
+  // result does not depend on the real prefix, its build options or the environment.
+  const STAMP = '{ "crate": "llama-cpp-sys-2 0.1.160", "built": "2026-11-01T00:00:00.000Z" }\n';
+  const check = (prefix: string, target: string) =>
+    spawnSync(process.execPath, [join(root, "scripts/ggml.mjs"), "outputs", "--prefix", prefix], {
       encoding: "utf8",
       env: { ...process.env, CARGO_TARGET_DIR: target },
     });
-  /** A target dir with one whisper-rs-sys and one llama-cpp-sys-2 output in `release`, stamped with `stamp`. */
-  const target = (stamp: string | null, ownGgml = false) => {
+  /** A temp folder with `prefix/` (SOURCE = STAMP unless null) and `target/release` holding one
+   * whisper-rs-sys and one llama-cpp-sys-2 output, stamped with `stamp`. */
+  const fixture = (stamp: string | null, ownGgml = false, source: string | null = STAMP) => {
     const dir = mkdtempSync(join(tmpdir(), "ggml-stale-"));
+    mkdirSync(join(dir, "prefix"), { recursive: true });
+    if (source !== null) writeFileSync(join(dir, "prefix/SOURCE"), source);
     for (const name of ["whisper-rs-sys-1c761927bb6971f2", "llama-cpp-sys-2-01336d13d7a6e883"]) {
-      const build = join(dir, "release/build", name, "out/build");
+      const build = join(dir, "target/release/build", name, "out/build");
       mkdirSync(build, { recursive: true });
       if (ownGgml && name.startsWith("whisper")) mkdirSync(join(build, "ggml/src"), { recursive: true });
       if (stamp !== null) writeFileSync(join(build, "meeting-companion-ggml.SOURCE"), stamp);
     }
-    mkdirSync(join(dir, "release/deps"), { recursive: true });
-    return dir;
+    mkdirSync(join(dir, "target/release/deps"), { recursive: true });
+    const r = check(join(dir, "prefix"), join(dir, "target"));
+    rmSync(dir, { recursive: true, force: true });
+    return r;
   };
 
   it("passes when both outputs carry the prefix's stamp", () => {
-    const dir = target(readFileSync(source, "utf8"));
-    const r = verify(dir);
-    rmSync(dir, { recursive: true, force: true });
+    const r = fixture(STAMP);
     expect(r.stderr).toBe("");
     expect(r.status).toBe(0);
   });
 
   it.each([
-    ["whisper-rs-sys with its own ggml (no stamp), as restored from the CI cache", null, true],
-    ["an output built against an earlier prefix", '{ "built": "earlier" }\n', false],
-  ])("fails on %s", (_, stamp, ownGgml) => {
-    const dir = target(stamp, ownGgml);
-    const r = verify(dir);
-    rmSync(dir, { recursive: true, force: true });
+    ["whisper-rs-sys with its own ggml (no stamp), as restored from the CI cache", null, true, STAMP],
+    ["an output built against an earlier prefix", '{ "built": "earlier" }\n', false, STAMP],
+    ["a prefix without SOURCE", STAMP, false, null],
+  ])("fails on %s", (_, stamp, ownGgml, source) => {
+    const r = fixture(stamp, ownGgml, source);
     expect(r.status).toBe(1);
     expect(r.stderr).toMatch(/not built against .*prefix/);
     expect(r.stderr).toMatch(/whisper-rs-sys-1c761927bb6971f2/);
+  });
+
+  it("verify runs the same output check after the prefix check", () => {
+    const script = read("scripts/ggml.mjs");
+    expect(script).toMatch(/function verify\(\) \{[\s\S]*?if \(!current\(crate\)\)[\s\S]*?outputs\(\);/);
+    expect(script).toMatch(/function build\(\) \{[\s\S]*?cleanStale\(\);[\s\S]*?cleanStale\(\);/);
   });
 });
