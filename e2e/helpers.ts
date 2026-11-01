@@ -22,6 +22,12 @@ export type Fixture =
   | "settings-recording"
   | "settings-dark"
   | "settings-missing"
+  | "settings-llm-off"
+  | "settings-llm-local"
+  | "settings-llm-none-found"
+  | "settings-llm-claude"
+  | "settings-llm-claude-nokey"
+  | "settings-llm-error"
   | "live-mic-missing"
   | "live-switched"
   | "free"
@@ -38,12 +44,17 @@ const LIVE_UNDER: Fixture[] = ["settings-recording", "settings-dark"];
  * Opens the app with a seeded fake store and a chosen language; waits until the view is ready. Live
  * fixtures open in the live view; give them a fixed clock first (`page.clock`), see `LIVE_TIMES`.
  */
-export async function openApp(page: Page, fixture: Fixture, locale: "de" | "en" = "en") {
+export async function openApp(
+  page: Page,
+  fixture: Fixture,
+  locale: "de" | "en" = "en",
+  theme: "light" | "dark" = "light",
+) {
   await page.addInitScript((l) => {
     if (!localStorage.getItem("meeting-companion.locale"))
       localStorage.setItem("meeting-companion.locale", l);
   }, locale);
-  await page.goto(`/?fixture=${fixture}`);
+  await page.goto(`/?fixture=${fixture}${theme === "dark" ? "&theme=dark" : ""}`);
   const view =
     fixture.startsWith("live") || fixture.startsWith("speakers") || LIVE_UNDER.includes(fixture)
       ? 'main[data-view="live"]'
@@ -59,6 +70,36 @@ export async function openApp(page: Page, fixture: Fixture, locale: "de" | "en" 
   if (fixture === "settings-mic-test") {
     await page.locator(".settings button", { hasText: /Test microphone|Mikrofon testen/ }).click();
     await page.locator('[data-testid="mic-test-running"]').waitFor();
+  }
+  if (fixture.startsWith("settings-llm")) {
+    await page.getByRole("tab", { name: /Language model|Sprachmodell/ }).click();
+    await page.locator(".llm-sample").waitFor();
+  }
+  if (fixture === "settings-llm-none-found") {
+    await page.getByRole("radio", { name: /^(On this device|Auf diesem Gerät)/ }).click();
+    await page.getByTestId("no-llm-model").waitFor();
+  }
+  if (fixture === "settings-llm-claude-nokey") await page.getByTestId("llm-key").waitFor();
+  if (
+    fixture === "settings-llm-claude" ||
+    fixture === "settings-llm-error" ||
+    fixture === "settings-llm-local"
+  ) {
+    await page
+      .getByTestId("llm-key")
+      .or(page.getByRole("region", { name: /Model on this device|Modell auf diesem Gerät/ }))
+      .first()
+      .waitFor();
+    await page.getByRole("button", { name: /^(Test|Testen)$/ }).click();
+    await page
+      .getByTestId(
+        fixture === "settings-llm-claude"
+          ? "llm-reply"
+          : fixture === "settings-llm-error"
+            ? "llm-error"
+            : "llm-waiting",
+      )
+      .waitFor();
   }
   if (fixture === "settings-no-model") {
     await page.getByRole("tab", { name: /On this device|Auf diesem Gerät/ }).click();

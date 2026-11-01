@@ -210,6 +210,8 @@ test.describe("AC7 accessible and responsive", () => {
     expectInOrder(device, [/ggml-base\.bin/, /German \+ English/, "Meetings and transcripts"]);
     await page.getByRole("tab", { name: /On this device/ }).focus();
     await page.keyboard.press("ArrowDown");
+    await expect(page.getByRole("tab", { name: /Language model/ })).toBeFocused();
+    await page.keyboard.press("ArrowDown");
     const general = await tabOrder(page, (n) => /Light/.test(n), 20);
     expectInOrder(general, [/English/, /Light/]);
     await expect(

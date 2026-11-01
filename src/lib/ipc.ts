@@ -199,6 +199,14 @@ export type DeviceLost = "stop" | "switchToDefault";
 export type MeetingLanguage = "auto" | "de" | "en";
 export type ThemeSetting = "light" | "dark" | "system";
 export type LocaleSetting = "de" | "en";
+/**
+ * The language model engine (job 011): `"none"` (default), a GGUF model of the core's scan by id, or the
+ * Claude API. The core changes it only when a person does; it never switches engines on its own.
+ */
+export type LanguageModelSetting = "none" | "claude" | { local: string };
+/** The Claude model, from the core's closed list. */
+export type ClaudeModelSetting = "sonnet" | "haiku" | "opus";
+export const CLAUDE_MODELS: readonly ClaudeModelSetting[] = ["sonnet", "haiku", "opus"];
 
 export interface Settings {
   /** `null`: the system default. */
@@ -211,6 +219,8 @@ export interface Settings {
   meetingLanguage: MeetingLanguage;
   locale: LocaleSetting;
   theme: ThemeSetting;
+  languageModel: LanguageModelSetting;
+  claudeModel: ClaudeModelSetting;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -221,6 +231,8 @@ export const DEFAULT_SETTINGS: Settings = {
   meetingLanguage: "auto",
   locale: "de",
   theme: "system",
+  languageModel: "none",
+  claudeModel: "sonnet",
 };
 
 export type SettingChange =
@@ -230,7 +242,9 @@ export type SettingChange =
   | { key: "speakerModel"; value: string | null }
   | { key: "meetingLanguage"; value: MeetingLanguage }
   | { key: "locale"; value: LocaleSetting }
-  | { key: "theme"; value: ThemeSetting };
+  | { key: "theme"; value: ThemeSetting }
+  | { key: "languageModel"; value: LanguageModelSetting }
+  | { key: "claudeModel"; value: ClaudeModelSetting };
 
 /** `stored`: read from the file. Otherwise the defaults (plus the UI's cached locale and theme). */
 export type SettingsStatus = "stored" | "missing" | "corrupt" | "unreadable" | "locked";
@@ -547,6 +561,136 @@ function subscribe<T>(event: string, handler: (payload: T) => void): () => void 
     stopped = true;
     unlisten?.();
   };
+}
+
+// ---- language model (job 011) ------------------------------------------------------------------------
+// The engine runs in the core. The UI sees the setting, the models found, whether a key is saved
+// (never the key) and the Test's plain-text reply or error kind.
+
+/** A GGUF language model the core found on this device. */
+export interface LlmModel {
+  id: string;
+  name: string;
+  sizeBytes: number;
+  source: ModelSource;
+  folder: string;
+}
+
+export interface LlmModelList {
+  /** Smallest first. */
+  models: LlmModel[];
+  searched: string[];
+  /** False while this version cannot run local models: "On this device" cannot be chosen. */
+  available: boolean;
+}
+
+/** All the UI learns about the API key. */
+export interface ApiKeyStatus {
+  set: boolean;
+}
+
+export type ApiKeyError = { kind: "invalidKey" } | { kind: "keychainUnavailable" };
+
+export type LlmErrorKind =
+  | "notConfigured"
+  | "noModel"
+  | "noApiKey"
+  | "keychainUnavailable"
+  | "offline"
+  | "unauthorized"
+  | "rateLimited"
+  | "failed"
+  | "cancelled"
+  | "busy";
+
+export interface LlmError {
+  kind: LlmErrorKind;
+}
+
+/** The Test's reply: plain text, rendered as text only. */
+export interface LlmTestReply {
+  text: string;
+  /** The input was cut at its limit. */
+  truncated: boolean;
+  /** The reply was cut at its limit. */
+  outputTruncated: boolean;
+  elapsedMs: number;
+}
+
+const LLM_ERRORS: readonly LlmErrorKind[] = [
+  "notConfigured",
+  "noModel",
+  "noApiKey",
+  "keychainUnavailable",
+  "offline",
+  "unauthorized",
+  "rateLimited",
+  "failed",
+  "cancelled",
+  "busy",
+];
+
+export async function listLlmModels(): Promise<LlmModelList> {
+  try {
+    return await invoke<LlmModelList>("list_llm_models");
+  } catch {
+    return { models: [], searched: [], available: false };
+  }
+}
+
+function apiKeyError(e: unknown): ApiKeyError {
+  const kind = (e as { kind?: unknown } | undefined)?.kind;
+  return { kind: kind === "invalidKey" ? "invalidKey" : "keychainUnavailable" };
+}
+
+/** Whether a key is saved. Rejects with an {@link ApiKeyError} when the keychain is not available. */
+export async function getApiKeyStatus(): Promise<ApiKeyStatus> {
+  try {
+    const status = await invoke<ApiKeyStatus>("get_api_key_status");
+    return { set: status.set === true };
+  } catch (e) {
+    throw apiKeyError(e);
+  }
+}
+
+/** Saves or replaces the key in the OS keychain. Rejects with an {@link ApiKeyError}. */
+export async function setApiKey(key: string): Promise<ApiKeyStatus> {
+  try {
+    const status = await invoke<ApiKeyStatus>("set_api_key", { key });
+    return { set: status.set === true };
+  } catch (e) {
+    throw apiKeyError(e);
+  }
+}
+
+/** Removes the key from the OS keychain. Rejects with an {@link ApiKeyError}. */
+export async function deleteApiKey(): Promise<ApiKeyStatus> {
+  try {
+    const status = await invoke<ApiKeyStatus>("delete_api_key");
+    return { set: status.set === true };
+  } catch (e) {
+    throw apiKeyError(e);
+  }
+}
+
+/** Sends the fixed sample text through the chosen engine. Rejects with an {@link LlmError}. */
+export async function runLlmTest(): Promise<LlmTestReply> {
+  try {
+    return await invoke<LlmTestReply>("run_llm_test");
+  } catch (e) {
+    const kind = (e as { kind?: unknown } | undefined)?.kind;
+    throw {
+      kind: LLM_ERRORS.includes(kind as LlmErrorKind) ? (kind as LlmErrorKind) : "failed",
+    } satisfies LlmError;
+  }
+}
+
+export async function cancelLlmTest(): Promise<void> {
+  try {
+    await invoke("cancel_llm_test");
+  } catch {
+    // Nothing running.
+  }
 }
 
 // ---- phone web view (job 012) ---------------------------------------------------------------------

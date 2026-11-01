@@ -59,6 +59,8 @@ import {
   type TranscriptSegment,
   type VoiceChoice,
   type VoiceEvent,
+  type LlmModelList,
+  type LlmTestReply,
 } from "./ipc";
 
 const KEY = "mock-backend.meetings";
@@ -77,6 +79,12 @@ const SETTINGS_KEY = "mock-backend.settings";
 const MIC_TEST_KEY = "mock-backend.mic-test";
 /** Milliseconds `stop_recording` takes to answer (a core whose engine is slow to stop). */
 export const STOP_DELAY_KEY = "mock-backend.stop-delay-ms";
+/** `none`: no GGUF language model is found. */
+const LLM_MODELS_KEY = "mock-backend.llmModels";
+/** `set`: an API key is in the fake keychain. The key itself is never kept, not even here. */
+const API_KEY_KEY = "mock-backend.apiKey";
+/** How the fake engine answers the Test: `reply` (default), `slow` (until cancelled) or an error kind. */
+const LLM_TEST_KEY = "mock-backend.llmTest";
 /** The level the fake microphone delivers: `speech` (default), `silence` or `none` (no events). */
 const LEVEL_KEY = "mock-backend.level";
 /** `none`: `phone_view_open` finds no local network. */
@@ -109,6 +117,12 @@ type Fixture =
   | "settings-recording"
   | "settings-dark"
   | "settings-missing"
+  | "settings-llm-off"
+  | "settings-llm-local"
+  | "settings-llm-none-found"
+  | "settings-llm-claude"
+  | "settings-llm-claude-nokey"
+  | "settings-llm-error"
   | "live-mic-missing"
   | "live-switched"
   | "free"
@@ -137,6 +151,12 @@ const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   "settings-recording": liveConsentedMeeting,
   "settings-dark": liveConsentedMeeting,
   "settings-missing": filledMeeting,
+  "settings-llm-off": filledMeeting,
+  "settings-llm-local": filledMeeting,
+  "settings-llm-none-found": filledMeeting,
+  "settings-llm-claude": filledMeeting,
+  "settings-llm-claude-nokey": filledMeeting,
+  "settings-llm-error": filledMeeting,
   "live-mic-missing": liveConsentedMeeting,
   "live-switched": liveConsentedMeeting,
   free: freeSetupMeeting,
@@ -199,6 +219,43 @@ const SPEAKER_SEARCHED = [
   "/home/user/.cache/huggingface/hub",
 ];
 
+const LLM_FOLDER = "/home/user/.local/share/de.udspotsdam.meetingcompanion/models";
+const HF_FOLDER = "/home/user/.cache/huggingface/hub";
+const LLM_MODELS: LlmModelList = {
+  models: [
+    {
+      id: `${HF_FOLDER}/models--Qwen--Qwen2.5-3B-Instruct-GGUF/snapshots/1/Qwen2.5-3B-Instruct-Q4_K_M.gguf`,
+      name: "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+      sizeBytes: 1_986_000_000,
+      source: "huggingFace",
+      folder: HF_FOLDER,
+    },
+    {
+      id: `${LLM_FOLDER}/Llama-3.2-3B-Instruct-Q4_K_M.gguf`,
+      name: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      sizeBytes: 2_019_000_000,
+      source: "app",
+      folder: LLM_FOLDER,
+    },
+    {
+      id: `${HF_FOLDER}/models--google--gemma-3-4b-it-GGUF/snapshots/1/gemma-3-4b-it-Q4_K_M.gguf`,
+      name: "gemma-3-4b-it-Q4_K_M.gguf",
+      sizeBytes: 2_490_000_000,
+      source: "huggingFace",
+      folder: HF_FOLDER,
+    },
+  ],
+  searched: [LLM_FOLDER, HF_FOLDER],
+  available: true,
+};
+
+const LLM_REPLY: LlmTestReply = {
+  text: "The team will launch the beta on 14 November without offline mode and inform the third pilot school this week.",
+  truncated: false,
+  outputTruncated: false,
+  elapsedMs: 1_400,
+};
+
 const SEARCHED = [
   "/home/user/.local/share/de.udspotsdam.meetingcompanion/models",
   "/home/user/.local/share/voxtype/models",
@@ -223,7 +280,7 @@ let capture: CaptureState = CAPTURE_OFF;
 let timer: ReturnType<typeof setInterval> | null = null;
 let step = 0;
 
-function seed(fixture: Fixture) {
+function seed(fixture: Fixture, dark: boolean) {
   for (const k of [
     CORRUPT_KEY,
     LOCKED_KEY,
@@ -233,6 +290,9 @@ function seed(fixture: Fixture) {
     MIC_TEST_KEY,
     SPEAKER_MODELS_KEY,
     LEVEL_KEY,
+    LLM_MODELS_KEY,
+    API_KEY_KEY,
+    LLM_TEST_KEY,
     PHONE_NETWORK_KEY,
   ]) {
     localStorage.removeItem(k);
@@ -254,12 +314,25 @@ function seed(fixture: Fixture) {
       ...DEFAULT_SETTINGS,
       locale: (localStorage.getItem("meeting-companion.locale") as Settings["locale"]) ?? "en",
       inputDevice: missing ? "Jabra Speak 710" : "Jabra Speak 510",
-      theme: fixture === "settings-dark" ? "dark" : "light",
+      theme: fixture === "settings-dark" || dark ? "dark" : "light",
+      languageModel:
+        fixture === "settings-llm-local"
+          ? { local: LLM_MODELS.models[0]!.id }
+          : fixture === "settings-llm-claude" ||
+              fixture === "settings-llm-claude-nokey" ||
+              fixture === "settings-llm-error"
+            ? "claude"
+            : "none",
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     localStorage.setItem("meeting-companion.theme", settings.theme);
   }
   if (fixture === "settings-mic-test") localStorage.setItem(MIC_TEST_KEY, "fixed");
+  if (fixture === "settings-llm-none-found") localStorage.setItem(LLM_MODELS_KEY, "none");
+  if (fixture === "settings-llm-claude" || fixture === "settings-llm-error")
+    localStorage.setItem(API_KEY_KEY, "set");
+  if (fixture === "settings-llm-error") localStorage.setItem(LLM_TEST_KEY, "unauthorized");
+  if (fixture === "settings-llm-local") localStorage.setItem(LLM_TEST_KEY, "slow");
 
   const id = meetings[0]?.id ?? null;
   if (fixture === "live-switched") {
@@ -554,8 +627,50 @@ function speakerModelList(): SpeakerModelList {
     : SPEAKER_MODELS;
 }
 
+function llmModelList(): LlmModelList {
+  return localStorage.getItem(LLM_MODELS_KEY) === "none" ? { ...LLM_MODELS, models: [] } : LLM_MODELS;
+}
+
+/** The running Test of the fake engine, so "Cancel test" can end it. */
+let llmCancel: (() => void) | null = null;
+
+function runLlmTest(): Promise<LlmTestReply> {
+  const s = storedSettings() ?? current ?? DEFAULT_SETTINGS;
+  if (llmCancel) return Promise.reject({ kind: "busy" });
+  if (s.languageModel === "none") return Promise.reject({ kind: "notConfigured" });
+  if (s.languageModel === "claude" && localStorage.getItem(API_KEY_KEY) !== "set")
+    return Promise.reject({ kind: "noApiKey" });
+  if (typeof s.languageModel === "object") {
+    const id = s.languageModel.local;
+    if (!llmModelList().models.some((m) => m.id === id)) return Promise.reject({ kind: "noModel" });
+  }
+  const mode = localStorage.getItem(LLM_TEST_KEY) ?? "reply";
+  return new Promise((resolve, reject) => {
+    const timer =
+      mode === "slow"
+        ? null
+        : setTimeout(() => {
+            llmCancel = null;
+            if (mode === "reply") resolve(LLM_REPLY);
+            else reject({ kind: mode });
+          }, 300);
+    llmCancel = () => {
+      if (timer !== null) clearTimeout(timer);
+      llmCancel = null;
+      reject({ kind: "cancelled" });
+    };
+  });
+}
+
 function valid(change: SettingChange): boolean {
   const { key, value } = change;
+  if (key === "languageModel") {
+    if (value === "none" || value === "claude") return true;
+    return (
+      typeof value === "object" && value !== null && llmModelList().models.some((m) => m.id === value.local)
+    );
+  }
+  if (key === "claudeModel") return ["sonnet", "haiku", "opus"].includes(value);
   if (key === "inputDevice") return value === null || DEVICES.includes(value);
   if (key === "speechModel") return value === null || modelList().models.some((m) => m.id === value);
   if (key === "speakerModel") return value === null || speakerModelList().models.some((m) => m.id === value);
@@ -603,8 +718,10 @@ export function installMockBackend() {
   const url = new URL(window.location.href);
   const fixture = url.searchParams.get("fixture") as Fixture | null;
   if (fixture) {
-    seed(fixture);
+    // `&theme=dark` opens a settings fixture in the dark theme.
+    seed(fixture, url.searchParams.get("theme") === "dark");
     url.searchParams.delete("fixture");
+    url.searchParams.delete("theme");
     window.history.replaceState(null, "", url);
   }
 
@@ -826,6 +943,25 @@ export function installMockBackend() {
         case "stop_mic_test":
           stopTest();
           emitTest(MIC_TEST_OFF);
+          return null;
+        case "list_llm_models":
+          return llmModelList();
+        case "get_api_key_status":
+          return { set: localStorage.getItem(API_KEY_KEY) === "set" };
+        case "set_api_key": {
+          // Like the core: trimmed, 1–512 printable ASCII characters without spaces. Only "set" is kept.
+          const key = String(a.key ?? "").trim();
+          if (!/^[\x21-\x7e]{1,512}$/.test(key)) throw { kind: "invalidKey" };
+          localStorage.setItem(API_KEY_KEY, "set");
+          return { set: true };
+        }
+        case "delete_api_key":
+          localStorage.removeItem(API_KEY_KEY);
+          return { set: false };
+        case "run_llm_test":
+          return runLlmTest();
+        case "cancel_llm_test":
+          llmCancel?.();
           return null;
         case "phone_view_open":
           return openPhone(a.meetingId as string);

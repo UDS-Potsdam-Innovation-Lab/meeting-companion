@@ -17,6 +17,8 @@ interface View {
    */
   wave?: boolean;
   reducedMotion?: boolean;
+  /** Opens a settings fixture in the dark theme. */
+  dark?: boolean;
 }
 
 /** Waits until the mock core's state is on screen. */
@@ -132,6 +134,31 @@ const VIEWS: View[] = [
   { name: "settings-recording", fixture: "settings-recording", time: LIVE_TIMES.running, wave: true },
   { name: "settings-dark", fixture: "settings-dark", time: LIVE_TIMES.running, wave: true },
   { name: "settings-missing", fixture: "settings-missing", act: waitFor(".settings-notice--error") },
+  // Frame 17 Language model (job 011).
+  { name: "settings-llm-off", fixture: "settings-llm-off" },
+  {
+    name: "settings-llm-confirm",
+    fixture: "settings-llm-off",
+    act: async (page) => {
+      await page.getByRole("radio", { name: /^Claude API/ }).click();
+      await page.getByTestId("llm-confirm").waitFor();
+    },
+  },
+  { name: "settings-llm-local", fixture: "settings-llm-local", time: LIVE_TIMES.running },
+  { name: "settings-llm-none-found", fixture: "settings-llm-none-found" },
+  { name: "settings-llm-claude", fixture: "settings-llm-claude" },
+  { name: "settings-llm-claude-nokey", fixture: "settings-llm-claude-nokey" },
+  { name: "settings-llm-error", fixture: "settings-llm-error" },
+  { name: "settings-llm-claude-dark", fixture: "settings-llm-claude", dark: true },
+  {
+    name: "settings-llm-confirm-dark",
+    fixture: "settings-llm-off",
+    dark: true,
+    act: async (page) => {
+      await page.getByRole("radio", { name: /^Claude API/ }).click();
+      await page.getByTestId("llm-confirm").waitFor();
+    },
+  },
   {
     name: "live-mic-missing",
     fixture: "live-mic-missing",
@@ -207,7 +234,7 @@ async function open(page: Page, view: View, locale: "de" | "en") {
     return;
   }
   if (view.time !== undefined) await page.clock.setFixedTime(view.time);
-  await openApp(page, view.fixture, locale);
+  await openApp(page, view.fixture, locale, view.dark ? "dark" : "light");
   await view.act?.(page);
 }
 
@@ -245,6 +272,8 @@ const RESPONSIVE_VIEWS = [
   "speakers",
   "settings",
   "settings-recording",
+  "settings-llm-confirm",
+  "settings-llm-claude",
   "free",
   "live-free",
   "live-free-half",

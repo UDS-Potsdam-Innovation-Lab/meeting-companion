@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::engines::claude::ClaudeModel;
 use crate::engines::stt::Lang;
 
 /// Longest input device name the core accepts.
@@ -79,6 +80,22 @@ pub enum Theme {
     System,
 }
 
+/// Which language model engine later features use. Nothing is chosen by default, and the core never
+/// switches between engines on its own: only a person changes this.
+///
+/// JSON: `"none"` | `{ "local": "<model id from the core's llm scan>" }` | `"claude"`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum LanguageModelSetting {
+    /// "Off": no engine; a call returns `NotConfigured` and nothing is sent anywhere.
+    #[default]
+    None,
+    /// A GGUF model on this device, by the id of the core's scan.
+    Local(String),
+    /// The Claude API (Anthropic, api.anthropic.com, USA), after a person confirmed it.
+    Claude,
+}
+
 /// Every app setting. `None` for a device or model means "the system default" / "the preferred one".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -91,6 +108,10 @@ pub struct Settings {
     pub meeting_language: MeetingLanguage,
     pub locale: Locale,
     pub theme: Theme,
+    /// The language model engine (job 011); `none` by default.
+    pub language_model: LanguageModelSetting,
+    /// The Claude model, from the core's closed list; used only while `language_model` is `claude`.
+    pub claude_model: ClaudeModel,
 }
 
 impl Settings {
@@ -118,6 +139,13 @@ impl Settings {
             meeting_language: field(&map, "meetingLanguage", d.meeting_language),
             locale: field(&map, "locale", d.locale),
             theme: field(&map, "theme", d.theme),
+            language_model: match field(&map, "languageModel", d.language_model) {
+                LanguageModelSetting::Local(id) if !valid_text(&id, MAX_MODEL_ID) => {
+                    LanguageModelSetting::None
+                }
+                other => other,
+            },
+            claude_model: field(&map, "claudeModel", d.claude_model),
         })
     }
 }
@@ -143,10 +171,12 @@ pub enum SettingChange {
     MeetingLanguage(MeetingLanguage),
     Locale(Locale),
     Theme(Theme),
+    LanguageModel(LanguageModelSetting),
+    ClaudeModel(ClaudeModel),
 }
 
 /// The setting keys, in the UI's names. Errors name the key, never the value.
-pub const KEYS: [&str; 7] = [
+pub const KEYS: [&str; 9] = [
     "inputDevice",
     "deviceLost",
     "speechModel",
@@ -154,6 +184,8 @@ pub const KEYS: [&str; 7] = [
     "meetingLanguage",
     "locale",
     "theme",
+    "languageModel",
+    "claudeModel",
 ];
 
 /// Why a change was refused. Carries the key only, never the value that was sent.
@@ -181,6 +213,10 @@ pub trait Catalog {
     fn speech_models(&self) -> Vec<String>;
     /// Ids of the speaker models in the core's own scan.
     fn speaker_models(&self) -> Vec<String> {
+        Vec::new()
+    }
+    /// Ids of the language models in the core's own scan (empty while this build cannot run them).
+    fn llm_models(&self) -> Vec<String> {
         Vec::new()
     }
 }
@@ -238,6 +274,19 @@ pub fn apply(
             }
             next.speaker_model = model;
         }
+        SettingChange::LanguageModel(choice) => {
+            if let LanguageModelSetting::Local(id) = &choice {
+                let known =
+                    valid_text(id, MAX_MODEL_ID) && catalog.llm_models().iter().any(|m| m == id);
+                if !known {
+                    return Err(SettingsError::Invalid {
+                        key: Some("languageModel"),
+                    });
+                }
+            }
+            next.language_model = choice;
+        }
+        SettingChange::ClaudeModel(v) => next.claude_model = v,
         SettingChange::DeviceLost(v) => next.device_lost = v,
         SettingChange::MeetingLanguage(v) => next.meeting_language = v,
         SettingChange::Locale(v) => next.locale = v,
