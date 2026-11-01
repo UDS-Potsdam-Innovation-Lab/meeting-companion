@@ -12,3 +12,5 @@ src-tauri/gen/
 src-tauri/native/archive/
 src-tauri/native/lib/
 src-tauri/native/models/
+src-tauri/native/ggml/build/
+src-tauri/native/ggml/prefix/
