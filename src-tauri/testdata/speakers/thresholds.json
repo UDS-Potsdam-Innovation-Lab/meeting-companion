@@ -4,23 +4,23 @@
   "models": {
     "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx": {
       "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2",
-      "measured": "2026-10-31, debug test profile, Linux x86-64, SAME_VOICE 0.5, MIN_SEGMENT_MS 1000",
+      "measured": "2026-11-01, debug test profile, Linux x86-64, SAME_VOICE 0.55, MIN_SEGMENT_MS 1000",
       "marginPp": 5,
-      "nameRoundMinSuggested": 4,
+      "nameRoundMinSuggested": 6,
       "scenes": {
         "de-name-round": {
           "baseline": {
-            "der": 0.1669,
+            "der": 0.0135,
             "missed": 0.0008,
             "falseAlarm": 0.0084,
-            "confusion": 0.1577,
-            "lineAccuracy": 0.8302
+            "confusion": 0.0043,
+            "lineAccuracy": 0.9811
           },
-          "maxDer": 0.2169,
+          "maxDer": 0.0635,
           "maxMissed": 0.0508,
           "maxFalseAlarm": 0.0584,
-          "maxConfusion": 0.2077,
-          "minLineAccuracy": 0.7802
+          "maxConfusion": 0.0543,
+          "minLineAccuracy": 0.9311
         },
         "en-overlap": {
           "baseline": {

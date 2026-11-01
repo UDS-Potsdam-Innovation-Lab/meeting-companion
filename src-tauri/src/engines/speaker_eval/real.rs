@@ -74,6 +74,13 @@ fn majority(voices: impl Iterator<Item = Option<Voice>>) -> Option<Voice> {
 /// another speaker's label. Returns failures and notes.
 fn scene_checks(s: &BuiltScene, run: &SceneRun, m: &Measures) -> (Vec<String>, Vec<String>) {
     let (mut failures, mut notes) = (Vec::new(), Vec::new());
+    // The name round: at most one extra voice (7 for 6 at SAME_VOICE 0.55, accepted in job 015).
+    if s.id == "de-name-round" && m.voices > m.speakers + 1 {
+        failures.push(format!(
+            "{}: {} voices for {} speakers, at most one extra voice allowed",
+            s.id, m.voices, m.speakers
+        ));
+    }
     for sp in s.speakers() {
         let mine = scene::turns_of(&s.turns, &sp);
         // Returning after a pause of at least 60 s.
