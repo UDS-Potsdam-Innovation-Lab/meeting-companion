@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "review",
+  "stage": "merged",
   "round": 1,
   "max_round": 3,
   "reviews": {
@@ -17,8 +17,8 @@
     "code": "PASS"
   },
   "history": [],
-  "decision": null,
+  "decision": "APPROVE",
   "waiting": null,
-  "note": "All reviews PASS; CI gate",
-  "updated": "2026-11-01T16:54:52Z"
+  "note": "Merged; tests on main running (main had moved: 011)",
+  "updated": "2026-11-01T17:22:10Z"
 }
