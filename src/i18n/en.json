@@ -473,5 +473,18 @@
   "settings.llm.error.busy.body": "Wait for it or cancel it.",
   "model.sizeGb": "{gb} GB",
   "legal.privacy.languageModel.title": "Language model and Claude API",
-  "legal.privacy.languageModel.body": "Off by default. Only if a person chooses “Claude API (cloud)” under Settings › Language model and confirms it, text goes to Anthropic (api.anthropic.com, USA) with the organisation’s own API key: in this version only the fixed test text, when someone presses Test; with later features, text from meetings when a feature asks for it. With “Off” or “On this device” nothing is sent. The API key is kept only in the system keychain."
+  "legal.privacy.languageModel.body": "Off by default. Only if a person chooses “Claude API (cloud)” under Settings › Language model and confirms it, text goes to Anthropic (api.anthropic.com, USA) with the organisation’s own API key: in this version only the fixed test text, when someone presses Test; with later features, text from meetings when a feature asks for it. With “Off” or “On this device” nothing is sent. The API key is kept only in the system keychain.",
+  "phone.appName": "Meeting Companion",
+  "phone.status.connected": "Connected",
+  "phone.status.closed": "Closed",
+  "phone.waiting.title": "Connected to the meeting screen",
+  "phone.waiting.text": "Nothing to do right now. When the meeting asks you for something, it appears here.",
+  "phone.closed.title": "This page is closed",
+  "phone.closed.text": "The meeting screen closed it, or the recording has stopped.",
+  "phone.closed.hint": "To take part again, scan the QR code on the meeting screen.",
+  "phone.footer.open": "Local network only. This page shows nothing from the meeting.",
+  "phone.footer.closed": "Nothing from this page was kept on your phone.",
+  "phoneView.error.notRecording": "The phone view opens only while the meeting is being recorded.",
+  "phoneView.error.noLocalNetwork": "No local network found. Connect this device to Wi-Fi or a network cable.",
+  "phoneView.error.failed": "The phone view could not be opened."
 }

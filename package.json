@@ -8,8 +8,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "build:e2e": "vite build --mode e2e --outDir dist-e2e",
+    "build": "tsc --noEmit && vite build && vite build --config vite.phone.config.ts",
+    "build:e2e": "vite build --mode e2e --outDir dist-e2e && vite build --config vite.phone.config.ts --outDir dist-e2e/phone",
     "preview:e2e": "vite preview --mode e2e --outDir dist-e2e --port 4173 --strictPort",
     "tauri": "tauri",
     "test": "vitest run && cargo test --manifest-path src-tauri/Cargo.toml && playwright test",

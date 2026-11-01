@@ -53,13 +53,33 @@ describe("AC5 no network: Tauri configuration", () => {
     expect(conf.app.security.dangerousDisableAssetCspModification).toBeUndefined();
   });
 
-  it("the Rust core opens no socket", () => {
-    const sources = readdirSync(join(root, "src-tauri/src"), { recursive: true })
+  it("the Rust core opens no socket outside the opt-in phone view (job 012)", () => {
+    const files = readdirSync(join(root, "src-tauri/src"), { recursive: true })
       .map(String)
-      .filter((f) => f.endsWith(".rs"))
-      .map((f) => readFileSync(join(root, "src-tauri/src", f), "utf8"))
+      .filter((f) => f.endsWith(".rs"));
+    const read = (f: string) => readFileSync(join(root, "src-tauri/src", f), "utf8");
+    const elsewhere = files
+      .filter((f) => !f.startsWith("phone_view"))
+      .map(read)
       .join("\n");
-    expect(sources).not.toMatch(/TcpListener|UdpSocket|TcpStream|reqwest|hyper::/);
+    expect(elsewhere).not.toMatch(/TcpListener|UdpSocket|TcpStream|SocketAddr|reqwest|hyper::|axum::/);
+    // In the phone view (tests aside): one listener, bound to one address of the chosen interface; no
+    // UDP, no outgoing connection, no wildcard address.
+    const phone = files.filter((f) => f.startsWith("phone_view") && !f.endsWith("tests.rs"));
+    expect(phone.length).toBeGreaterThan(0);
+    for (const f of phone) {
+      // Without comments and the inline test module at the end of a file.
+      const src = read(f)
+        .replace(/#\[cfg\(test\)\]\s*(pub )?mod tests \{[\s\S]*$/, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      expect(src, f).not.toMatch(
+        /UdpSocket|TcpStream::connect|TcpSocket|reqwest|hyper::client|0\.0\.0\.0|UNSPECIFIED|Ipv6Addr|::bind\(\(?"/,
+      );
+    }
+    const binds = phone.flatMap((f) =>
+      [...read(f).matchAll(/TcpListener::bind\(([^)]*)\)/g)].map((m) => m[1]),
+    );
+    expect(binds).toEqual(["SocketAddrV4::new(ip, 0"]);
   });
 });
 
@@ -93,12 +113,19 @@ describe("AC6 (job 003) recording adds no network and declares the microphone", 
   const conf = JSON.parse(read("src-tauri/tauri.conf.json"));
 
   it("adds no HTTP client crate and no Tauri plugin for the engines", () => {
-    for (const crate of ["reqwest", "hyper", "curl", "isahc", "attohttpc", "tauri-plugin-"]) {
+    for (const crate of ["reqwest", "curl", "isahc", "attohttpc", "tauri-plugin-"]) {
       expect(cargo).not.toContain(crate);
     }
     // Deliberately loosened in job 011: one HTTP client, ureq, for the Claude API only (see below).
     expect(cargo.match(/^ureq\b.*$/gm)).toEqual([
       'ureq = { version = "3.5", default-features = false, features = ["rustls"] }',
+    ]);
+    // The phone view (job 012) is the only HTTP server code: server side only, HTTP/1, no client features.
+    const httpDeps = cargo.split("\n").filter((l) => /^(hyper|hyper-util|axum)\s*=/.test(l));
+    expect(httpDeps).toEqual([
+      'axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }',
+      'hyper = { version = "1", features = ["server", "http1"] }',
+      'hyper-util = { version = "0.1", features = ["tokio", "server", "http1", "service"] }',
     ]);
     // Neither engine crate pulls one in, directly or through its dependencies.
     const deps = new Map<string, string[]>();
@@ -249,6 +276,7 @@ describe("AC7 (job 007) the level event adds nothing beyond one listed core even
       "capture-state",
       "mic-test",
       "microphone-switched",
+      "phone-view-state",
       "settings-changed",
       "transcript-segment",
       "transcript-voice",
@@ -324,7 +352,10 @@ describe("AC3 (job 011) the one network path: HTTPS to api.anthropic.com from en
     const urls = production.flatMap(({ file, src }) =>
       [...src.matchAll(/"(https?:\/\/[^"]*)"/g)].map((m) => `${file}: ${m[1]}`),
     );
-    expect(urls).toEqual(["engines/claude.rs: https://api.anthropic.com/v1/messages"]);
+    // The SVG namespace of the phone view's QR code (job 012) is an XML name, not a request.
+    expect(urls.filter((u) => u !== "phone_view/qr.rs: http://www.w3.org/2000/svg\\")).toEqual([
+      "engines/claude.rs: https://api.anthropic.com/v1/messages",
+    ]);
     const claude = production.find((f) => f.file === "engines/claude.rs")!.src;
     expect(claude).toContain('pub const API_HOST: &str = "api.anthropic.com";');
     expect(claude).toContain('pub const API_URL: &str = "https://api.anthropic.com/v1/messages";');
@@ -343,8 +374,12 @@ describe("AC3 (job 011) the one network path: HTTPS to api.anthropic.com from en
       expect(claude).toContain(setting);
   });
 
-  it("still opens no listening socket, adds no Tauri HTTP/shell plugin and keeps connect-src IPC only", () => {
-    const all = files.map((f) => f.src).join("\n");
+  it("opens no listening socket outside the phone view, adds no Tauri HTTP/shell plugin and keeps connect-src IPC only", () => {
+    // The phone view (job 012) is the one listener; "AC5 no network" checks it binds one private address.
+    const all = files
+      .filter(({ file }) => !file.startsWith("phone_view"))
+      .map((f) => f.src)
+      .join("\n");
     expect(all).not.toMatch(/TcpListener|UdpSocket/);
     expect(cargo).not.toMatch(/tauri-plugin-(http|shell|websocket|localhost|upload)/);
     const conf = JSON.parse(read("src-tauri/tauri.conf.json"));

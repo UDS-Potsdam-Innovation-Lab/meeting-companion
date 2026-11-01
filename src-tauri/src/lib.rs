@@ -1,15 +1,18 @@
 //! Meeting Companion core: the meeting model, the store and the Tauri commands the UI calls.
 //!
-//! The app opens no network port. It makes one kind of network request, and only after a person chose
-//! "Claude API (cloud)" in the settings: HTTPS to api.anthropic.com from the core
-//! ([`engines::claude`]). The UI is served from the app's own assets through Tauri's custom protocol,
-//! and every other command reads or writes local files.
+//! The app makes one kind of network request, and only after a person chose "Claude API (cloud)" in the
+//! settings: HTTPS to api.anthropic.com from the core ([`engines::claude`]). The UI is served from the
+//! app's own assets through Tauri's custom protocol, and every other command reads or writes local files.
+//! The one network port is the opt-in phone web view ([`phone_view`]): it listens on one private address
+//! of the local network only while a person opened it during a recording, and closes when they turn it
+//! off, recording stops, the meeting ends or the app exits.
 
 pub mod crypto;
 pub mod engines;
 pub mod language_model;
 pub mod log;
 pub mod model;
+pub mod phone_view;
 pub mod recording;
 pub mod secrets;
 pub mod settings;
@@ -21,7 +24,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
-use tauri::{Emitter, Manager, State};
+use tauri::{Emitter, Manager, RunEvent, State};
 
 use crypto::KeychainKeyProvider;
 use engines::audio::{AudioSource, FakeAudioSource};
@@ -39,9 +42,13 @@ use language_model::{
     ScriptedLocalProvider,
 };
 use model::{FieldError, Meeting};
+use phone_view::net::SystemNetInterfaces;
+use phone_view::{
+    CloseReason, PhoneEvents, PhoneViewError, PhoneViewOpened, PhoneViewServer, PhoneViewState,
+};
 use recording::{
-    CaptureState, EventSink, LevelEvent, MicTestError, MicTestState, Reason, RecordError, Recorder,
-    SegmentEvent, StartOptions, SwitchedEvent, VoiceEvent,
+    Capture, CaptureState, EventSink, LevelEvent, MicTestError, MicTestState, Reason, RecordError,
+    Recorder, SegmentEvent, StartOptions, SwitchedEvent, VoiceEvent,
 };
 use secrets::{ApiKeyStatus, KeychainSecretStore, MemorySecretStore, SecretError, SecretStore};
 use settings::{
@@ -82,12 +89,16 @@ pub const EVENT_MIC_TEST: &str = "mic-test";
 pub const EVENT_LEVEL: &str = "capture-level";
 /// Event when recording switched to the system default microphone ([`SwitchedEvent`]).
 pub const EVENT_SWITCHED: &str = "microphone-switched";
+/// Event when the phone web view opened or closed, and why ([`PhoneViewState`]).
+pub const EVENT_PHONE_VIEW: &str = "phone-view-state";
 const SMOKE_TIMEOUT: Duration = Duration::from_secs(90);
 const SMOKE_VIEW: &str = "agenda-setup";
 
 pub struct AppState {
     store: Arc<dyn MeetingStore>,
     recorder: Recorder,
+    /// The opt-in phone web view; closed unless a person opened it during a recording.
+    phone: Arc<PhoneViewServer>,
     settings: SettingsService,
     /// The language model engine; only the settings view's "Test" uses it in this version.
     llm: LanguageModelService,
@@ -317,18 +328,20 @@ fn load_latest_meeting(state: State<'_, AppState>) -> LoadResult {
     load_latest(state.store.as_ref())
 }
 
-/// `save_meeting`: an ended run stops its recording first. The UI asks for the stop as well but does
-/// not wait for it, so this may run while that stop still holds the recorder; a stop is bounded
-/// ([`recording::STOP_WAIT`]), so this is too.
+/// `save_meeting`: an ended run closes its phone view and stops its recording first. The UI asks for
+/// the stop as well but does not wait for it, so this may run while that stop still holds the
+/// recorder; a stop is bounded ([`recording::STOP_WAIT`]), so this is too.
 pub fn save_from_ui(
     store: &dyn MeetingStore,
     recorder: &Recorder,
+    phone: &PhoneViewServer,
     edits: &Mutex<()>,
     meeting: Meeting,
     now_ms: u64,
 ) -> Result<u64, SaveError> {
     let ended = meeting.run.as_ref().is_some_and(|r| r.ended_at.is_some());
     if ended {
+        phone.on_meeting_ended(&meeting.id);
         recorder.stop_meeting(&meeting.id);
     }
     let _edit = edits.lock().unwrap_or_else(|e| e.into_inner());
@@ -341,6 +354,7 @@ fn save_meeting(state: State<'_, AppState>, meeting: Meeting) -> Result<u64, Sav
     save_from_ui(
         state.store.as_ref(),
         &state.recorder,
+        &state.phone,
         &state.edits,
         meeting,
         now_ms(),
@@ -558,6 +572,65 @@ fn cancel_llm_test(state: State<'_, AppState>) {
     state.llm.cancel_test();
 }
 
+/// Whether `meeting_id` is recording right now (not paused, not another meeting).
+pub fn records(recorder: &Recorder, meeting_id: &str) -> bool {
+    let s = recorder.status();
+    s.state == Capture::Recording && s.meeting_id.as_deref() == Some(meeting_id)
+}
+
+/// Opens the phone web view for a recording meeting: `{ url, qrSvg }`, or `{ key }` with
+/// `phoneView.error.notRecording`, `phoneView.error.noLocalNetwork` or `phoneView.error.failed`.
+#[tauri::command(async)]
+fn phone_view_open(
+    state: State<'_, AppState>,
+    meeting_id: String,
+) -> Result<PhoneViewOpened, PhoneViewError> {
+    let recorder = &state.recorder;
+    state.phone.open(&meeting_id, |id| records(recorder, id))
+}
+
+/// Closes the phone web view (if open); `phone-view-state` says `closed`, `requested`.
+#[tauri::command(async)]
+fn phone_view_close(state: State<'_, AppState>) {
+    state.phone.close(CloseReason::Requested);
+}
+
+/// Passes the core's events on and closes the phone view when its meeting stops recording.
+pub struct ClosesPhoneView {
+    pub inner: Arc<dyn EventSink>,
+    pub phone: Arc<PhoneViewServer>,
+}
+
+impl EventSink for ClosesPhoneView {
+    fn capture(&self, state: &CaptureState) {
+        self.inner.capture(state);
+        self.phone.on_capture(state);
+    }
+    fn segment(&self, event: &SegmentEvent) {
+        self.inner.segment(event);
+    }
+    fn voice(&self, event: &VoiceEvent) {
+        self.inner.voice(event);
+    }
+    fn switched(&self, event: &SwitchedEvent) {
+        self.inner.switched(event);
+    }
+    fn mic_test(&self, state: &MicTestState) {
+        self.inner.mic_test(state);
+    }
+    fn level(&self, event: &LevelEvent) {
+        self.inner.level(event);
+    }
+}
+
+struct TauriPhoneEvents(tauri::AppHandle);
+
+impl PhoneEvents for TauriPhoneEvents {
+    fn state(&self, state: &PhoneViewState) {
+        let _ = self.0.emit(EVENT_PHONE_VIEW, state);
+    }
+}
+
 /// Sends the core's events to the window.
 struct TauriEvents(tauri::AppHandle);
 
@@ -700,11 +773,20 @@ pub fn run() {
                 secrets: secret_store,
                 fake: fake_llm.then_some(scripted),
             });
+            // The phone view's server runs on Tauri's tokio runtime; it opens no port until asked.
+            let phone = Arc::new(PhoneViewServer::new(
+                tauri::async_runtime::handle().inner().clone(),
+                Arc::new(SystemNetInterfaces),
+                Arc::new(TauriPhoneEvents(app.handle().clone())),
+            ));
             let recorder = Recorder::new(
                 audio,
                 stt,
                 transcripts,
-                Arc::new(TauriEvents(app.handle().clone())),
+                Arc::new(ClosesPhoneView {
+                    inner: Arc::new(TauriEvents(app.handle().clone())),
+                    phone: phone.clone(),
+                }),
                 now_ms,
             )
             .with_devices(devices)
@@ -712,6 +794,7 @@ pub fn run() {
             app.manage(AppState {
                 store,
                 recorder,
+                phone,
                 settings,
                 llm,
                 storage_folder,
@@ -756,10 +839,20 @@ pub fn run() {
             set_api_key,
             delete_api_key,
             run_llm_test,
-            cancel_llm_test
+            cancel_llm_test,
+            phone_view_open,
+            phone_view_close
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Meeting Companion");
+        .build(tauri::generate_context!())
+        .expect("error while building Meeting Companion")
+        .run(|app, event| {
+            // The phone view closes before the app goes, whatever ends it.
+            if let RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.phone.close(CloseReason::AppExit);
+                }
+            }
+        });
 }
 
 #[cfg(test)]
@@ -988,6 +1081,119 @@ mod tests {
         );
         let d = start_options(&settings::Settings::default());
         assert_eq!(d, StartOptions::default());
+    }
+
+    /// The real recorder with fake engines, its capture states going through [`ClosesPhoneView`],
+    /// and a phone view on loopback.
+    struct PhoneRig {
+        recorder: Recorder,
+        phone: Arc<PhoneViewServer>,
+        events: Arc<phone_view::tests::Events>,
+        meetings: MemoryMeetingStore,
+        _rt: tokio::runtime::Runtime,
+        _net: std::sync::MutexGuard<'static, ()>,
+    }
+
+    struct NoEvents;
+    impl EventSink for NoEvents {
+        fn capture(&self, _: &CaptureState) {}
+        fn segment(&self, _: &SegmentEvent) {}
+    }
+
+    fn phone_rig() -> PhoneRig {
+        let net = phone_view::tests::net_lock();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let events = Arc::new(phone_view::tests::Events::default());
+        let phone = Arc::new(
+            PhoneViewServer::new(
+                rt.handle().clone(),
+                Arc::new(phone_view::net::FakeNetInterfaces::home_wifi()),
+                events.clone(),
+            )
+            .binding_loopback(),
+        );
+        let recorder = Recorder::new(
+            Box::new(|| Box::new(FakeAudioSource::demo()) as Box<dyn AudioSource>),
+            Box::new(FakeSttProvider::demo()),
+            Arc::new(MemoryTranscriptStore::new()),
+            Arc::new(ClosesPhoneView {
+                inner: Arc::new(NoEvents),
+                phone: phone.clone(),
+            }),
+            now_ms,
+        );
+        let meetings = MemoryMeetingStore::new();
+        let mut m = crate::model::tests::running();
+        m.recording_consent_at = Some(1);
+        meetings.save(&m).unwrap();
+        PhoneRig {
+            recorder,
+            phone,
+            events,
+            meetings,
+            _rt: rt,
+            _net: net,
+        }
+    }
+
+    impl PhoneRig {
+        fn open(&self) -> Result<PhoneViewOpened, PhoneViewError> {
+            self.phone.open("m-1", |id| records(&self.recorder, id))
+        }
+    }
+
+    #[test]
+    fn phone_view_opens_only_while_the_meeting_records() {
+        let rig = phone_rig();
+        assert_eq!(rig.open().unwrap_err(), PhoneViewError::NotRecording);
+        rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+        assert!(rig.open().is_ok());
+        assert!(rig.phone.is_open());
+        // Paused: stays open, but cannot be opened anew.
+        rig.recorder.pause();
+        assert!(rig.phone.is_open());
+        rig.phone.close(CloseReason::Requested);
+        assert_eq!(rig.open().unwrap_err(), PhoneViewError::NotRecording);
+        assert_eq!(phone_view::tests::listening(), vec![]);
+    }
+
+    #[test]
+    fn phone_view_closes_when_the_recorder_stops() {
+        let rig = phone_rig();
+        rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+        rig.open().unwrap();
+        let addr = rig.phone.address().unwrap();
+        rig.recorder.stop();
+        assert!(!rig.phone.is_open());
+        assert!(phone_view::tests::refused(addr));
+        assert_eq!(rig.events.closed(), vec![CloseReason::RecordingStopped]);
+    }
+
+    #[test]
+    fn phone_view_closes_when_the_meeting_ends_from_the_ui() {
+        let rig = phone_rig();
+        rig.recorder.start(&rig.meetings, "m-1", None).unwrap();
+        rig.open().unwrap();
+        let addr = rig.phone.address().unwrap();
+        let mut ended = rig.meetings.load("m-1").unwrap().unwrap();
+        let run = ended.run.as_mut().unwrap();
+        run.ended_at = Some(400_000);
+        run.items[1].ended_at = Some(400_000);
+        let edits = Mutex::new(());
+        save_from_ui(
+            &rig.meetings,
+            &rig.recorder,
+            &rig.phone,
+            &edits,
+            ended,
+            400_000,
+        )
+        .unwrap();
+        assert!(!rig.phone.is_open());
+        assert!(phone_view::tests::refused(addr));
+        // Closed once, for the meeting's end (the recorder's stop that follows finds it closed).
+        assert_eq!(rig.events.closed(), vec![CloseReason::MeetingEnded]);
+        assert_eq!(phone_view::tests::listening(), vec![]);
     }
 
     #[test]

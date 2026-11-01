@@ -107,3 +107,24 @@ export async function openApp(
   }
   await page.evaluate(() => document.fonts.ready);
 }
+
+// ---- the phone page (job 012) ---------------------------------------------------------------------
+
+export type PhoneFixture = "phone-open" | "phone-closed";
+
+/** The token in the fixtures' phone URL (the mock core's `phone_view_open` returns the same one). */
+export const PHONE_TOKEN = "FAKE-TOKEN-for-tests-only";
+
+/**
+ * Opens the phone page as a phone that scanned the QR code. The session check is answered here, as the
+ * core would: `phone-open` 204 (Connected), `phone-closed` 403 (This page is closed). The language
+ * follows the browser context's locale (`test.use({ locale })`).
+ */
+export async function openPhone(page: Page, fixture: PhoneFixture) {
+  await page.route("**/api/session", (route) =>
+    route.fulfill({ status: fixture === "phone-open" ? 204 : 403 }),
+  );
+  await page.goto(`/phone/phone.html#t=${PHONE_TOKEN}`);
+  await page.locator(`.phone[data-state="${fixture === "phone-open" ? "open" : "closed"}"]`).waitFor();
+  await page.evaluate(() => document.fonts.ready);
+}

@@ -473,5 +473,18 @@
   "settings.llm.error.busy.body": "Warten Sie darauf oder brechen Sie ihn ab.",
   "model.sizeGb": "{gb} GB",
   "legal.privacy.languageModel.title": "Sprachmodell und Claude API",
-  "legal.privacy.languageModel.body": "Standardmäßig aus. Nur wenn eine Person unter Einstellungen › Sprachmodell „Claude API (Cloud)“ wählt und bestätigt, geht Text an Anthropic (api.anthropic.com, USA), mit dem eigenen API-Schlüssel der Organisation: in dieser Version nur der feste Testtext, wenn jemand Testen drückt; mit späteren Funktionen Text aus Besprechungen, wenn eine Funktion danach fragt. Bei „Aus“ oder „Auf diesem Gerät“ wird nichts gesendet. Der API-Schlüssel liegt nur im Schlüsselbund des Systems."
+  "legal.privacy.languageModel.body": "Standardmäßig aus. Nur wenn eine Person unter Einstellungen › Sprachmodell „Claude API (Cloud)“ wählt und bestätigt, geht Text an Anthropic (api.anthropic.com, USA), mit dem eigenen API-Schlüssel der Organisation: in dieser Version nur der feste Testtext, wenn jemand Testen drückt; mit späteren Funktionen Text aus Besprechungen, wenn eine Funktion danach fragt. Bei „Aus“ oder „Auf diesem Gerät“ wird nichts gesendet. Der API-Schlüssel liegt nur im Schlüsselbund des Systems.",
+  "phone.appName": "Meeting Companion",
+  "phone.status.connected": "Verbunden",
+  "phone.status.closed": "Geschlossen",
+  "phone.waiting.title": "Mit dem Meeting-Bildschirm verbunden",
+  "phone.waiting.text": "Gerade gibt es nichts zu tun. Wenn das Meeting dich um etwas bittet, erscheint es hier.",
+  "phone.closed.title": "Diese Seite ist geschlossen",
+  "phone.closed.text": "Der Meeting-Bildschirm hat sie geschlossen, oder die Aufnahme wurde beendet.",
+  "phone.closed.hint": "Um wieder mitzumachen, scanne den QR-Code auf dem Meeting-Bildschirm erneut.",
+  "phone.footer.open": "Nur im lokalen Netzwerk. Diese Seite zeigt nichts aus dem Meeting.",
+  "phone.footer.closed": "Von dieser Seite bleibt nichts auf deinem Telefon.",
+  "phoneView.error.notRecording": "Die Handy-Ansicht lässt sich nur öffnen, während das Meeting aufgenommen wird.",
+  "phoneView.error.noLocalNetwork": "Kein lokales Netzwerk gefunden. Verbinde dieses Gerät mit einem WLAN oder Netzwerkkabel.",
+  "phoneView.error.failed": "Die Handy-Ansicht konnte nicht geöffnet werden."
 }

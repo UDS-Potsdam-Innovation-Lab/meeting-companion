@@ -1,0 +1,1 @@
+Speaker threshold tuning (follow-up of 013): raise `SAME_VOICE` from 0.5 to ~0.55 — 013's sweep merged two German female speakers at 0.5 (name-round DER 16.7 % → 2.2 % at 0.55, others unchanged; 0.60 worse); re-baseline thresholds.json

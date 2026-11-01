@@ -160,3 +160,18 @@ export const CloudIcon = () => (
     <path d="M4.5 12.5h7a2.5 2.5 0 0 0 .3-5 3.5 3.5 0 0 0-6.8-.8A2.9 2.9 0 0 0 4.5 12.5Z" />
   </svg>
 );
+
+export const PowerIcon = () => (
+  <svg {...base}>
+    <path d="M8 2v6M4.6 4.2a5 5 0 1 0 6.8 0" />
+  </svg>
+);
+
+export const QrIcon = () => (
+  <svg {...base} strokeWidth={1.4}>
+    <rect x="2.5" y="2.5" width="4" height="4" />
+    <rect x="9.5" y="2.5" width="4" height="4" />
+    <rect x="2.5" y="9.5" width="4" height="4" />
+    <path d="M9.5 9.5h1.5v1.5M13.5 9.5v4h-4" />
+  </svg>
+);

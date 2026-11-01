@@ -1,0 +1,200 @@
+/* The phone page (job 012, frames 18 · s18*): 375×667, header, one consumer slot, footer. Colours only
+   from the tokens in ../styles.css; light or dark follows the phone (data-theme set in main.tsx). */
+
+body {
+  background: var(--bg);
+}
+
+.phone {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.phone-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.phone-header__mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.phone-header__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.phone-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.phone-status--open {
+  padding: 5px 10px 5px 8px;
+  background: var(--green-soft);
+  color: var(--green-ink);
+}
+
+.phone-status--closed {
+  padding: 5px 10px 5px 8px;
+  background: var(--sunken);
+  color: var(--ink-2);
+}
+
+.phone-status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.phone-status__ring {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.phone-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 16px 8px;
+}
+
+.phone-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.phone-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.phone-card--closed {
+  padding: 32px 22px;
+}
+
+.phone-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--sunken);
+  color: var(--ink-2);
+}
+
+.phone-card__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.phone-card__icon--ok {
+  background: var(--green-soft);
+  color: var(--green-ink);
+}
+
+.phone-card__title {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.phone-card__title--closed {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.phone-card__text {
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.phone-hint {
+  display: flex;
+  align-self: stretch;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.phone-hint__glyph {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.phone-hint__glyph svg {
+  width: 20px;
+  height: 20px;
+}
+
+.phone-footer {
+  padding: 12px 20px 16px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Consumer views: every control is at least 48×48 px with a visible focus ring. */
+.phone button,
+.phone a[href],
+.phone input,
+.phone select,
+.phone textarea {
+  min-width: 48px;
+  min-height: 48px;
+}
+
+.phone :focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}

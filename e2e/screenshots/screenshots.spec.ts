@@ -1,6 +1,6 @@
 import { test, type Page } from "@playwright/test";
 import { FREE_TIMES, LIVE_TIMES } from "../../src/features/agenda/fixtures";
-import { openApp, type Fixture } from "../helpers";
+import { openApp, openPhone, type Fixture, type PhoneFixture } from "../helpers";
 
 // One PNG per state and width: screenshots/<view>-<width>.png.
 const WIDTHS = [375, 1280, 1920];
@@ -293,5 +293,31 @@ for (const { size, name } of sized) {
     await open(page, view, "en");
     // The window as the user sees it, not the full page: shows what fits and where the nudge sits.
     await page.screenshot({ path: `screenshots/${name}-${size.width}x${size.height}.png` });
+  });
+}
+
+// The phone page (job 012) at the phone size only: screenshots/phone-<state>[-de|-dark]-375.png.
+const PHONE: { name: string; fixture: PhoneFixture; locale: string; dark?: boolean }[] = [
+  { name: "phone-open", fixture: "phone-open", locale: "en-US" },
+  { name: "phone-closed", fixture: "phone-closed", locale: "en-US" },
+  { name: "phone-open-de", fixture: "phone-open", locale: "de-DE" },
+  { name: "phone-closed-de", fixture: "phone-closed", locale: "de-DE" },
+  { name: "phone-open-dark", fixture: "phone-open", locale: "en-US", dark: true },
+  { name: "phone-closed-dark", fixture: "phone-closed", locale: "en-US", dark: true },
+];
+
+for (const shot of PHONE) {
+  test(`${shot.name}-375`, async ({ browser }) => {
+    const context = await browser.newContext({
+      locale: shot.locale,
+      colorScheme: shot.dark ? "dark" : "light",
+      viewport: { width: 375, height: 667 },
+      isMobile: true,
+      hasTouch: true,
+    });
+    const page = await context.newPage();
+    await openPhone(page, shot.fixture);
+    await page.screenshot({ path: `screenshots/${shot.name}-375.png` });
+    await context.close();
   });
 }

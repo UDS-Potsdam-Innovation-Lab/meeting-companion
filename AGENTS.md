@@ -24,6 +24,8 @@ Product brief: [docs/vision.md](docs/vision.md). Non-functional requirements:
 - UI strings in German and English, referenced by key; German is the default.
 - Everything the assistant produces is a suggestion until a person confirms it.
 - No network access without a setting that names where data goes.
+- The app listens on no network port, except the opt-in phone web view (job 012): one private IPv4 address of
+  the local network, only while a person opened it during a recording, behind a per-opening token.
 
 ## Application stack
 
@@ -36,7 +38,15 @@ STATUS: CONFIGURED
   Playwright needs Chromium once: `npx playwright install chromium`.
 - Lint command: `npm run lint` (`tsc --noEmit`, ESLint, Prettier, `cargo fmt --check`, `cargo clippy -D warnings`).
 - Build: `npm run tauri build -- --no-bundle`; smoke test of the built app: `node scripts/smoke.mjs`
-  (on headless Linux: `xvfb-run -a node scripts/smoke.mjs`).
+  (on headless Linux: `xvfb-run -a node scripts/smoke.mjs`; on Linux it also fails if the running app has any
+  listening TCP or bound UDP socket).
+- Phone page (job 012): the second Vite entry `phone.html` + `src/phone/`, built on its own by
+  `vite.phone.config.ts` into `dist/phone/` (part of `npm run build`; `npm run build:e2e` puts it in
+  `dist-e2e/phone/`). `src-tauri/build.rs` embeds exactly those files in the core (a release build fails without
+  them; a debug build without them serves 404 for the page). The page uses the app's tokens (`../styles.css`) and
+  `phone.css`, follows the phone's language (`navigator.language`, de default) and light/dark setting, and stores
+  nothing. e2e: `e2e/phone.spec.ts` opens `/phone/phone.html#t=…` and answers `/api/session` itself
+  (`openPhone(page, "phone-open" | "phone-closed")` in `e2e/helpers.ts`); screenshots `phone-*-375.png`.
 - Screenshots: `npm run screenshot` writes `screenshots/<view>-<width>.png` at 375, 1280 and 1920 px.
   It also writes `screenshots/<view>-<width>x<height>.png` for the responsive layout (1440×900, 1024×768,
   768×1024, 480×800, and short live windows 1024×600 and 768×480); `e2e/responsive.spec.ts` checks those sizes.
@@ -82,6 +92,20 @@ STATUS: CONFIGURED
     level measured in `AudioSink::push`, scaled RMS `min(1, rms × 4)`, sent as the `capture-level` event 25×/s while audio
     arrives, by the recording's monitor thread and the microphone test; numbers only, never stored or logged), `src/speakers/` (name-round suggestions and the voice/line choices stored in
     the meeting file), `src/log.rs` (the only log output; never content).
+  - `src-tauri/src/phone_view/` — the opt-in phone web view (job 012): `PhoneViewServer` (open only while the
+    meeting records; closes on `phone_view_close`, when recording stops or fails, when the meeting ends and on
+    app exit, within 1 s, with the `phone-view-state` event), `server.rs` (axum 0.8 + hyper HTTP/1 on Tauri's
+    tokio runtime; at most 32 connections, request deadline 10 s), `http.rs` (security headers, rate limit,
+    `Host`/`Origin` checks, 4 KB bodies, bearer token, the consumer API `ConsumerRoutes` with `PhoneJson`,
+    `PhonePath`, `PhoneId`, `PhoneSession`), `token.rs` (`PhoneViewToken`, 256 bits, constant-time compare,
+    never logged), `net.rs` (`NetInterfaces` + `SystemNetInterfaces`/`FakeNetInterfaces`: one private RFC 1918
+    address on an interface that is up, preferring the default route's interface), `rate.rs` (per-address
+    limits on an injectable `Clock`), `qr.rs` (QR code SVG via `qrcodegen`), `assets.rs` (the embedded page).
+    Consumers register `ConsumerRoutes::new("<name>")` under `/api/<name>/` before opening. Commands
+    `phone_view_open(meetingId)` → `{ url, qrSvg }` or `{ key }`, `phone_view_close()`; the mock core returns
+    `MOCK_PHONE_VIEW` (`src/lib/fixtures/phone-qr.svg` is the core's rendering of its URL, checked by a Rust
+    test). Tests bind 127.0.0.1 only (`binding_loopback`) and hold one lock so the `/proc` port scan sees only
+    their own sockets.
   - `e2e/` — Playwright specs (axe, keyboard, layout); `e2e/screenshots/` for `npm run screenshot`.
   - `.github/workflows/ci.yml` — lint, test, compile and smoke test. Linux (`ubuntu-latest`) is the only
     CI-tested target for now; macOS and Windows are deferred until the feature set is final (add them to
@@ -136,7 +160,8 @@ STATUS: CONFIGURED
   not available until a follow-up links one shared ggml.
 - Rules: no literal user-facing strings in JSX (ESLint `react/jsx-no-literals` and a key-mode test);
   user text is rendered as text only (`react/no-danger`); no Tauri HTTP/shell plugins and a CSP whose
-  `connect-src` allows only IPC (`src/config.test.ts`).
+  `connect-src` allows only IPC (`src/config.test.ts`); no socket outside `src-tauri/src/phone_view/`, and no
+  HTTP client crate (the phone view's axum/hyper are server-only, HTTP/1).
 - Env flags of the built app: `MEETING_COMPANION_STORE=memory` (in-memory store), `MEETING_COMPANION_SMOKE=1`
   (smoke run: in-memory store, fake microphone and engine, exits 0 once the agenda setup view has rendered),
   `MEETING_COMPANION_AUDIO=fake` (generated tones instead of the microphone), `MEETING_COMPANION_STT=fake`
