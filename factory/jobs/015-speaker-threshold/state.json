@@ -19,6 +19,6 @@
   "history": [],
   "decision": "APPROVE",
   "waiting": null,
-  "note": "Merged; tests on main running (main had moved: 011)",
-  "updated": "2026-11-01T17:22:10Z"
+  "note": "Merged; full suite green on main (with 011)",
+  "updated": "2026-11-01T17:24:46Z"
 }
