@@ -208,27 +208,179 @@ fn the_core_never_falls_back_to_another_engine() {
     }
 }
 
-#[test]
-fn this_build_has_no_local_runtime_so_on_this_device_cannot_be_chosen() {
-    let no_runtime = NoLocalRuntime {
-        locations: vec![ModelLocation {
+// ---- job 016: the llama.cpp runtime in the slot ---------------------------------------------------
+
+/// The rig's model folder with llama.cpp's provider, loading through `loader`.
+fn llama_provider(
+    r: &Rig,
+    loader: Arc<dyn crate::engines::llama::ModelLoader>,
+) -> Arc<crate::engines::llama::LlamaLocalProvider> {
+    Arc::new(crate::engines::llama::LlamaLocalProvider::with_loader(
+        vec![ModelLocation {
             source: ModelSource::App,
-            path: "/data/models".into(),
+            path: r.models.clone(),
         }],
-    };
-    let found = no_runtime.models();
-    assert!(!found.available);
-    assert!(found.list.models.is_empty());
-    assert_eq!(found.list.searched, ["/data/models"]);
+        loader,
+    ))
+}
+
+#[test]
+fn with_the_llama_runtime_the_scan_is_listed_as_available_and_only_its_ids_are_accepted() {
+    let r = rig();
+    let id = r.model_id();
+    let local = llama_provider(&r, Arc::new(crate::engines::llama::LlamaCppLoader));
+    let found = local.models();
+    // The 011 scan, unchanged, now with `available: true`.
+    assert!(found.available);
     assert_eq!(
-        serde_json::to_value(&found).unwrap(),
-        serde_json::json!({ "models": [], "searched": ["/data/models"], "available": false })
+        found.list,
+        crate::engines::models::scan_llm(&r.local.locations)
     );
-    let catalog = LlmCatalog(&no_runtime);
+    assert_eq!(found.list.models.len(), 1);
+    let json = serde_json::to_value(&found).unwrap();
+    assert_eq!(json["available"], serde_json::json!(true));
+    assert_eq!(json["models"][0]["id"], serde_json::json!(id));
+    // `{ local: id }` only for an id of the current scan.
+    let catalog = LlmCatalog(local.as_ref());
     let service = SettingsService::open(Arc::new(crate::settings::MemorySettingsStore::new()));
-    let raw =
-        serde_json::json!({ "key": "languageModel", "value": { "local": "/data/models/x.gguf" } });
+    for id in [
+        "/etc/passwd",
+        "",
+        "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+        "../x.gguf",
+    ] {
+        let raw = serde_json::json!({ "key": "languageModel", "value": { "local": id } });
+        assert!(service.update(&raw, &catalog).is_err(), "{id}");
+    }
+    let raw = serde_json::json!({ "key": "languageModel", "value": { "local": id } });
+    let update = service.update(&raw, &catalog).unwrap();
+    assert_eq!(
+        update.settings.language_model,
+        LanguageModelSetting::Local(id.clone())
+    );
+    // Gone from the scan: refused from then on.
+    std::fs::remove_file(&id).unwrap();
     assert!(service.update(&raw, &catalog).is_err());
+    assert_eq!(engine_kind(&local.load(&id)), Err(LlmError::NoModel));
+}
+
+#[test]
+fn switching_to_off_claude_or_another_model_releases_the_local_model() {
+    use crate::engines::llama::tests::CountingLoader;
+    let r = rig().with_key();
+    fake_gguf(
+        &r.models.join("Llama-3.2-3B-Instruct-Q4_K_M.gguf"),
+        3,
+        &[("general.architecture", "llama")],
+        200,
+    );
+    let loader = Arc::new(CountingLoader::default());
+    let local = llama_provider(&r, loader.clone());
+    let ids: Vec<String> = local
+        .models()
+        .list
+        .models
+        .into_iter()
+        .map(|m| m.id)
+        .collect();
+    assert_eq!(ids.len(), 2);
+    let deps = EngineDeps {
+        local: local.clone(),
+        ..r.deps.clone()
+    };
+    let llm = LanguageModelService::new(deps);
+    // Choosing loads nothing.
+    llm.setting_changed(&LanguageModelSetting::Local(ids[0].clone()));
+    assert_eq!(loader.loads(), 0);
+    assert_eq!(local.loaded(), None);
+    // The first call loads it.
+    llm.run_test(&settings(LanguageModelSetting::Local(ids[0].clone())))
+        .unwrap();
+    assert_eq!(local.loaded().as_deref(), Some(ids[0].as_str()));
+    assert_eq!(loader.alive(), 1);
+    // Off releases it.
+    llm.setting_changed(&LanguageModelSetting::None);
+    assert_eq!(local.loaded(), None);
+    assert_eq!(loader.alive(), 0);
+    // Claude releases it.
+    llm.run_test(&settings(LanguageModelSetting::Local(ids[0].clone())))
+        .unwrap();
+    assert_eq!(loader.alive(), 1);
+    llm.setting_changed(&LanguageModelSetting::Claude);
+    assert_eq!(loader.alive(), 0);
+    // Another model: the first leaves before the second loads, never two at once.
+    llm.run_test(&settings(LanguageModelSetting::Local(ids[0].clone())))
+        .unwrap();
+    llm.setting_changed(&LanguageModelSetting::Local(ids[1].clone()));
+    assert_eq!(loader.alive(), 0);
+    llm.run_test(&settings(LanguageModelSetting::Local(ids[1].clone())))
+        .unwrap();
+    assert_eq!(local.loaded().as_deref(), Some(ids[1].as_str()));
+    assert_eq!(loader.alive(), 1);
+    assert_eq!(loader.most_alive(), 1);
+    // The same model again loads nothing new.
+    let before = loader.loads();
+    llm.run_test(&settings(LanguageModelSetting::Local(ids[1].clone())))
+        .unwrap();
+    assert_eq!(loader.loads(), before);
+    // A Test with Off or Claude releases it too, even without a setting change.
+    let _ = llm.run_test(&settings(LanguageModelSetting::None));
+    assert_eq!(loader.alive(), 0);
+}
+
+#[test]
+fn the_model_loads_on_the_first_call_and_off_the_calling_thread() {
+    use crate::engines::llama::tests::CountingLoader;
+    let r = rig();
+    let loader = Arc::new(CountingLoader::default());
+    let local = llama_provider(&r, loader.clone());
+    let deps = EngineDeps {
+        local: local.clone(),
+        ..r.deps.clone()
+    };
+    let engine = build_engine(
+        &LanguageModelSetting::Local(r.model_id()),
+        ClaudeModel::Sonnet,
+        &deps,
+    )
+    .unwrap();
+    // Building the engine loaded nothing.
+    assert_eq!(loader.loads(), 0);
+    let req = crate::engines::llm::LlmRequest {
+        system: TEST_TASK,
+        content: SAMPLE_EN.into(),
+        max_input_chars: 1_000,
+        max_output_tokens: 20,
+    };
+    run_cancellable(engine, &req, &CancelToken::new()).unwrap();
+    assert_eq!(loader.loads(), 1);
+    let threads = loader.load_threads();
+    assert_eq!(threads.len(), 1);
+    assert_ne!(threads[0], std::thread::current().id());
+}
+
+#[test]
+fn a_garbage_local_model_fails_without_calling_claude_or_falling_back() {
+    let r = rig().with_key();
+    // In the scan (its header names an architecture), but llama.cpp cannot read it.
+    let local = llama_provider(&r, Arc::new(crate::engines::llama::LlamaCppLoader));
+    let deps = EngineDeps {
+        local: local.clone(),
+        ..r.deps.clone()
+    };
+    let llm = LanguageModelService::new(deps);
+    let chosen = settings(LanguageModelSetting::Local(r.model_id()));
+    assert_eq!(llm.run_test(&chosen), Err(LlmError::Failed));
+    assert_eq!(llm.run_test(&chosen), Err(LlmError::Failed));
+    // No call to the Claude transport, no other engine.
+    assert_eq!(r.transport.calls(), 0);
+    assert!(r.engine.requests().is_empty());
+    assert_eq!(local.loaded(), None);
+    // The app keeps working: Claude still answers when a person chooses it.
+    assert!(llm
+        .run_test(&settings(LanguageModelSetting::Claude))
+        .is_ok());
+    assert_eq!(r.transport.calls(), 1);
 }
 
 #[test]
