@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "needs-human",
+  "stage": "merged",
   "round": 1,
   "max_round": 3,
   "reviews": {
@@ -18,7 +18,7 @@
   },
   "history": [],
   "decision": "APPROVE (human)",
-  "waiting": "merge approval",
-  "note": "Approved; main merged into branch (7fe0304), CI running",
-  "updated": "2026-11-01T16:50:06Z"
+  "waiting": null,
+  "note": "Merged after human approval; main merged in, CI green",
+  "updated": "2026-11-01T17:19:45Z"
 }

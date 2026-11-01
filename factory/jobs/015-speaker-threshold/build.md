@@ -35,3 +35,11 @@ Only `cargo test ... -- --ignored speaker_accuracy` run (both passed; the gate p
 
 ## Commits
 None.
+
+## Rework
+Human decision (rework-1.md): accept 7 voices for 6 speakers in de-name-round.
+- AC3 voice count relaxed to "at most one extra voice" for de-name-round only: new check in `speaker_eval/real.rs::scene_checks` (fails above speakers + 1). All other AC3 limits unchanged: de-name-round DER 1.4 % (max 5 %), the four other scenes identical to the 0.5 baseline.
+- `thresholds.json` re-baselined at SAME_VOICE 0.55 (measured line names `SAME_VOICE 0.55`, `MIN_SEGMENT_MS 1000`; `nameRoundMinSuggested` 6; de-name-round baseline from the run, other scenes unchanged by measurement). AGENTS.md needs no change (no command or file renamed).
+- AC1: `diarize::tests::the_default_threshold_splits_at_0_55` PASS. AC2: `run::tests::thresholds_were_measured_with_the_current_constants` and the 5-point test PASS. AC3/AC4: `--ignored speaker_accuracy` 2 passed (6 of 6 suggested right, de-f1/de-f2 separate).
+- `npm run lint` clean; `npm test` green (vitest 249, cargo 268 passed + 5 ignored, playwright 159); gitleaks exit 0.
+- Committed without the `src-tauri/native/lib` symlink (and an untracked `node_modules` symlink I added for linting); both remain untracked in the worktree. Not pushed.
