@@ -105,3 +105,35 @@ e8b2f63 feat(ui): On this device can be chosen; a local load failure is named
 e332999 feat(core): llama.cpp fills the local language model slot
 878e873 build(native): one shared ggml for whisper.cpp and llama.cpp
 ```
+
+## Round 2 response
+
+All four reviews were PASS. CI failed in "Compile the desktop app" (run 41334135604): rust-lld reported duplicate `ggml_backend_*` symbols, defined in both `libwhisper_rs_sys-*.rlib` and `libllama_cpp_sys_2-*.rlib`.
+
+**Cause.** Swatinem/rust-cache restores by key prefix, so the run got the release-profile `whisper-rs-sys` that main's CI had cached. That copy was built with whisper's own ggml 0.9.5. Two things kept it in place:
+- cargo does not rerun whisper-rs-sys's build script when `[env]` in `.cargo/config.toml` changes (its build script declares no `rerun-if-env-changed`), so `WHISPER_USE_SYSTEM_GGML` was never applied to the cached build.
+- My `cargo clean -p whisper-rs-sys -p llama-cpp-sys-2` in `ggml.mjs` only cleaned the dev profile.
+
+That is why `npm test` (debug) passed in CI and the release link failed. It worked locally only because the worktree's release dir had been built fresh.
+
+**Reproduced locally.** I used a target dir holding main's release build (whisper-rs-sys with its own ggml) and ran `CARGO_TARGET_DIR=<it> cargo build --release`. It failed with the same rust-lld "duplicate symbol: ggml_backend_buft_*" errors.
+
+**Fix (commit 83cc3ac).**
+- **Stamps:** the CMake hooks stamp each sys crate's build folder (`out/build/meeting-companion-ggml.SOURCE`) with the prefix's `SOURCE`, which now carries a build id. `whisper-shared-ggml.cmake` does this as before; the new `llama-shared-ggml.cmake` is wired through `CMAKE_PROJECT_llama.cpp_INCLUDE`.
+- **`ggml.mjs build`:** on every run, including when the prefix is already up to date, it scans the target dir and runs `cargo clean --profile <p> -p <crate>` for every profile with a whisper-rs-sys or llama-cpp-sys-2 output that is unstamped or stamped by another build. It honours `CARGO_TARGET_DIR` and `<triple>/<profile>` folders.
+- **`ggml.mjs verify`:** fails if such a stale output remains. CI already runs `build` and then `verify` before the tests.
+- **Tests:** `src/config.test.ts` covers a stamped target (passes), a whisper-rs-sys with its own ggml (fails) and an output from an earlier prefix (fails). It also checks the new cargo config line.
+- **Docs:** `AGENTS.md` and the CI comment explain the stamping and cleaning.
+
+**Verified with CI's settings on the stale target dir:**
+- `GGML_NATIVE=OFF node scripts/ggml.mjs build` rebuilt the prefix and cleaned the stale release outputs of both crates ("Removed 1322 files"); `verify` then passed.
+- `npm run tauri build -- --no-bundle` linked with 0 duplicate symbols.
+- `node scripts/ggml-check.mjs <release binary>` passed: one ggml, both engines linked, no HTTP client.
+- Both stamps were present, and whisper-rs-sys had no `out/build/ggml`.
+
+I then rebuilt the local default prefix, which cleaned the worktree's debug and release sys outputs, and re-ran:
+- `npm run lint` → exit 0.
+- `npm test` → vitest 296 passed (22 files); cargo 320 passed, 7 ignored; Playwright 263 passed.
+- Secret scan → no leaks.
+
+Not pushed.
