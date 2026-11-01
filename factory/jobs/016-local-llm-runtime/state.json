@@ -40,6 +40,6 @@
   ],
   "decision": "APPROVE",
   "waiting": null,
-  "note": "Merged after 3 rounds; tests on main running",
-  "updated": "2026-11-01T20:01:31Z"
+  "note": "Merged after 3 rounds; full suite green on main (with 015)",
+  "updated": "2026-11-01T20:05:44Z"
 }
