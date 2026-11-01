@@ -8,7 +8,7 @@
   "targets": null,
   "external": null,
   "stage": "build",
-  "round": 1,
+  "round": 2,
   "max_round": 3,
   "reviews": {
     "security": "pending",
@@ -16,9 +16,20 @@
     "ui": "pending",
     "code": "pending"
   },
-  "history": [],
+  "history": [
+    {
+      "round": 1,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "PASS",
+        "code": "PASS"
+      },
+      "ci": "failure"
+    }
+  ],
   "decision": null,
   "waiting": null,
-  "note": "Building",
-  "updated": "2026-11-01T17:19:54Z"
+  "note": "Round 1: reviews PASS, CI failure (duplicate ggml symbols at release link)",
+  "updated": "2026-11-01T18:26:16Z"
 }
