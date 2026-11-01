@@ -17,8 +17,8 @@
     "code": "PASS"
   },
   "history": [],
-  "decision": "ESCALATE (human gate)",
+  "decision": "APPROVE (human)",
   "waiting": "merge approval",
-  "note": "All reviews PASS, CI green; human gate (keychain secret, first outbound network; local runtime split off)",
-  "updated": "2026-10-31T19:10:20Z"
+  "note": "Approved; merge conflict with 012 — builder merging main into the branch",
+  "updated": "2026-11-01T16:39:00Z"
 }
