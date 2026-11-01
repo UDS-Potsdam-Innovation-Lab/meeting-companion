@@ -580,7 +580,7 @@ export interface LlmModelList {
   /** Smallest first. */
   models: LlmModel[];
   searched: string[];
-  /** False while this version cannot run local models: "On this device" cannot be chosen. */
+  /** Whether the core runs local models. False: "On this device" cannot be chosen. */
   available: boolean;
 }
 

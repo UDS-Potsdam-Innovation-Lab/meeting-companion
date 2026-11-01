@@ -39,7 +39,11 @@ STATUS: CONFIGURED
 - Lint command: `npm run lint` (`tsc --noEmit`, ESLint, Prettier, `cargo fmt --check`, `cargo clippy -D warnings`).
 - Build: `npm run tauri build -- --no-bundle`; smoke test of the built app: `node scripts/smoke.mjs`
   (on headless Linux: `xvfb-run -a node scripts/smoke.mjs`; on Linux it also fails if the running app has any
-  listening TCP or bound UDP socket).
+  listening TCP or bound UDP socket). `node scripts/ggml-check.mjs src-tauri/target/release/meeting-companion`
+  (job 016, Linux/ELF, needs `nm`) fails when a ggml/gguf symbol of its list is defined twice (a second ggml),
+  when whisper.cpp's or llama.cpp's model loader is missing, or when any cpp-httplib, curl or llama-server
+  symbol is linked; `--symbols <file>` reads a recorded `nm` listing (the fixtures in `scripts/fixtures/ggml-check/`,
+  tested in `src/config.test.ts`). CI runs it after the release build.
 - Phone page (job 012): the second Vite entry `phone.html` + `src/phone/`, built on its own by
   `vite.phone.config.ts` into `dist/phone/` (part of `npm run build`; `npm run build:e2e` puts it in
   `dist-e2e/phone/`). `src-tauri/build.rs` embeds exactly those files in the core (a release build fails without
@@ -54,7 +58,7 @@ STATUS: CONFIGURED
   (`vite build --mode e2e`, `.env.e2e` sets `VITE_MOCK_IPC=1`; open `/?fixture=empty|filled|over|corrupt|locked|live|live-done`
   or the transcript fixtures `live-transcript|live-paused|live-mic-error|live-no-model`, the settings fixtures
   `settings|settings-no-model|settings-mic-test|settings-recording|settings-dark|settings-missing` (they open the
-  settings view), the language model fixtures `settings-llm-off|settings-llm-local|settings-llm-none-found|settings-llm-claude|settings-llm-claude-nokey|settings-llm-error`
+  settings view), the language model fixtures `settings-llm-off|settings-llm-local|settings-llm-none-found|settings-llm-claude|settings-llm-claude-nokey|settings-llm-error|settings-llm-local-failed`
   (they open frame 17; `&theme=dark` opens a settings fixture in the dark theme) and `live-mic-missing|live-switched`, the sound-wave fixtures `live-level-speech|live-level-silence|live-no-signal`
   (the mock core sends a fixed level sequence by the clock; wave screenshots install Playwright's clock and run the last 3 s on it),
   and the speaker fixtures `speakers|speakers-empty|speakers-no-model|live-speakers` (open frame 06 with the footer button),
@@ -78,11 +82,21 @@ STATUS: CONFIGURED
     `SpeakerEmbeddingExtractor` only), `models.rs` the read-only search for whisper ggml, sherpa-onnx
     speaker models and GGUF language models (`ModelKind::Llm`) already on the device — the one list of model folders per OS;
     `llm.rs` `LanguageModel` + `ScriptedLanguageModel`, `Prompt::build` (fixed `&'static str` instructions, untrusted
-    content cut at its limit, escaped and wrapped in `<untrusted_content>`), `run_cancellable`; `claude.rs` the Claude
+    content cut at its limit, escaped and wrapped in `<untrusted_content>`), `run_cancellable`; `llama.rs` the local
+    engine (job 016): `LlamaLocalProvider` (the scan, `available: true`; hands out a `LlamaLanguageModel` without
+    loading), `ModelSlot` (at most one model in memory; loaded on the first call on the engine thread, released on
+    Off/Claude/another model), `LlamaCppLoader` (GGUF metadata first: no GGUF or no `tokenizer.chat_template` is
+    `Failed`; mapped read-only; panics caught), `ChatLayout` (the model's own chat template rendered by llama.cpp
+    with stand-ins and split, so the instructions go into the system turn and the content into the user turn;
+    only template text is tokenized with special tokens), `fit` (cuts the content to the context, `truncated`),
+    `collect` (stops at end of turn or the token limit, looks at the cancel token before every token),
+    `ContextSettings` (context ≤ 4096 tokens, `max(1, logical cores / 2)` threads) and `install_quiet_logs`
+    (llama.cpp's and ggml's log output goes to a callback that drops it); `claude.rs` the Claude
     API engine behind the `Transport` trait (`UreqTransport`: ureq 3 + rustls, `https://api.anthropic.com/v1/messages` only,
     no proxy, 10 s connect / 60 s total, no retry)), `src/language_model.rs` (`build_engine` from the `languageModel`
-    setting, never a fallback; `LocalLlmProvider` with `NoLocalRuntime` in this build, see below; `LanguageModelService`:
-    the settings view's cancellable "Test"), `src/secrets.rs` (`SecretStore`: `KeychainSecretStore`, account
+    setting, never a fallback; `LocalLlmProvider`, filled by `engines::llama::LlamaLocalProvider` unless
+    `MEETING_COMPANION_LLM=fake`; `LanguageModelService`: the settings view's cancellable "Test", and
+    `setting_changed`, which releases a local model that is no longer chosen), `src/secrets.rs` (`SecretStore`: `KeychainSecretStore`, account
     `anthropic-api-key`, and `MemorySecretStore`; the UI only learns `{ set }`), `src/transcript/` (`Transcriber` pipeline, windows
     of at most 3 s; encrypted append-only `<id>.transcript` store, one record per final segment with an optional `voice`), `src/recording/`
     (`Recorder`: consent gate, transcript worker, diarizer thread, capture states, the chosen microphone and "switch to the system default",
@@ -143,7 +157,28 @@ STATUS: CONFIGURED
   `thresholds.json` from the `measured:` line the run prints. The test never downloads. The filter
   `--ignored speaker` of the two-WAV check above matches these tests too; they need the env var set.
 - Native build dependencies on Linux: `libasound2-dev` (microphone), `cmake`, `clang`, `libclang-dev`
-  (whisper.cpp is compiled from source by `whisper-rs`); CI installs them.
+  (whisper.cpp and llama.cpp are compiled from source by `whisper-rs` and `llama-cpp-2`); CI installs them.
+- One ggml (job 016). whisper.cpp (`whisper-rs = "=0.16.0"`, whisper-rs-sys 0.15.0, whisper.cpp 1.8.3, which
+  vendors ggml 0.9.5) and llama.cpp (`llama-cpp-2`/`llama-cpp-sys-2 = "=0.1.160"`, ggml 0.26.0) would each build
+  static `libggml*.a` under the same names, and the linker would silently keep one for both. Decision (option (a) of
+  the spec, probed first): ggml is built **once**, from the ggml tree llama-cpp-sys-2 vendors, and both engines link
+  that copy. Run `node scripts/ggml.mjs build` once per checkout (and after a change of the llama-cpp-sys-2 version):
+  it builds and installs ggml into `src-tauri/native/ggml/prefix/` (static, PIC, CPU only, no OpenMP; `GGML_NATIVE`
+  at ggml's default unless set in the environment; CI sets `OFF`), records the source and a build id in `prefix/SOURCE`. Both sys crates keep a copy of the archives in their build
+  output, and cargo does not rerun their build scripts when `.cargo/config.toml` or the prefix changes. So CMake hooks
+  (`whisper-shared-ggml.cmake`, `llama-shared-ggml.cmake`) stamp each crate's build folder with `prefix/SOURCE`, and
+  `build` runs `cargo clean -p` for every profile whose whisper-rs-sys or llama-cpp-sys-2 output is unstamped or
+  stamped by another build (e.g. a whisper-rs-sys with its own ggml restored by CI's Rust cache; it honours
+  `CARGO_TARGET_DIR`). `verify` exits 1 unless the prefix holds the pinned crate's ggml and no stale output exists; `outputs` runs only
+  the stale-output check (it reads `prefix/SOURCE` and the target dir, no cargo, no environment; `--prefix <dir>`
+  points it at another prefix, as the hermetic tests in `src/config.test.ts` do). `.cargo/config.toml` points CMake's
+  `find_package(ggml)` there for both crates (`CMAKE_PREFIX_PATH`): llama-cpp-sys-2 with its `system-ggml-static`
+  feature, whisper.cpp with `WHISPER_USE_SYSTEM_GGML=ON` (it then compiles against ggml 0.26.0's headers). Because
+  whisper-rs-sys still asks rustc for `static=ggml*` from its own build folder only, the CMake hook
+  `src-tauri/native/ggml/whisper-shared-ggml.cmake` (`CMAKE_PROJECT_whisper.cpp_INCLUDE`) copies the same archives
+  there; without the prefix the build stops with "run node scripts/ggml.mjs build". `src-tauri/native/ggml/CMakeLists.txt`
+  adds ggml as a subproject (the crate does not ship ggml's standalone `ggml.pc.in`). A new whisper-rs or llama-cpp-2
+  version needs the real speech test (below) and `ggml-check` again before it is merged.
 - sherpa-onnx (`sherpa-onnx = "=2.0.1"`, static) links prebuilt libraries. Run
   `node scripts/sherpa-onnx.mjs fetch` once per checkout (and after a change of
   `src-tauri/native/sherpa-onnx.sha256`): it downloads the archive for this platform, checks it against
@@ -155,9 +190,12 @@ STATUS: CONFIGURED
   corrupted archive fails.
 - Network: the only outbound connection is the Claude API (HTTPS to api.anthropic.com from `engines/claude.rs`), made
   only while a person has chosen "Claude API (cloud)"; `src/config.test.ts` pins the one HTTP client, its host and
-  its settings. The local language model runtime (llama.cpp) is not linked yet: `llama-cpp-sys-2` and `whisper-rs-sys`
-  both ship static `libggml*.a` under the same names, so one silently replaces the other. "On this device" shows as
-  not available until a follow-up links one shared ggml.
+  its settings. The local language model (llama.cpp, job 016) runs in the app's own process: no `llama-server`, no
+  port, no socket, no other process, and no HTTP client (`llama-cpp-2` without `common`, so no cpp-httplib;
+  `ggml-check` and `src/config.test.ts` check it). The real-model test is `#[ignore]`:
+  `MEETING_COMPANION_LLM_MODEL=<file.gguf> cargo test --manifest-path src-tauri/Cargo.toml --release -- --ignored llama`
+  (a GGUF with a chat template; it runs the German and English samples, an injection sample and a cancel, checks that
+  the process holds no new or listening socket, and prints load and generation times). Nothing is downloaded.
 - Rules: no literal user-facing strings in JSX (ESLint `react/jsx-no-literals` and a key-mode test);
   user text is rendered as text only (`react/no-danger`); no Tauri HTTP/shell plugins and a CSP whose
   `connect-src` allows only IPC (`src/config.test.ts`); no socket outside `src-tauri/src/phone_view/`, and no
@@ -167,5 +205,5 @@ STATUS: CONFIGURED
   `MEETING_COMPANION_AUDIO=fake` (generated tones instead of the microphone), `MEETING_COMPANION_STT=fake`
   (scripted German/English segments instead of whisper; no model needed), `MEETING_COMPANION_DIARIZE=fake`
   (scripted voices instead of the speaker model; no model needed), `MEETING_COMPANION_LLM=fake` (the scripted language
-  model instead of Claude, and local GGUF models from the scan run by it; also in the smoke run). The real keychain
+  model instead of Claude, and local GGUF models from the scan run by it instead of llama.cpp; also in the smoke run). The real keychain
   test of the API key is `#[ignore]` (`-- --ignored keychain`).

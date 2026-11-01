@@ -5,10 +5,10 @@
 //!   touching the network, the keychain or a model file), `local` asks the [`LocalLlmProvider`],
 //!   `claude` builds the Claude engine. It never falls back to another engine.
 //! - `MEETING_COMPANION_LLM=fake` ([`ENV_LLM`]) replaces both real engines with the scripted fake.
-//! - The local runtime is behind [`LocalLlmProvider`]. This build has none ([`NoLocalRuntime`]):
-//!   llama.cpp's static `ggml` libraries share their names with whisper.cpp's, so linking both makes
-//!   one silently replace the other. "On this device" is shown as not available yet; a follow-up adds
-//!   the runtime with one shared ggml.
+//! - The local runtime is behind [`LocalLlmProvider`]: llama.cpp in the app's own process
+//!   ([`crate::engines::llama::LlamaLocalProvider`], job 016), on the one ggml it shares with
+//!   whisper.cpp. Handing out a local engine loads nothing; the model loads on its first call and is
+//!   released when the setting moves to Off, Claude or another model ([`LanguageModelService::setting_changed`]).
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -45,40 +45,18 @@ const TEST_MAX_OUTPUT_TOKENS: u32 = 200;
 pub struct LocalModels {
     #[serde(flatten)]
     pub list: LlmModelList,
-    /// False while the app has no local runtime: "On this device" cannot be chosen.
+    /// Whether this build runs local models. False: "On this device" cannot be chosen.
     pub available: bool,
 }
 
-/// Finds and loads local language models.
+/// Finds local language models and hands out an engine for one.
 pub trait LocalLlmProvider: Send + Sync {
     fn models(&self) -> LocalModels;
-    /// Loads the model with `id` (an id of [`Self::models`]).
+    /// The engine for the model with `id` (an id of [`Self::models`]). A runtime may load the model
+    /// only on the engine's first call.
     fn load(&self, id: &str) -> Result<Arc<dyn LanguageModel>, LlmError>;
-}
-
-/// This build: no local runtime. Nothing is scanned or loaded.
-pub struct NoLocalRuntime {
-    pub locations: Vec<ModelLocation>,
-}
-
-impl LocalLlmProvider for NoLocalRuntime {
-    fn models(&self) -> LocalModels {
-        LocalModels {
-            list: LlmModelList {
-                models: Vec::new(),
-                searched: self
-                    .locations
-                    .iter()
-                    .map(|l| l.path.to_string_lossy().into_owned())
-                    .collect(),
-            },
-            available: false,
-        }
-    }
-
-    fn load(&self, _id: &str) -> Result<Arc<dyn LanguageModel>, LlmError> {
-        Err(LlmError::NoModel)
-    }
+    /// Frees the model in memory unless it is `keep` (the setting moved to Off, Claude or another model).
+    fn release_except(&self, _keep: Option<&str>) {}
 }
 
 /// The GGUF models of the core's read-only scan, run by the scripted engine (`MEETING_COMPANION_LLM=
@@ -142,7 +120,10 @@ pub fn build_engine(
     deps: &EngineDeps,
 ) -> Result<Arc<dyn LanguageModel>, LlmError> {
     match setting {
-        LanguageModelSetting::None => Err(LlmError::NotConfigured),
+        LanguageModelSetting::None => {
+            deps.local.release_except(None);
+            Err(LlmError::NotConfigured)
+        }
         LanguageModelSetting::Local(id) => {
             let found = deps.local.models();
             if !found.available || !found.list.models.iter().any(|m| &m.id == id) {
@@ -150,14 +131,24 @@ pub fn build_engine(
             }
             deps.local.load(id)
         }
-        LanguageModelSetting::Claude => match &deps.fake {
-            Some(fake) => Ok(Arc::new(fake.clone())),
-            None => Ok(Arc::new(ClaudeLanguageModel::new(
-                deps.transport.clone(),
-                deps.secrets.clone(),
-                claude_model,
-            ))),
-        },
+        LanguageModelSetting::Claude => {
+            deps.local.release_except(None);
+            claude_engine(claude_model, deps)
+        }
+    }
+}
+
+fn claude_engine(
+    claude_model: ClaudeModel,
+    deps: &EngineDeps,
+) -> Result<Arc<dyn LanguageModel>, LlmError> {
+    match &deps.fake {
+        Some(fake) => Ok(Arc::new(fake.clone())),
+        None => Ok(Arc::new(ClaudeLanguageModel::new(
+            deps.transport.clone(),
+            deps.secrets.clone(),
+            claude_model,
+        ))),
     }
 }
 
@@ -192,6 +183,16 @@ impl LanguageModelService {
 
     pub fn local_models(&self) -> LocalModels {
         self.deps.local.models()
+    }
+
+    /// The `languageModel` setting changed: a local model that is no longer chosen leaves memory.
+    pub fn setting_changed(&self, setting: &LanguageModelSetting) {
+        match setting {
+            LanguageModelSetting::Local(id) => self.deps.local.release_except(Some(id)),
+            LanguageModelSetting::None | LanguageModelSetting::Claude => {
+                self.deps.local.release_except(None)
+            }
+        }
     }
 
     /// Sends the fixed sample text through the chosen engine. Blocks: call it off the UI thread.

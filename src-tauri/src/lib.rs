@@ -38,7 +38,7 @@ use engines::{
     WhisperProvider,
 };
 use language_model::{
-    EngineDeps, LanguageModelService, LlmTestReply, LocalLlmProvider, LocalModels, NoLocalRuntime,
+    EngineDeps, LanguageModelService, LlmTestReply, LocalLlmProvider, LocalModels,
     ScriptedLocalProvider,
 };
 use model::{FieldError, Meeting};
@@ -482,6 +482,8 @@ fn update_setting(
     change: serde_json::Value,
 ) -> Result<SettingsUpdate, SettingsError> {
     let update = state.settings.update(&change, &state.catalog())?;
+    // A local model that is no longer chosen leaves memory.
+    state.llm.setting_changed(&update.settings.language_model);
     let _ = app.emit(EVENT_SETTINGS, &update.settings);
     Ok(update)
 }
@@ -758,9 +760,8 @@ pub fn run() {
             let local: Arc<dyn LocalLlmProvider> = if fake_llm {
                 Arc::new(ScriptedLocalProvider::new(llm_locations, scripted.clone()))
             } else {
-                Arc::new(NoLocalRuntime {
-                    locations: llm_locations,
-                })
+                // llama.cpp in this process; it loads a model only on its first call.
+                Arc::new(engines::llama::LlamaLocalProvider::new(llm_locations))
             };
             let secret_store: Arc<dyn SecretStore> = if memory {
                 Arc::new(MemorySecretStore::new())

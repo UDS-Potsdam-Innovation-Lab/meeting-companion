@@ -123,6 +123,7 @@ type Fixture =
   | "settings-llm-claude"
   | "settings-llm-claude-nokey"
   | "settings-llm-error"
+  | "settings-llm-local-failed"
   | "live-mic-missing"
   | "live-switched"
   | "free"
@@ -157,6 +158,7 @@ const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   "settings-llm-claude": filledMeeting,
   "settings-llm-claude-nokey": filledMeeting,
   "settings-llm-error": filledMeeting,
+  "settings-llm-local-failed": filledMeeting,
   "live-mic-missing": liveConsentedMeeting,
   "live-switched": liveConsentedMeeting,
   free: freeSetupMeeting,
@@ -316,7 +318,7 @@ function seed(fixture: Fixture, dark: boolean) {
       inputDevice: missing ? "Jabra Speak 710" : "Jabra Speak 510",
       theme: fixture === "settings-dark" || dark ? "dark" : "light",
       languageModel:
-        fixture === "settings-llm-local"
+        fixture === "settings-llm-local" || fixture === "settings-llm-local-failed"
           ? { local: LLM_MODELS.models[0]!.id }
           : fixture === "settings-llm-claude" ||
               fixture === "settings-llm-claude-nokey" ||
@@ -333,6 +335,8 @@ function seed(fixture: Fixture, dark: boolean) {
     localStorage.setItem(API_KEY_KEY, "set");
   if (fixture === "settings-llm-error") localStorage.setItem(LLM_TEST_KEY, "unauthorized");
   if (fixture === "settings-llm-local") localStorage.setItem(LLM_TEST_KEY, "slow");
+  // The chosen GGUF file cannot be loaded by llama.cpp: the core answers `failed`.
+  if (fixture === "settings-llm-local-failed") localStorage.setItem(LLM_TEST_KEY, "failed");
 
   const id = meetings[0]?.id ?? null;
   if (fixture === "live-switched") {

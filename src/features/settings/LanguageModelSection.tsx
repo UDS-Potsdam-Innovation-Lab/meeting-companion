@@ -34,7 +34,7 @@ type TestState =
   | { state: "idle" }
   | { state: "running"; startedAt: number }
   | { state: "reply"; reply: LlmTestReply; engine: string }
-  | { state: "error"; kind: LlmErrorKind };
+  | { state: "error"; kind: LlmErrorKind; engine: Engine; model: string };
 
 /** File size in gigabytes with one decimal, in the active locale. */
 function formatGigabytes(bytes: number, locale: string): string {
@@ -119,10 +119,8 @@ export function LanguageModelSection() {
             {
               value: "local",
               label: t("settings.llm.local"),
-              hint:
-                localAvailable || models === null
-                  ? t("settings.llm.local.hint")
-                  : t("settings.llm.local.unavailable"),
+              hint: t("settings.llm.local.hint"),
+              // Enabled once the core reports that it runs local models.
               disabled: models !== null && !localAvailable && engine !== "local",
               pending: pending === "local",
               extra:
@@ -596,7 +594,7 @@ function TestCard({ engine, models }: { engine: Engine; models: LlmModelList | n
       const reply = await runLlmTest();
       setTest({ state: "reply", reply, engine: engineName });
     } catch (e) {
-      setTest({ state: "error", kind: (e as { kind: LlmErrorKind }).kind });
+      setTest({ state: "error", kind: (e as { kind: LlmErrorKind }).kind, engine, model: engineName });
     }
   };
 
@@ -664,12 +662,19 @@ function TestCard({ engine, models }: { engine: Engine; models: LlmModelList | n
           ) : null}
           {test.state === "error" ? (
             <div data-testid="llm-error" data-kind={test.kind}>
-              <Notice
-                tone={test.kind === "cancelled" ? "info" : "error"}
-                title={t(`settings.llm.error.${test.kind}.title` as MessageKey)}
-              >
-                {t(`settings.llm.error.${test.kind}.body` as MessageKey)}
-              </Notice>
+              {test.kind === "failed" && test.engine === "local" ? (
+                // A model on this device that llama.cpp could not use: named by its file, in our words only.
+                <Notice tone="error" title={t("settings.llm.error.localFailed.title")}>
+                  {t("settings.llm.error.localFailed.body", { model: test.model })}
+                </Notice>
+              ) : (
+                <Notice
+                  tone={test.kind === "cancelled" ? "info" : "error"}
+                  title={t(`settings.llm.error.${test.kind}.title` as MessageKey)}
+                >
+                  {t(`settings.llm.error.${test.kind}.body` as MessageKey)}
+                </Notice>
+              )}
             </div>
           ) : null}
         </div>

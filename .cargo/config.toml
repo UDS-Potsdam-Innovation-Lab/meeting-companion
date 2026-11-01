@@ -3,3 +3,15 @@
 # against src-tauri/native/sherpa-onnx.sha256; without them the build fails instead of downloading any.
 [env]
 SHERPA_ONNX_LIB_DIR = { value = "src-tauri/native/lib", relative = true, force = true }
+# One ggml for whisper.cpp and llama.cpp (job 016): `node scripts/ggml.mjs build` builds it once into
+# src-tauri/native/ggml/prefix. CMake's find_package(ggml) finds it there for both crates
+# (llama-cpp-sys-2 with `system-ggml-static`, whisper.cpp with WHISPER_USE_SYSTEM_GGML), and the hook
+# hands whisper-rs-sys the same archives. Without the build, whisper-rs-sys fails with a message.
+# cargo does not rerun the sys crates' build scripts when these values change: `node scripts/ggml.mjs
+# build` cleans any of their outputs that were not built against the current prefix.
+CMAKE_PREFIX_PATH = { value = "src-tauri/native/ggml/prefix", relative = true, force = true }
+MEETING_COMPANION_GGML_DIR = { value = "src-tauri/native/ggml/prefix", relative = true, force = true }
+WHISPER_USE_SYSTEM_GGML = { value = "ON", force = true }
+"CMAKE_PROJECT_whisper.cpp_INCLUDE" = { value = "src-tauri/native/ggml/whisper-shared-ggml.cmake", relative = true, force = true }
+# Stamps llama-cpp-sys-2's build folder, so a stale one is found and cleaned (see scripts/ggml.mjs).
+"CMAKE_PROJECT_llama.cpp_INCLUDE" = { value = "src-tauri/native/ggml/llama-shared-ggml.cmake", relative = true, force = true }

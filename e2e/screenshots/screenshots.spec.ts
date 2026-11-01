@@ -149,6 +149,9 @@ const VIEWS: View[] = [
   { name: "settings-llm-claude", fixture: "settings-llm-claude" },
   { name: "settings-llm-claude-nokey", fixture: "settings-llm-claude-nokey" },
   { name: "settings-llm-error", fixture: "settings-llm-error" },
+  // Job 016: a GGUF file llama.cpp could not load.
+  { name: "settings-llm-local-failed", fixture: "settings-llm-local-failed" },
+  { name: "settings-llm-local-failed-dark", fixture: "settings-llm-local-failed", dark: true },
   { name: "settings-llm-claude-dark", fixture: "settings-llm-claude", dark: true },
   {
     name: "settings-llm-confirm-dark",

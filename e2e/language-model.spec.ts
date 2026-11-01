@@ -17,6 +17,7 @@ const FIXTURES: Fixture[] = [
   "settings-llm-claude",
   "settings-llm-claude-nokey",
   "settings-llm-error",
+  "settings-llm-local-failed",
 ];
 
 // 1280×800, the board, 375 px and the sizes of e2e/responsive.spec.ts.
@@ -144,4 +145,54 @@ test.describe("AC6 the Test can be cancelled and blocks nothing", () => {
     await page.getByRole("radio", { name: "Dark" }).check();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   });
+});
+
+test.describe("job 016 AC5 On this device works, and a model that cannot be loaded is named in words", () => {
+  test("the radio is enabled; the old notice is gone; keyboard only from Off to the local model", async ({
+    page,
+  }) => {
+    await openApp(page, "settings-llm-off");
+    const local = page.getByRole("radio", { name: /^On this device/ });
+    await expect(local).toBeEnabled();
+    await expect(page.getByText("Not available in this version yet.")).toHaveCount(0);
+    await page.getByRole("radio", { name: /^Off/ }).focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(local).toBeChecked();
+    const card = page.getByRole("region", { name: "Model on this device" });
+    await expect(card.getByRole("radio", { name: "Qwen2.5-3B-Instruct-Q4_K_M.gguf" })).toBeChecked();
+  });
+
+  for (const [locale, title, body, again] of [
+    [
+      "en",
+      "Model could not be loaded",
+      "Qwen2.5-3B-Instruct-Q4_K_M.gguf could not be loaded. Choose another GGUF file.",
+      "Test again",
+    ],
+    [
+      "de",
+      "Modell konnte nicht geladen werden",
+      "Qwen2.5-3B-Instruct-Q4_K_M.gguf konnte nicht geladen werden. Wählen Sie eine andere GGUF-Datei.",
+      "Erneut testen",
+    ],
+  ] as const) {
+    test(`a load failure names the file, not llama.cpp, and Test again works by keyboard (${locale})`, async ({
+      page,
+    }) => {
+      await openApp(page, "settings-llm-local-failed", locale);
+      const err = page.getByTestId("llm-error");
+      await expect(err).toHaveAttribute("data-kind", "failed");
+      await expect(err).toContainText(title);
+      await expect(err).toContainText(body);
+      await expect(err).not.toContainText(/llama|ggml|gguf_|60 s|Anthropic/);
+      // Words and an icon, not colour alone: the notice has a title and a glyph.
+      await expect(err.locator(".settings-notice__title")).toHaveText(title);
+      await expect(err.locator(".settings-notice__icon")).toHaveCount(1);
+      await page.getByRole("button", { name: again }).focus();
+      await page.keyboard.press("Enter");
+      await expect(page.getByTestId("llm-waiting").or(err)).toBeVisible();
+      await expect(err).toContainText(title);
+      await expectNoAxeViolations(page);
+    });
+  }
 });

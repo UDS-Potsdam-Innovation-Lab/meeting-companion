@@ -25,7 +25,15 @@ zeroize = "1"
 # Credential Manager on Windows.
 keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
 cpal = "0.18"
-whisper-rs = "0.16"
+# whisper.cpp 1.8.3 (whisper-rs-sys 0.15.0). Pinned: it runs on the shared ggml of llama-cpp-sys-2 (below),
+# so a new version must be checked with the real speech test first (AGENTS.md, "One ggml").
+whisper-rs = "=0.16.0"
+# llama.cpp in the app's own process (job 016): CPU only, no `common` (no vendored cpp-httplib), no
+# `mtmd`, no dynamic linking or loadable backends, no OpenMP. ggml is not built by the crate: it links
+# the one shared ggml that `node scripts/ggml.mjs build` builds from this crate's own tree.
+llama-cpp-2 = { version = "=0.1.160", default-features = false, features = ["system-ggml-static"] }
+# Its raw bindings, same version and features: the log callbacks and the chat template code without a model.
+llama-cpp-sys-2 = { version = "=0.1.160", default-features = false, features = ["system-ggml-static"] }
 # Speaker embeddings (k2-fsa, Apache-2.0); only `SpeakerEmbeddingExtractor` is used. Links the prebuilt
 # static libraries from the checksum-pinned archive (see .cargo/config.toml, scripts/sherpa-onnx.mjs).
 sherpa-onnx = { version = "=2.0.1", default-features = false, features = ["static"] }

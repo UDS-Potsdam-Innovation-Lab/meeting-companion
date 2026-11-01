@@ -1,7 +1,7 @@
 // Checks on configuration that the app's privacy and CI promises rest on.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -394,5 +394,220 @@ describe("AC3 (job 011) the one network path: HTTPS to api.anthropic.com from en
   it("the UI never sees an engine type: the IPC module names no engine, host or key", () => {
     const ipc = read("src/lib/ipc.ts");
     expect(ipc).not.toMatch(/anthropic\.com|x-api-key|llama|ureq|ClaudeLanguageModel|ScriptedLanguageModel/i);
+  });
+});
+
+describe("AC1 (job 016) one ggml, llama.cpp without HTTP client, sockets or processes", () => {
+  const cargo = read("src-tauri/Cargo.toml");
+  const lock = read("src-tauri/Cargo.lock");
+  const cargoConfig = read(".cargo/config.toml");
+  const dir = join(root, "src-tauri/src");
+  const files = readdirSync(dir, { recursive: true })
+    .map(String)
+    .filter((f) => f.endsWith(".rs"))
+    .map((f) => ({ file: f.replaceAll("\\", "/"), src: readFileSync(join(dir, f), "utf8") }));
+
+  it("pins llama-cpp-2 with default features off and none of common, mtmd, dynamic linking or GPU", () => {
+    const lines = cargo.split("\n").filter((l) => /^llama-cpp/.test(l));
+    expect(lines).toEqual([
+      'llama-cpp-2 = { version = "=0.1.160", default-features = false, features = ["system-ggml-static"] }',
+      'llama-cpp-sys-2 = { version = "=0.1.160", default-features = false, features = ["system-ggml-static"] }',
+    ]);
+    for (const feature of [
+      "common",
+      "mtmd",
+      "dynamic-link",
+      "dynamic-backends",
+      "llguidance",
+      "openmp",
+      "cuda",
+      "vulkan",
+      "metal",
+      "rocm",
+      "opencl",
+      "webgpu",
+    ]) {
+      for (const l of lines) expect(l).not.toContain(`"${feature}"`);
+    }
+    // whisper.cpp runs on llama.cpp's ggml: its version is pinned as well.
+    expect(cargo).toMatch(/^whisper-rs = "=0\.16\.0"$/m);
+  });
+
+  it("links the one shared ggml: both crates find it through .cargo/config.toml", () => {
+    expect(cargoConfig).toContain(
+      'CMAKE_PREFIX_PATH = { value = "src-tauri/native/ggml/prefix", relative = true, force = true }',
+    );
+    expect(cargoConfig).toContain('WHISPER_USE_SYSTEM_GGML = { value = "ON", force = true }');
+    expect(cargoConfig).toContain(
+      '"CMAKE_PROJECT_whisper.cpp_INCLUDE" = { value = "src-tauri/native/ggml/whisper-shared-ggml.cmake", relative = true, force = true }',
+    );
+    expect(read("src-tauri/native/ggml/CMakeLists.txt")).toContain(
+      "add_subdirectory(${GGML_SOURCE_DIR} ggml)",
+    );
+  });
+
+  it("neither engine crate pulls in an HTTP client, a TLS stack or an async runtime", () => {
+    const deps = new Map<string, string[]>();
+    for (const block of lock.split("[[package]]").slice(1)) {
+      const name = /name = "([^"]+)"/.exec(block)?.[1];
+      const list = /dependencies = \[([^\]]*)\]/.exec(block)?.[1] ?? "";
+      if (name)
+        deps.set(
+          name,
+          [...list.matchAll(/"([^" ]+)/g)].map((m) => m[1]!),
+        );
+    }
+    const closure = new Set<string>();
+    const visit = (n: string) => {
+      if (closure.has(n)) return;
+      closure.add(n);
+      for (const d of deps.get(n) ?? []) visit(d);
+    };
+    for (const engine of ["llama-cpp-2", "llama-cpp-sys-2", "whisper-rs"]) {
+      expect(deps.has(engine), engine).toBe(true);
+      visit(engine);
+    }
+    for (const crate of [
+      "reqwest",
+      "ureq",
+      "hyper",
+      "isahc",
+      "curl",
+      "curl-sys",
+      "tokio",
+      "rustls",
+      "openssl-sys",
+    ])
+      expect(closure.has(crate), crate).toBe(false);
+    // The lock file holds exactly the pinned version.
+    expect(lock).toMatch(/name = "llama-cpp-2"\nversion = "0\.1\.160"/);
+    expect(lock).toMatch(/name = "llama-cpp-sys-2"\nversion = "0\.1\.160"/);
+  });
+
+  it("still: no listening or UDP socket outside phone_view/, no process started from engines/", () => {
+    const outside = files.filter(({ file }) => !file.startsWith("phone_view"));
+    for (const { file, src } of outside) expect(src, file).not.toMatch(/TcpListener|UdpSocket/);
+    const engines = files.filter(({ file }) => file.startsWith("engines/"));
+    expect(engines.map((f) => f.file)).toContain("engines/llama.rs");
+    for (const { file, src } of engines) {
+      expect(src, file).not.toMatch(/process::Command|Command::new|std::process::\{[^}]*Command/);
+      expect(src, file).not.toMatch(/TcpStream|TcpListener|UdpSocket|UnixListener|UnixStream/);
+    }
+  });
+
+  it("still: the only HTTP client crate is 011's ureq, used only in engines/claude.rs", () => {
+    for (const crate of ["reqwest", "curl", "isahc", "attohttpc", "surf", "awc", "hyper-tls", "hyper-rustls"])
+      expect(cargo, crate).not.toMatch(new RegExp(`^${crate}\\s*=`, "m"));
+    expect(cargo.match(/^ureq\b.*$/gm)).toEqual([
+      'ureq = { version = "3.5", default-features = false, features = ["rustls"] }',
+    ]);
+    expect(files.filter(({ src }) => /\bureq\b/.test(src)).map(({ file }) => file)).toEqual([
+      "engines/claude.rs",
+    ]);
+    // hyper only as the phone view's server, never with its client feature.
+    expect(cargo).not.toMatch(/^hyper\s*=.*"client"/m);
+  });
+
+  it("CI builds the shared ggml before the tests and checks the release app with ggml-check", () => {
+    const wf = parse(read(".github/workflows/ci.yml"));
+    const steps = (Object.values(wf.jobs)[0] as { steps: { name?: string; run?: string }[] }).steps;
+    const at = (needle: string) => steps.findIndex((s) => (s.run ?? "").includes(needle));
+    const build = at("node scripts/ggml.mjs build");
+    const test = at("npm test");
+    const compile = at("npm run tauri build -- --no-bundle");
+    const check = at("node scripts/ggml-check.mjs src-tauri/target/release/meeting-companion");
+    expect(build).toBeGreaterThan(-1);
+    expect(build).toBeLessThan(test);
+    expect(check).toBeGreaterThan(compile);
+  });
+});
+
+describe("AC1 (job 016) ggml-check on recorded symbol lists", () => {
+  const fixtures = join(root, "scripts/fixtures/ggml-check");
+  const run = (file: string) =>
+    spawnSync(process.execPath, [join(root, "scripts/ggml-check.mjs"), "--symbols", join(fixtures, file)], {
+      encoding: "utf8",
+    });
+
+  it("passes the symbol list recorded from the release app", () => {
+    const r = run("clean.txt");
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+  });
+
+  it.each([
+    ["two-ggml.txt", /ggml_init is defined 2 times/],
+    ["no-whisper.txt", /whisper_init_from_file_with_params_no_state is missing/],
+    ["no-llama.txt", /llama_model_load_from_file is missing/],
+    ["httplib.txt", /cpp-httplib symbols are linked/],
+    ["curl.txt", /curl symbols are linked/],
+    ["llama-server.txt", /llama-server symbols are linked/],
+    ["stripped.txt", /no symbol table/],
+  ])("fails on %s", (file, message) => {
+    const r = run(file);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(message);
+  });
+
+  it("fails on a binary it cannot read", () => {
+    const r = spawnSync(
+      process.execPath,
+      [join(root, "scripts/ggml-check.mjs"), join(fixtures, "missing-binary")],
+      {
+        encoding: "utf8",
+      },
+    );
+    expect(r.status).toBe(1);
+  });
+});
+
+describe("job 016: a cached sys crate output not built against the shared ggml is found", () => {
+  // Hermetic: a fake prefix and a fake target dir in a temp folder; `outputs` reads only those, so the
+  // result does not depend on the real prefix, its build options or the environment.
+  const STAMP = '{ "crate": "llama-cpp-sys-2 0.1.160", "built": "2026-11-01T00:00:00.000Z" }\n';
+  const check = (prefix: string, target: string) =>
+    spawnSync(process.execPath, [join(root, "scripts/ggml.mjs"), "outputs", "--prefix", prefix], {
+      encoding: "utf8",
+      env: { ...process.env, CARGO_TARGET_DIR: target },
+    });
+  /** A temp folder with `prefix/` (SOURCE = STAMP unless null) and `target/release` holding one
+   * whisper-rs-sys and one llama-cpp-sys-2 output, stamped with `stamp`. */
+  const fixture = (stamp: string | null, ownGgml = false, source: string | null = STAMP) => {
+    const dir = mkdtempSync(join(tmpdir(), "ggml-stale-"));
+    mkdirSync(join(dir, "prefix"), { recursive: true });
+    if (source !== null) writeFileSync(join(dir, "prefix/SOURCE"), source);
+    for (const name of ["whisper-rs-sys-1c761927bb6971f2", "llama-cpp-sys-2-01336d13d7a6e883"]) {
+      const build = join(dir, "target/release/build", name, "out/build");
+      mkdirSync(build, { recursive: true });
+      if (ownGgml && name.startsWith("whisper")) mkdirSync(join(build, "ggml/src"), { recursive: true });
+      if (stamp !== null) writeFileSync(join(build, "meeting-companion-ggml.SOURCE"), stamp);
+    }
+    mkdirSync(join(dir, "target/release/deps"), { recursive: true });
+    const r = check(join(dir, "prefix"), join(dir, "target"));
+    rmSync(dir, { recursive: true, force: true });
+    return r;
+  };
+
+  it("passes when both outputs carry the prefix's stamp", () => {
+    const r = fixture(STAMP);
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+  });
+
+  it.each([
+    ["whisper-rs-sys with its own ggml (no stamp), as restored from the CI cache", null, true, STAMP],
+    ["an output built against an earlier prefix", '{ "built": "earlier" }\n', false, STAMP],
+    ["a prefix without SOURCE", STAMP, false, null],
+  ])("fails on %s", (_, stamp, ownGgml, source) => {
+    const r = fixture(stamp, ownGgml, source);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/not built against .*prefix/);
+    expect(r.stderr).toMatch(/whisper-rs-sys-1c761927bb6971f2/);
+  });
+
+  it("verify runs the same output check after the prefix check", () => {
+    const script = read("scripts/ggml.mjs");
+    expect(script).toMatch(/function verify\(\) \{[\s\S]*?if \(!current\(crate\)\)[\s\S]*?outputs\(\);/);
+    expect(script).toMatch(/function build\(\) \{[\s\S]*?cleanStale\(\);[\s\S]*?cleanStale\(\);/);
   });
 });

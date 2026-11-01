@@ -28,6 +28,7 @@ export type Fixture =
   | "settings-llm-claude"
   | "settings-llm-claude-nokey"
   | "settings-llm-error"
+  | "settings-llm-local-failed"
   | "live-mic-missing"
   | "live-switched"
   | "free"
@@ -83,7 +84,8 @@ export async function openApp(
   if (
     fixture === "settings-llm-claude" ||
     fixture === "settings-llm-error" ||
-    fixture === "settings-llm-local"
+    fixture === "settings-llm-local" ||
+    fixture === "settings-llm-local-failed"
   ) {
     await page
       .getByTestId("llm-key")
@@ -95,7 +97,7 @@ export async function openApp(
       .getByTestId(
         fixture === "settings-llm-claude"
           ? "llm-reply"
-          : fixture === "settings-llm-error"
+          : fixture === "settings-llm-error" || fixture === "settings-llm-local-failed"
             ? "llm-error"
             : "llm-waiting",
       )
