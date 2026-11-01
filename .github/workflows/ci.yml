@@ -78,12 +78,14 @@ jobs:
       # One ggml for whisper.cpp and llama.cpp (job 016): built once from the ggml tree of the pinned
       # llama-cpp-sys-2, into src-tauri/native/ggml/prefix, which .cargo/config.toml makes the only ggml
       # both crates link. CI builds it for the baseline CPU (GGML_NATIVE=OFF), so a cached copy runs on
-      # any runner. A rebuild also cleans the two sys crates, so no stale copy of an older build stays.
+      # any runner. It also cleans every output of the two sys crates that the Rust cache restored but that
+      # was not built against this prefix (e.g. whisper-rs-sys with its own ggml, in any profile): the
+      # release build of run 41334135604 linked such a cached whisper-rs-sys and failed on duplicate symbols.
       - name: Cache the shared ggml
         uses: actions/cache@v4
         with:
           path: src-tauri/native/ggml/prefix
-          key: ggml-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src-tauri/Cargo.lock', 'scripts/ggml.mjs', 'src-tauri/native/ggml/CMakeLists.txt', 'src-tauri/native/ggml/whisper-shared-ggml.cmake') }}
+          key: ggml-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src-tauri/Cargo.lock', 'scripts/ggml.mjs', 'src-tauri/native/ggml/CMakeLists.txt', 'src-tauri/native/ggml/whisper-shared-ggml.cmake', 'src-tauri/native/ggml/llama-shared-ggml.cmake') }}
 
       - name: Build the shared ggml (whisper.cpp and llama.cpp link this one copy)
         shell: bash

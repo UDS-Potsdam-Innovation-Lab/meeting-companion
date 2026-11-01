@@ -11,11 +11,15 @@
 //   node scripts/ggml.mjs verify    exit 1 unless prefix/ holds a build of the pinned crate's ggml
 //   node scripts/ggml.mjs path      print the prefix folder
 //
-// A rebuild also runs `cargo clean -p whisper-rs-sys -p llama-cpp-sys-2`: both crates copy the archives
-// into their own build output, and a stale copy would bring a second ggml back.
+// Both sys crates keep a copy of the archives in their build output, and cargo does not rerun their
+// build scripts when the environment from .cargo/config.toml or the prefix changes. A stale output (for
+// example whisper-rs-sys built with its own ggml, restored from a CI cache, or built against an earlier
+// prefix) would bring a second ggml back. The CMake hooks therefore stamp each crate's build folder with
+// the prefix's SOURCE (which names the build), and `build` cleans every profile whose stamp is missing
+// or differs (`cargo clean -p <crate>`; CARGO_TARGET_DIR is honoured); `verify` fails on one.
 // Options: --force (rebuild even when up to date).
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +31,10 @@ const wrapper = join(root, "src-tauri/native/ggml");
 const buildDir = join(wrapper, "build");
 const prefix = join(wrapper, "prefix");
 const stampFile = join(prefix, "SOURCE");
+const targetDir = process.env.CARGO_TARGET_DIR ?? join(root, "src-tauri/target");
+const SYS_CRATES = ["whisper-rs-sys", CRATE];
+/** Written by the CMake hooks into each sys crate's CMake build folder (out/build). */
+const CRATE_STAMP = "meeting-companion-ggml.SOURCE";
 
 function fail(message) {
   console.error(`ggml: ${message}`);
@@ -98,9 +106,67 @@ function libraries() {
 function current(crate) {
   if (!existsSync(stampFile) || !libraries().every(existsSync)) return false;
   try {
-    return JSON.stringify(JSON.parse(readFileSync(stampFile, "utf8"))) === JSON.stringify(stampOf(crate));
+    // `built` names this build; the rest must match what would be built now.
+    const { built, ...recorded } = JSON.parse(readFileSync(stampFile, "utf8"));
+    return Boolean(built) && JSON.stringify(recorded) === JSON.stringify(stampOf(crate));
   } catch {
     return false;
+  }
+}
+
+/** The cargo profile folders of the target dir (`debug`, `release`, `<triple>/release`, …). */
+function profileDirs() {
+  const dirs = [];
+  const visit = (dir, triple, depth) => {
+    let entries = [];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const path = join(dir, e.name);
+      if (existsSync(join(path, "build")) && existsSync(join(path, "deps"))) {
+        dirs.push({ path, profile: e.name, triple });
+      } else if (depth === 0) visit(path, e.name, 1);
+    }
+  };
+  visit(targetDir, null, 0);
+  return dirs;
+}
+
+/** Sys crate outputs not built against the current prefix: [{ profile, triple, crate, path }]. */
+function staleOutputs() {
+  const want = existsSync(stampFile) ? readFileSync(stampFile, "utf8") : null;
+  const stale = [];
+  for (const dir of profileDirs()) {
+    for (const entry of readdirSync(join(dir.path, "build"))) {
+      const crate = SYS_CRATES.find((c) => new RegExp(`^${c}-[0-9a-f]+$`).test(entry));
+      const out = join(dir.path, "build", entry, "out");
+      if (!crate || !existsSync(out)) continue;
+      const stamp = join(out, "build", CRATE_STAMP);
+      const have = existsSync(stamp) ? readFileSync(stamp, "utf8") : null;
+      if (want === null || have !== want) stale.push({ ...dir, crate, path: out });
+    }
+  }
+  return stale;
+}
+
+/** `cargo clean -p` for every crate and profile with a stale output. */
+function cleanStale() {
+  const groups = new Map();
+  for (const s of staleOutputs()) {
+    const key = `${s.triple ?? ""}/${s.profile}`;
+    groups.set(key, { ...s, crates: new Set([...(groups.get(key)?.crates ?? []), s.crate]) });
+  }
+  for (const g of groups.values()) {
+    const args = ["clean", "--manifest-path", manifest];
+    args.push(...(g.profile === "debug" ? ["--profile", "dev"] : ["--profile", g.profile]));
+    if (g.triple) args.push("--target", g.triple);
+    for (const c of g.crates) args.push("-p", c);
+    console.log(`ggml: ${[...g.crates].join(", ")} in ${g.path} were not built against ${prefix}: cleaning`);
+    run("cargo", args);
   }
 }
 
@@ -112,6 +178,7 @@ function build() {
   const crate = pinnedCrate();
   if (!process.argv.includes("--force") && current(crate)) {
     console.log(`ggml: ${prefix} is up to date (ggml ${crate.ggml} from ${CRATE} ${crate.version})`);
+    cleanStale();
     return;
   }
   rmSync(buildDir, { recursive: true, force: true });
@@ -130,13 +197,12 @@ function build() {
   run("cmake", ["--build", buildDir, "--config", "Release", "--parallel", String(availableParallelism())]);
   run("cmake", ["--install", buildDir, "--config", "Release"]);
   if (!libraries().every(existsSync)) fail(`the build did not produce ${libraries().join(", ")}`);
-  writeFileSync(stampFile, `${JSON.stringify(stampOf(crate), null, 2)}\n`);
+  const stamp = { ...stampOf(crate), built: new Date().toISOString() };
+  writeFileSync(stampFile, `${JSON.stringify(stamp, null, 2)}\n`);
   rmSync(buildDir, { recursive: true, force: true });
   console.log(`ggml: built ggml ${crate.ggml} from ${CRATE} ${crate.version} into ${prefix}`);
-  // The sys crates keep a copy of the archives in their build output: drop it, so no stale ggml stays.
-  if (existsSync(join(root, "src-tauri/target"))) {
-    run("cargo", ["clean", "--manifest-path", manifest, "-p", "whisper-rs-sys", "-p", CRATE]);
-  }
+  // The sys crates keep a copy of the archives in their build output: drop every stale one.
+  cleanStale();
 }
 
 function verify() {
@@ -146,7 +212,15 @@ function verify() {
       `${prefix} does not hold ggml ${crate.ggml} from ${CRATE} ${crate.version}: run node scripts/ggml.mjs build`,
     );
   }
-  console.log(`ggml: ${prefix} holds ggml ${crate.ggml} from ${CRATE} ${crate.version}`);
+  const stale = staleOutputs();
+  if (stale.length > 0) {
+    fail(
+      `not built against ${prefix}: ${stale.map((s) => s.path).join(", ")}: run node scripts/ggml.mjs build`,
+    );
+  }
+  console.log(
+    `ggml: ${prefix} holds ggml ${crate.ggml} from ${CRATE} ${crate.version}; no stale sys crate output`,
+  );
 }
 
 const command = process.argv[2];

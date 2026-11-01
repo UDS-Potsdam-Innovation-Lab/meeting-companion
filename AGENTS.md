@@ -164,9 +164,12 @@ STATUS: CONFIGURED
   the spec, probed first): ggml is built **once**, from the ggml tree llama-cpp-sys-2 vendors, and both engines link
   that copy. Run `node scripts/ggml.mjs build` once per checkout (and after a change of the llama-cpp-sys-2 version):
   it builds and installs ggml into `src-tauri/native/ggml/prefix/` (static, PIC, CPU only, no OpenMP; `GGML_NATIVE`
-  at ggml's default unless set in the environment; CI sets `OFF`), records the source in `prefix/SOURCE`, and on a
-  rebuild runs `cargo clean -p whisper-rs-sys -p llama-cpp-sys-2` (both keep a copy of the archives). `verify`
-  exits 1 unless the prefix holds the pinned crate's ggml. `.cargo/config.toml` points CMake's
+  at ggml's default unless set in the environment; CI sets `OFF`), records the source and a build id in `prefix/SOURCE`. Both sys crates keep a copy of the archives in their build
+  output, and cargo does not rerun their build scripts when `.cargo/config.toml` or the prefix changes. So CMake hooks
+  (`whisper-shared-ggml.cmake`, `llama-shared-ggml.cmake`) stamp each crate's build folder with `prefix/SOURCE`, and
+  `build` runs `cargo clean -p` for every profile whose whisper-rs-sys or llama-cpp-sys-2 output is unstamped or
+  stamped by another build (e.g. a whisper-rs-sys with its own ggml restored by CI's Rust cache; it honours
+  `CARGO_TARGET_DIR`). `verify` exits 1 unless the prefix holds the pinned crate's ggml and no stale output exists. `.cargo/config.toml` points CMake's
   `find_package(ggml)` there for both crates (`CMAKE_PREFIX_PATH`): llama-cpp-sys-2 with its `system-ggml-static`
   feature, whisper.cpp with `WHISPER_USE_SYSTEM_GGML=ON` (it then compiles against ggml 0.26.0's headers). Because
   whisper-rs-sys still asks rustc for `static=ggml*` from its own build folder only, the CMake hook

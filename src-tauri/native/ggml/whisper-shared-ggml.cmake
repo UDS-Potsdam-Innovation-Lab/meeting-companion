@@ -5,7 +5,9 @@
 # CMAKE_PREFIX_PATH) and builds no ggml of its own. whisper-rs-sys's build script still asks rustc for
 # `static=ggml`, `static=ggml-base` and `static=ggml-cpu`, and only searches its own build folder. This
 # copies the shared archives, unchanged, into that folder, so rustc finds the very same files that
-# llama-cpp-sys-2 links. `node scripts/ggml-check.mjs` checks the result in the built app.
+# llama-cpp-sys-2 links, and stamps the build folder with the prefix's SOURCE, so
+# `node scripts/ggml.mjs build` can find and clean an output built against another ggml.
+# `node scripts/ggml-check.mjs` checks the result in the built app.
 set(_mc_ggml "$ENV{MEETING_COMPANION_GGML_DIR}")
 if(NOT _mc_ggml OR NOT EXISTS "${_mc_ggml}/SOURCE")
   message(FATAL_ERROR
@@ -24,3 +26,4 @@ foreach(_mc_name IN LISTS _mc_names)
   list(APPEND _mc_files "${_mc_ggml}/lib/${_mc_name}")
 endforeach()
 file(COPY ${_mc_files} DESTINATION "${CMAKE_BINARY_DIR}/shared-ggml")
+configure_file("${_mc_ggml}/SOURCE" "${CMAKE_BINARY_DIR}/meeting-companion-ggml.SOURCE" COPYONLY)

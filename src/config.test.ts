@@ -1,7 +1,7 @@
 // Checks on configuration that the app's privacy and CI promises rest on.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -558,5 +558,46 @@ describe("AC1 (job 016) ggml-check on recorded symbol lists", () => {
       },
     );
     expect(r.status).toBe(1);
+  });
+});
+
+describe("job 016 round 2: a cached sys crate output not built against the shared ggml is found", () => {
+  const source = join(root, "src-tauri/native/ggml/prefix/SOURCE");
+  const verify = (target: string) =>
+    spawnSync(process.execPath, [join(root, "scripts/ggml.mjs"), "verify"], {
+      encoding: "utf8",
+      env: { ...process.env, CARGO_TARGET_DIR: target },
+    });
+  /** A target dir with one whisper-rs-sys and one llama-cpp-sys-2 output in `release`, stamped with `stamp`. */
+  const target = (stamp: string | null, ownGgml = false) => {
+    const dir = mkdtempSync(join(tmpdir(), "ggml-stale-"));
+    for (const name of ["whisper-rs-sys-1c761927bb6971f2", "llama-cpp-sys-2-01336d13d7a6e883"]) {
+      const build = join(dir, "release/build", name, "out/build");
+      mkdirSync(build, { recursive: true });
+      if (ownGgml && name.startsWith("whisper")) mkdirSync(join(build, "ggml/src"), { recursive: true });
+      if (stamp !== null) writeFileSync(join(build, "meeting-companion-ggml.SOURCE"), stamp);
+    }
+    mkdirSync(join(dir, "release/deps"), { recursive: true });
+    return dir;
+  };
+
+  it("passes when both outputs carry the prefix's stamp", () => {
+    const dir = target(readFileSync(source, "utf8"));
+    const r = verify(dir);
+    rmSync(dir, { recursive: true, force: true });
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+  });
+
+  it.each([
+    ["whisper-rs-sys with its own ggml (no stamp), as restored from the CI cache", null, true],
+    ["an output built against an earlier prefix", '{ "built": "earlier" }\n', false],
+  ])("fails on %s", (_, stamp, ownGgml) => {
+    const dir = target(stamp, ownGgml);
+    const r = verify(dir);
+    rmSync(dir, { recursive: true, force: true });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/not built against .*prefix/);
+    expect(r.stderr).toMatch(/whisper-rs-sys-1c761927bb6971f2/);
   });
 });
