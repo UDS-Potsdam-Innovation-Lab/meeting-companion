@@ -29,7 +29,7 @@ afterEach(() => {
 const changes = (core: FakeCore) =>
   core.calls.filter((c) => c.cmd === "update_setting").map((c) => (c.args as { change: unknown }).change);
 const settingsButton = () =>
-  screen.getAllByRole("button", { name: "Settings" }).find((b) => !b.closest("[hidden]"))!;
+  screen.getAllByRole("button", { name: /^(Settings|Einstellungen)$/ }).find((b) => !b.closest("[hidden]"))!;
 const engineRadio = (name: RegExp) => screen.getByRole("radio", { name });
 
 async function openSection(rec: FakeRecording = {}) {
@@ -39,8 +39,8 @@ async function openSection(rec: FakeRecording = {}) {
     { recording: { ...rec, settings: { locale: "en", ...rec.settings } } },
   );
   await user.click(settingsButton());
-  await user.click(screen.getByRole("tab", { name: /^Language model/ }));
-  await screen.findByRole("heading", { name: "Language model", level: 2 });
+  await user.click(screen.getByRole("tab", { name: /^(Language model|Sprachmodell)/ }));
+  await screen.findByRole("heading", { name: /^(Language model|Sprachmodell)$/, level: 2 });
   return { user, ...rendered };
 }
 
@@ -111,10 +111,22 @@ describe("AC5 the section and its engine choice", () => {
     expect(changes(core)).toEqual([]);
   });
 
-  it("while this version has no local runtime, On this device cannot be chosen and says why", async () => {
+  it("job 016: On this device can be chosen when the core runs local models; the old notice is gone", async () => {
+    const { user, core } = await openSection();
+    expect(engineRadio(/^On this device/)).toBeEnabled();
+    expect(screen.getByText("A GGUF model here. Nothing leaves the device.")).toBeVisible();
+    expect(screen.queryByText(/Not available in this version/)).toBeNull();
+    expect(Object.keys(messages.en)).not.toContain("settings.llm.local.unavailable");
+    expect(Object.keys(messages.de)).not.toContain("settings.llm.local.unavailable");
+    await user.click(engineRadio(/^On this device/));
+    expect(engineRadio(/^On this device/)).toBeChecked();
+    expect(changes(core)).toEqual([{ key: "languageModel", value: { local: QWEN.id } }]);
+  });
+
+  it("job 016: if the core cannot list local models, On this device stays disabled", async () => {
     await openSection({ llmModels: { models: [], searched: ["/a"], available: false } });
     expect(engineRadio(/^On this device/)).toBeDisabled();
-    expect(screen.getByText("Not available in this version yet.")).toBeVisible();
+    expect(screen.queryByText(/Not available in this version/)).toBeNull();
   });
 
   it("the Claude model comes from the closed list and applies at once", async () => {
@@ -284,6 +296,47 @@ describe("AC4 / AC5 the Test reply is plain text; errors are words, not colour",
     expect(err).toHaveAttribute("data-kind", kind);
     expect(err).toHaveTextContent(title);
     expect(err).toHaveTextContent(body);
+  });
+});
+
+describe("job 016 AC5 a local model that cannot be loaded", () => {
+  it.each([
+    ["en", "Model could not be loaded", `${QWEN.name} could not be loaded. Choose another GGUF file.`],
+    [
+      "de",
+      "Modell konnte nicht geladen werden",
+      `${QWEN.name} konnte nicht geladen werden. Wählen Sie eine andere GGUF-Datei.`,
+    ],
+  ])("is named in words (%s), with the model file and no engine text", async (locale, title, body) => {
+    localStorage.setItem("meeting-companion.locale", locale);
+    const { user } = await openSection({
+      settings: { languageModel: { local: QWEN.id }, locale: locale as "de" | "en" },
+      llmTest: () => Promise.reject({ kind: "failed" }),
+    });
+    await user.click(screen.getByRole("button", { name: /^(Test|Testen)$/ }));
+    const err = await screen.findByTestId("llm-error");
+    expect(err).toHaveAttribute("data-kind", "failed");
+    expect(err).toHaveTextContent(title);
+    expect(err).toHaveTextContent(body);
+    // Not the cloud wording, and in words (title and text), not only the error colour.
+    expect(err).not.toHaveTextContent(/60 s|Anthropic|llama|gguf_|ggml/);
+    expect(within(err).getByRole("status")).toHaveTextContent(title);
+    // The full id (a path) is not shown, only the file name.
+    expect(err).not.toHaveTextContent("/m/");
+    // The choice stays; a person picks another file.
+    expect(engineRadio(/^(On this device|Auf diesem Gerät)/)).toBeChecked();
+  });
+
+  it("the Claude engine's failure keeps its own wording", async () => {
+    const { user } = await openSection({
+      settings: { languageModel: "claude" },
+      apiKeySet: true,
+      llmTest: () => Promise.reject({ kind: "failed" }),
+    });
+    await user.click(screen.getByRole("button", { name: "Test" }));
+    const err = await screen.findByTestId("llm-error");
+    expect(err).toHaveTextContent("Test failed");
+    expect(err).not.toHaveTextContent("could not be loaded");
   });
 });
 
