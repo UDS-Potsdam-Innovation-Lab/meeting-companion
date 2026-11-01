@@ -7,8 +7,8 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "spec",
-  "round": 0,
+  "stage": "build",
+  "round": 1,
   "max_round": 3,
   "reviews": {
     "security": "pending",
@@ -18,7 +18,7 @@
   },
   "history": [],
   "decision": null,
-  "waiting": "011 merge",
-  "note": "Spec written; build waits for 011 on main",
-  "updated": "2026-11-01T16:50:06Z"
+  "waiting": null,
+  "note": "Building",
+  "updated": "2026-11-01T17:19:54Z"
 }
