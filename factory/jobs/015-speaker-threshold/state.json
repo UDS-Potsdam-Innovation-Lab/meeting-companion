@@ -1,1 +1,24 @@
-{"id":"015-speaker-threshold","issue":15,"title":"Speaker threshold tuning","branch":"factory/015-speaker-threshold","builder":"builder-015-speaker-threshold","flavour":"local","targets":null,"external":null,"stage":"spec","round":0,"max_round":3,"reviews":{"security":"pending","ux":"pending","ui":"pending","code":"pending"},"history":[],"decision":null,"waiting":null,"note":"Writing spec","updated":"2026-11-01T16:36:15Z"}
+{
+  "id": "015-speaker-threshold",
+  "issue": 15,
+  "title": "Speaker threshold tuning",
+  "branch": "factory/015-speaker-threshold",
+  "builder": "builder-015-speaker-threshold",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "build",
+  "round": 1,
+  "max_round": 3,
+  "reviews": {
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
+  },
+  "history": [],
+  "decision": null,
+  "waiting": null,
+  "note": "Building",
+  "updated": "2026-11-01T16:37:17Z"
+}
