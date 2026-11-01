@@ -491,6 +491,32 @@ mod tests {
         }
     }
 
+    /// The `measured` line names the `SAME_VOICE` and `MIN_SEGMENT_MS` the baseline was measured with;
+    /// changing either constant without re-baselining fails here.
+    #[test]
+    fn thresholds_were_measured_with_the_current_constants() {
+        use crate::engines::diarize::SAME_VOICE;
+        let thresholds = load_thresholds(&corpus::root());
+        let (model, _) = pinned_model();
+        let measured = &thresholds.models[&model].measured;
+        let value = |key: &str| -> String {
+            let at = measured
+                .find(key)
+                .unwrap_or_else(|| panic!("`measured` names no {key}: {measured}"));
+            measured[at + key.len()..]
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect()
+        };
+        let same: f32 = value("SAME_VOICE").parse().expect("SAME_VOICE number");
+        let min: u64 = value("MIN_SEGMENT_MS")
+            .parse()
+            .expect("MIN_SEGMENT_MS number");
+        assert_eq!(same, SAME_VOICE, "re-baseline thresholds.json");
+        assert_eq!(min, MIN_SEGMENT_MS, "re-baseline thresholds.json");
+    }
+
     #[test]
     fn check_reports_each_broken_threshold() {
         let reference = [

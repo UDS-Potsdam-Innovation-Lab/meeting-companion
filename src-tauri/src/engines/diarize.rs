@@ -15,8 +15,11 @@ pub const MIN_SEGMENT_MS: u64 = 1_000;
 /// A short segment takes the previous segment's voice if that one ended less than this before it.
 pub const SHORT_GAP_MS: u64 = 1_000;
 /// Cosine similarity from which an embedding belongs to an existing voice. Tuned with the
-/// `#[ignore]` real-model test (`cargo test --release -- --ignored speaker`).
-pub const SAME_VOICE: f32 = 0.5;
+/// `#[ignore]` real-model test on the pinned model (`MEETING_COMPANION_SPEAKER_MODEL=… cargo test
+/// --manifest-path src-tauri/Cargo.toml -- --ignored speaker_accuracy`); 0.5 merged two German women,
+/// 0.60 made the other scenes worse. After a change, re-baseline `testdata/speakers/thresholds.json`
+/// (a default-suite test ties its `measured` line to this value).
+pub const SAME_VOICE: f32 = 0.55;
 
 /// Why a diarizer could not be loaded or failed. Carries no audio and no embedding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,6 +285,19 @@ mod tests {
         assert_eq!(c.assign(&[1.0, 0.3]), Some(v('A')));
         assert_eq!(c.assign(&[0.0, 0.0]), None);
         assert_eq!(c.assign(&[f32::NAN, 1.0]), None);
+    }
+
+    /// The default threshold: 0.52 to an existing centroid starts a new voice, 0.57 joins it.
+    #[test]
+    fn the_default_threshold_splits_at_0_55() {
+        let at = |cos: f32| vec![cos, (1.0 - cos * cos).sqrt()];
+        let mut c = VoiceClusterer::new(0);
+        assert_eq!(c.assign(&[1.0, 0.0]), Some(v('A')));
+        assert_eq!(c.assign(&at(0.52)), Some(v('B')));
+        let mut c = VoiceClusterer::new(0);
+        assert_eq!(c.assign(&[1.0, 0.0]), Some(v('A')));
+        assert_eq!(c.assign(&at(0.57)), Some(v('A')));
+        assert_eq!(c.len(), 1);
     }
 
     #[test]
