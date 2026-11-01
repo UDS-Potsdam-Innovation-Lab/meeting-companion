@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "build",
+  "stage": "review",
   "round": 3,
   "max_round": 3,
   "reviews": {
@@ -40,6 +40,6 @@
   ],
   "decision": null,
   "waiting": null,
-  "note": "Round 2: reviews PASS, CI failure (new ggml stamp tests fail in CI)",
-  "updated": "2026-11-01T18:54:17Z"
+  "note": "Round 3 reviews (CI test fix)",
+  "updated": "2026-11-01T19:22:37Z"
 }

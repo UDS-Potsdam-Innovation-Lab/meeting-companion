@@ -137,3 +137,50 @@ I then rebuilt the local default prefix, which cleaned the worktree's debug and 
 - Secret scan → no leaks.
 
 Not pushed.
+
+## Round 3 response
+
+All four round-2 reviews were PASS. CI failed in the `Test` step (run 41337761300), so the release compile was skipped.
+
+**Cause.** My round-2 tests ran `node scripts/ggml.mjs verify` against the real prefix:
+- `verify` first compares `prefix/SOURCE` with the options it would build with now, and those include `GGML_NATIVE` from the environment.
+- CI sets `GGML_NATIVE=OFF` only in the "Build the shared ggml" step. In the `Test` step the variable is unset, so the recorded options no longer matched and `verify` failed before it looked at the target dir.
+- Locally `GGML_NATIVE` is never set, so the tests passed.
+
+The tests depended on the real prefix and the environment, and they should not have.
+
+**Fix (commit 3f73115).**
+- **`outputs` command:** `node scripts/ggml.mjs outputs` runs only the stale-output check. It reads `prefix/SOURCE` and the target dir, with no cargo metadata and no environment-dependent options. `--prefix <dir>` points it at another prefix folder. `verify` runs the same check after its prefix check.
+- **Hermetic tests:** the tests in `src/config.test.ts` now build a fake `prefix/SOURCE` and a fake `target/release/build/{whisper-rs-sys,llama-cpp-sys-2}-*/out/build` in a temp folder and run `outputs --prefix <fake> ` with `CARGO_TARGET_DIR=<fake target>`. The cases:
+  - stamped outputs pass;
+  - a whisper-rs-sys with its own ggml and no stamp fails;
+  - an output from an earlier prefix fails;
+  - a prefix without `SOURCE` fails;
+  - a structural check confirms that `verify` calls `outputs` and `build` calls `cleanStale`.
+- **Docs:** `AGENTS.md` documents `outputs` and `--prefix`.
+- **Other env-dependent spots:** I found nothing else that reads the real prefix or the environment. The script is called only in the CI build step, which sets the variable for both `build` and `verify`.
+
+**Reproduced CI's sequence on a fresh clone** of the branch plus this change, at `~/.cache/mc-016-ci` (on disk; `/tmp` hit its quota). The clone had a fresh `src-tauri/target` and no prefix. Following the steps of `ci.yml`:
+
+| Step | Result |
+|------|--------|
+| `npm ci` | done |
+| `node scripts/sherpa-onnx.mjs fetch` | done (archive copied in, not downloaded) |
+| `GGML_NATIVE=OFF` (step env only) `node scripts/ggml.mjs build` + `verify` | built ggml 0.26.0; no stale output |
+| `npm run lint` | ok |
+| `npm test` (no `GGML_NATIVE`) | vitest 298 passed; cargo 320 passed, 7 ignored; Playwright 263 passed |
+| `npm run tauri build -- --no-bundle` | ok |
+| `node scripts/ggml-check.mjs src-tauri/target/release/meeting-companion` | one ggml, both engines linked, no HTTP client (10 symbols checked) |
+
+I then ran a second pass on the same clone to stand in for a cached-prefix CI run:
+- `GGML_NATIVE=OFF build` reported the prefix up to date and found nothing stale.
+- `verify` passed.
+- The config tests passed (41).
+
+The round-2 reproduction (a release cache holding whisper-rs-sys with its own ggml, cleaned by `build`, then a release link with no duplicate symbols) still covers the cache-restore case.
+
+The speaker-accuracy and smoke steps were not part of this local run. They are unchanged by this round; speaker accuracy passed in round 1.
+
+In the worktree: `tsc`, ESLint and Prettier are clean, vitest 298 passed, and the secret scan found no leaks. The Rust code is unchanged since round 2. I deleted the clone afterwards.
+
+Not pushed.
