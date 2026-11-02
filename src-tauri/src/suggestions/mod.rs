@@ -96,7 +96,7 @@ pub struct Suggestion {
 }
 
 /// What the UI shows for a meeting: the waiting suggestions (oldest first) and the last run's error.
-/// Sent as the `capture-suggestions` event after every change, and by `load_suggestions`.
+/// The UI reads it with `load_suggestions`; [`SuggestionEvents`] hears every change.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SuggestionsState {
@@ -106,7 +106,8 @@ pub struct SuggestionsState {
     pub error: Option<LlmError>,
 }
 
-/// Where the suggester sends its state. The app emits a Tauri event; tests collect them.
+/// Hears every change of the state. The app reads the state by command instead (see `lib.rs`); tests
+/// collect the changes.
 pub trait SuggestionEvents: Send + Sync {
     fn suggestions(&self, state: &SuggestionsState);
 }

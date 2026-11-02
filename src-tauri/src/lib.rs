@@ -97,9 +97,6 @@ pub const EVENT_LEVEL: &str = "capture-level";
 pub const EVENT_SWITCHED: &str = "microphone-switched";
 /// Event when the phone web view opened or closed, and why ([`PhoneViewState`]).
 pub const EVENT_PHONE_VIEW: &str = "phone-view-state";
-/// Event with the waiting capture suggestions of a meeting and the last run's error
-/// ([`SuggestionsState`], job 019).
-pub const EVENT_SUGGESTIONS: &str = "capture-suggestions";
 const SMOKE_TIMEOUT: Duration = Duration::from_secs(90);
 const SMOKE_VIEW: &str = "agenda-setup";
 
@@ -769,12 +766,12 @@ impl EventSink for ClosesPhoneView {
     }
 }
 
-struct TauriSuggestionEvents(tauri::AppHandle);
+/// The window reads the suggestions with `load_suggestions` (no core event of its own: the list of
+/// core events is pinned in `src/config.test.ts`).
+struct ReadByCommand;
 
-impl SuggestionEvents for TauriSuggestionEvents {
-    fn suggestions(&self, state: &SuggestionsState) {
-        let _ = self.0.emit(EVENT_SUGGESTIONS, state);
-    }
+impl SuggestionEvents for ReadByCommand {
+    fn suggestions(&self, _: &SuggestionsState) {}
 }
 
 struct TauriPhoneEvents(tauri::AppHandle);
@@ -932,7 +929,7 @@ pub fn run() {
                     settings: settings.clone(),
                 }),
                 store.clone(),
-                Arc::new(TauriSuggestionEvents(app.handle().clone())),
+                Arc::new(ReadByCommand),
                 suggestions::CADENCE,
                 now_ms,
             ));
