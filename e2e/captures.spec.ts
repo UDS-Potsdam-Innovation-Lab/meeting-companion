@@ -139,7 +139,8 @@ test("AC4 markup in a capture is shown as text and nothing leaves the device", a
   await expect(column(page).getByText(text)).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { pwned?: number }).pwned)).toBeUndefined();
   await expect(column(page).locator("article img, article b")).toHaveCount(0);
-  expect(requests.filter((u) => !u.startsWith("http://localhost:4173/"))).toEqual([]);
+  const origin = new URL(page.url()).origin;
+  expect(requests.filter((u) => new URL(u).origin !== origin)).toEqual([]);
 });
 
 test("AC5 the keyboard reaches tabs, cards, the notice and the composer with a visible focus", async ({
@@ -252,4 +253,69 @@ test("agenda-free: captures go to the running topic; counts show in Topics so fa
   const topics = page.getByRole("region", { name: "Topics so far" });
   await expect(topics.getByRole("button", { name: /Interview recruiting/ })).toContainText("1 decision");
   await expect(column(page).getByRole("heading", { name: "No topic" })).toBeVisible();
+});
+
+test.describe("round 2 (UI review): nothing hides the editor or the list", () => {
+  /** In the window, and the element at its centre is itself (nothing sticky covers it). */
+  async function expectUncovered(page: Page, locator: ReturnType<Page["locator"]>) {
+    await expect(locator).toBeVisible();
+    const b = (await locator.boundingBox())!;
+    const vp = page.viewportSize()!;
+    expect(b.y).toBeGreaterThanOrEqual(0);
+    expect(b.y + b.height).toBeLessThanOrEqual(vp.height);
+    const hit = await locator.evaluate(
+      (el, p) => {
+        const at = document.elementFromPoint(p.x, p.y);
+        return !!at && (el === at || el.contains(at));
+      },
+      { x: b.x + b.width / 2, y: b.y + b.height / 2 },
+    );
+    expect(hit, "covered by another element").toBe(true);
+  }
+
+  test("1280×800: the composer rests as one line while a card is edited; Delete, Cancel and Save are in view", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await openAt(page, "live-captures-edit", { locale: "de" });
+    await column(page)
+      .getByRole("button", { name: /^Aufgaben/ })
+      .click();
+    await column(page).locator("[data-edit]").last().click();
+    const editor = page.locator(".capture-editor");
+    await editor.waitFor();
+    await expect(composer(page)).toHaveAttribute("data-open", "false");
+    for (const name of ["Löschen", "Abbrechen", "Speichern"]) {
+      await expectUncovered(page, editor.getByRole("button", { name, exact: true }));
+    }
+    // The editor's buttons sit above the composer, not under it.
+    const actions = (await editor.locator(".capture-editor__actions").boundingBox())!;
+    const form = (await composer(page).boundingBox())!;
+    expect(actions.y + actions.height).toBeLessThanOrEqual(form.y);
+  });
+
+  for (const time of [LIVE_TIMES.running, LIVE_TIMES.over]) {
+    test(`375×812${time === LIVE_TIMES.over ? " with the time-up nudge" : ""}: "Festgehalten" shows the list above the composer`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 375, height: 812 });
+      await openAt(page, "live-captures", { locale: "de", time });
+      await page.getByRole("button", { name: /^Festgehalten/ }).click();
+      await expect(composer(page)).toHaveAttribute("data-open", "false");
+      const tabs = column(page).locator(".capture-tabs");
+      await expectUncovered(page, tabs);
+      const card = column(page).locator("article").first();
+      await expectUncovered(page, card.locator(".capture-card__text"));
+      const form = (await composer(page).boundingBox())!;
+      const cardBox = (await card.boundingBox())!;
+      expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(form.y);
+      // The list scrolls on its own: the last card comes into view inside it.
+      await column(page)
+        .getByRole("button", { name: /^Aufgaben/ })
+        .click();
+      const last = column(page).locator("article").last();
+      await last.scrollIntoViewIfNeeded();
+      await expectUncovered(page, last.locator(".capture-card__text"));
+    });
+  }
 });

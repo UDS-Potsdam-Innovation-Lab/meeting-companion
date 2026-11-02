@@ -4678,3 +4678,55 @@ select {
 .topic-row--now .topic-row__captured {
   color: inherit;
 }
+
+/* Round 2 (UI review): the composer at rest is the kind buttons and a one-line field (frames 21s, 21c). */
+.composer__footer[hidden] {
+  display: none;
+}
+
+.composer--rest .capture-field {
+  min-height: 40px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.composer--rest .composer__command {
+  top: 10px;
+}
+
+/* The list fades out at its bottom edge, so it reads as scrollable above the composer. */
+.capture-list {
+  padding-bottom: 20px;
+  mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
+}
+
+/* One column with "Captured" open: the card fills the window above the composer (frame 21k), and
+   the nudge waits below the card instead of covering the list (the timer card still shows the time). */
+@media (max-width: 799px) {
+  .live[data-centre="captures"] .transcript-card {
+    height: max(320px, calc(100dvh - var(--composer-height, 0px) - 24px));
+  }
+
+  .live[data-centre="captures"] .captures-column--narrow .capture-list {
+    max-height: none;
+  }
+
+  .live[data-centre="captures"] .live__stage {
+    position: static;
+  }
+
+  .live[data-centre="captures"] .transcript-card {
+    scroll-margin-top: 8px;
+  }
+}
+
+@media (min-width: 1800px) and (min-height: 1000px) {
+  .composer--rest .capture-field {
+    min-height: 48px;
+  }
+}
+
+/* Scrolled into view clear of the list's bottom fade. */
+.capture-editor__actions {
+  scroll-margin-bottom: 24px;
+}

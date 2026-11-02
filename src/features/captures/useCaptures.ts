@@ -42,6 +42,9 @@ export interface Captures {
   undo: () => Promise<CaptureResult | null>;
   /** An Undo failed (the core refused or could not write). */
   undoFailed: boolean;
+  /** The capture whose inline editor is open; the composer collapses meanwhile (frame 21c). */
+  editing: string | null;
+  setEditing: (id: string | null) => void;
 }
 
 /**
@@ -56,6 +59,7 @@ export function useCaptures(meetingId: string, onSaved?: (capture: Capture) => v
   const [notice, setNotice] = useState<CaptureNotice | null>(null);
   const [justSaved, setJustSaved] = useState<{ id: string; until: number } | null>(null);
   const [undoFailed, setUndoFailed] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
   const seq = useRef(0);
   const savedRef = useRef(onSaved);
   useEffect(() => {
@@ -171,5 +175,7 @@ export function useCaptures(meetingId: string, onSaved?: (capture: Capture) => v
     remove,
     undo,
     undoFailed,
+    editing,
+    setEditing,
   };
 }

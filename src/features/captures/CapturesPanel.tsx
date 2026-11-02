@@ -315,7 +315,7 @@ interface ListProps {
 /** Cards of the open kind, grouped by item or topic (running first, newest first); one inline editor. */
 export function CaptureList({ meeting, captures, kind, target, onDeleted }: ListProps) {
   const { t } = useI18n();
-  const [editing, setEditing] = useState<string | null>(null);
+  const { editing, setEditing } = captures;
   const free = meeting.mode === "free";
   const groups = groupCaptures(captures.captures, kind, target, free);
   const total = captures.captures.length;
@@ -489,12 +489,15 @@ function CaptureEditor({
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
 
-  // Opened on purpose (✎ or a tap on the card), so the text takes focus.
+  // Opened on purpose (✎ or a tap on the card), so the text takes focus, and the whole editor down
+  // to Delete / Cancel / Save scrolls into the list's view.
+  const actionsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.focus();
+    el.focus({ preventScroll: true });
     el.setSelectionRange(el.value.length, el.value.length);
+    actionsRef.current?.scrollIntoView?.({ block: "nearest" });
   }, []);
 
   const changeKind = (k: CaptureType) => {
@@ -568,7 +571,7 @@ function CaptureEditor({
           <DueChips due={due} onDue={setDue} />
         </>
       ) : null}
-      <div className="capture-editor__actions">
+      <div className="capture-editor__actions" ref={actionsRef}>
         <button
           type="button"
           className="button button--danger-soft button--small"
@@ -617,6 +620,45 @@ export const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function 
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
   const inner = useRef<HTMLTextAreaElement | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // At rest (frame 21s "Rest", and 21c while a card is edited) the composer is the kind buttons and a
+  // one-line field. It opens with focus, a tap inside it, or while it holds a draft; it closes when
+  // focus or a tap goes elsewhere. A tap counts as well as focus: WebKit does not focus buttons on click.
+  // During a tap the change waits until the click is done: the composer is pinned to the bottom, so
+  // growing or shrinking it moves the controls around it, and the click would land somewhere else.
+  const [inside, setInside] = useState(false);
+  useEffect(() => {
+    let pointerDown = false;
+    let pending: boolean | null = null;
+    const isInside = (e: Event) => !!formRef.current?.contains(e.target as Node);
+    const onFocus = (e: Event) => {
+      if (pointerDown) pending = isInside(e);
+      else setInside(isInside(e));
+    };
+    const onDown = (e: Event) => {
+      pointerDown = true;
+      pending = isInside(e);
+    };
+    const onUp = () => {
+      pointerDown = false;
+      const next = pending;
+      pending = null;
+      if (next !== null) setTimeout(() => setInside(next), 0);
+    };
+    document.addEventListener("focusin", onFocus);
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("pointerup", onUp, true);
+    document.addEventListener("pointercancel", onUp, true);
+    return () => {
+      document.removeEventListener("focusin", onFocus);
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("pointerup", onUp, true);
+      document.removeEventListener("pointercancel", onUp, true);
+    };
+  }, []);
+  const draft = text !== "" || owner !== null || due !== null || error !== null;
+  const open = inside || (draft && captures.editing === null);
 
   const changeKind = (k: CaptureType) => {
     onKind(k);
@@ -655,7 +697,9 @@ export const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function 
     .join(" ");
   return (
     <form
-      className="composer"
+      ref={formRef}
+      className={`composer${open ? "" : " composer--rest"}`}
+      data-open={open}
       aria-label={t("captures.composer.label")}
       onSubmit={(e) => {
         e.preventDefault();
@@ -676,7 +720,7 @@ export const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function 
           }}
           id={id}
           className="input capture-field"
-          rows={2}
+          rows={open ? 2 : 1}
           value={text}
           placeholder={t(PLACEHOLDER_KEYS[kind])}
           autoComplete="off"
@@ -712,13 +756,13 @@ export const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function 
           {error}
         </p>
       ) : null}
-      {kind === "todo" ? (
+      {open && kind === "todo" ? (
         <>
           <OwnerChips people={meeting.participants} owner={owner} onOwner={setOwner} />
           <DueChips due={due} onDue={setDue} />
         </>
       ) : null}
-      <div className="composer__footer">
+      <div className="composer__footer" hidden={!open}>
         <span className="composer__target">
           <ArrowRightIcon />
           <span className="visually-hidden">{t("captures.composer.goesTo")} </span>

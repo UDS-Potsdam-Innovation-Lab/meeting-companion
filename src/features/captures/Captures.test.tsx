@@ -157,6 +157,9 @@ describe("AC1 quick capture is saved durably", () => {
   it("in agenda-free mode a capture goes to the running topic, otherwise to No topic", async () => {
     const user = userEvent.setup();
     const { core } = await openLive(liveFreeMeeting(), {}, FREE_TIMES.running);
+    // At rest the composer is a one-line field; with focus it says where the capture goes.
+    expect(within(composer()).queryByText("Interview recruiting")).not.toBeVisible();
+    await user.click(field());
     expect(within(composer()).getByText("Interview recruiting")).toBeVisible();
     await user.type(field(), "First round remote{Enter}");
     await waitFor(() => expect(core.captures()).toHaveLength(1));
@@ -171,6 +174,7 @@ describe("AC1 quick capture is saved durably", () => {
 
     // Stop the running topic: the next capture has no topic.
     await user.click(within(topics).getByRole("button", { name: /Interview recruiting/ }));
+    await user.click(field());
     expect(within(composer()).getByText("No topic")).toBeVisible();
     await user.type(field(), "Offline mode after the beta{Enter}");
     await waitFor(() => expect(core.captures()).toHaveLength(2));
@@ -327,6 +331,28 @@ describe("AC3 everything captured can be edited or undone", () => {
     act(() => clock.advance(1));
     expect(notice()).toBeNull();
     expect(screen.queryByText("just saved")).toBeNull();
+  });
+});
+
+describe("round 2: the composer rests as one line, and while a card is edited", () => {
+  it("shows kind buttons and the field at rest; owner, date and Save open with focus; an editor closes them", async () => {
+    const user = userEvent.setup();
+    await openLive(liveMeeting(), { captures: [stored()] });
+    await user.click(tab(/^To-dos/));
+    expect(composer()).toHaveAttribute("data-open", "false");
+    expect(within(composer()).queryByRole("group", { name: "Who" })).toBeNull();
+    expect(within(composer()).getByRole("button", { name: "Save", hidden: true })).not.toBeVisible();
+    await user.click(field());
+    expect(composer()).toHaveAttribute("data-open", "true");
+    expect(within(composer()).getByRole("group", { name: "Who" })).toBeVisible();
+    expect(within(composer()).getByRole("button", { name: "Save" })).toBeVisible();
+    // A draft keeps it open, until a card's editor opens.
+    await user.type(field(), "draft");
+    await user.click(within(list()!).getByRole("button", { name: /^Edit:/ }));
+    expect(composer()).toHaveAttribute("data-open", "false");
+    expect(field()).toHaveValue("draft");
+    await user.keyboard("{Escape}");
+    expect(composer()).toHaveAttribute("data-open", "true");
   });
 });
 

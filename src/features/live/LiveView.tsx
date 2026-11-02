@@ -84,6 +84,17 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
   const focusComposer = useCallback(() => composerRef.current?.focus(), []);
   const narrow = useMediaQuery(NARROW_LIVE_QUERY);
   const [centreCaptures, setCentreCaptures] = useState(false);
+  // Opening "Captured" on a narrow window brings the card up, so the list is in view at once (21k).
+  const centreShown = useRef(false);
+  useEffect(() => {
+    if (!narrow || !centreCaptures) {
+      centreShown.current = false;
+      return;
+    }
+    if (centreShown.current) return;
+    centreShown.current = true;
+    viewRef.current?.querySelector(".transcript-card")?.scrollIntoView?.({ block: "start" });
+  }, [narrow, centreCaptures]);
   // One column: the nudge sticks above the composer, which sticks to the bottom; CSS needs its height.
   const composerBox = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -266,7 +277,13 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
           </>
         }
       />
-      <main className="live" id="main" data-view={LIVE_VIEW} data-mode={free ? "free" : "agenda"}>
+      <main
+        className="live"
+        id="main"
+        data-view={LIVE_VIEW}
+        data-mode={free ? "free" : "agenda"}
+        data-centre={narrow && centreCaptures ? "captures" : "transcript"}
+      >
         <h1 className="visually-hidden">{t("live.heading")}</h1>
         <div className="live__left" ref={leftRef}>
           {saveFailed ? (
