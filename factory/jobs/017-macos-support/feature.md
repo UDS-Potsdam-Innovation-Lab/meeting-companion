@@ -1,0 +1,7 @@
+Prepare the repo to run on macOS (Apple Silicon first, Intel if cheap): a developer on a Mac can clone, set up, run `npm run tauri dev`, run the tests and build the app, and CI proves it on a macOS runner.
+
+Request (Jan, 2026-11-02): "prepare this repo to be run on mac".
+
+What already exists (orchestrator's survey, verify): sherpa-onnx.sha256 has osx-arm64/osx-x64 archives and scripts/sherpa-onnx.mjs maps darwin targets; keyring has apple-native; src-tauri/Info.plist + macos/*.lproj carry NSMicrophoneUsageDescription; scripts/ggml.mjs has a darwin branch (BLAS/Accelerate on, Metal off); ci.yml says "add macos-latest here, the steps already handle both" but macOS was never run since job 016 (shared ggml).
+
+Likely gaps to check: the shared-ggml CMake hooks and the whisper-rs-sys/llama-cpp-sys-2 link on macOS (Accelerate, ggml-blas, Metal off, .a names); scripts/ggml-check.mjs reads ELF only (needs Mach-O via nm, or a documented skip); microphone permission in `tauri dev` (unbundled binary: the Info.plist is not applied, the terminal app gets the prompt) and in the built app; smoke test on macOS (no socket scan there — use lsof?); a macOS job in CI (macos-latest, arm64), keeping cost in mind (macOS minutes are billed 10x on private repos: e.g. only on main pushes and on PRs/branches that touch build files, or the whole suite — propose); a "Set up on macOS" section in README/AGENTS.md (Xcode command line tools, cmake, rustup, node, the one-time fetch/build commands). Signing, notarisation and the .dmg installer are out of scope (release job).
