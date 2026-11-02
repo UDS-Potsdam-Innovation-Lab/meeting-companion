@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "needs-human",
+  "stage": "merged",
   "round": 2,
   "max_round": 3,
   "reviews": {
@@ -27,8 +27,8 @@
       }
     }
   ],
-  "decision": "ESCALATE (human gate)",
-  "waiting": "merge approval",
-  "note": "Round 2: reviews PASS, CI green (Linux+macOS); human gate: sends transcript text and names to Anthropic with Claude",
-  "updated": "2026-11-02T13:32:16Z"
+  "decision": "APPROVE (human)",
+  "waiting": null,
+  "note": "Merged after 2 rounds, human gate approved",
+  "updated": "2026-11-02T14:07:41Z"
 }
