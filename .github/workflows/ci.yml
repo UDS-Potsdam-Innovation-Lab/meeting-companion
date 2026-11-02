@@ -144,6 +144,7 @@ jobs:
       # The real speaker model on the test meetings of src-tauri/testdata/speakers, in the debug test
       # profile npm test has just built (no second release build). Fails on a regression against
       # src-tauri/testdata/speakers/thresholds.json.
+      # Runs on macOS too: measured on macos-latest (arm64) in job 017 at about 11 s (CI run 41420211846).
       - name: Speaker accuracy (real model, regression thresholds)
         shell: bash
         run: |
@@ -164,14 +165,11 @@ jobs:
       - name: Compile the desktop app
         run: npm run tauri build -- --no-bundle
 
-      - name: TEMP record macOS fixtures (nm, lsof)
+      - name: TEMP record macOS fixtures (lsof)
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          echo "===NM-BEGIN"
-          nm src-tauri/target/release/meeting-companion | grep -E ' _(ggml|gguf|llama|whisper)_'
-          nm src-tauri/target/release/meeting-companion | grep -m5 -E '4ureq'
-          echo "===NM-END"
+          set +e
           cat > /tmp/sock.mjs <<'JS'
           import net from "node:net"; import dgram from "node:dgram";
           const mode = process.argv[2];
