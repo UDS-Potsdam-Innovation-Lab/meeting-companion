@@ -17,9 +17,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Linux only for now. macOS and Windows come back once the feature set is final:
-        # add macos-latest and windows-latest here (the steps below already handle both).
-        os: [ubuntu-latest]
+        # Linux (x86_64) and macOS (macos-latest, Apple Silicon arm64) on every push and pull request
+        # (job 017). Windows comes later: add windows-latest here. Intel Macs are not built.
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -164,11 +164,46 @@ jobs:
       - name: Compile the desktop app
         run: npm run tauri build -- --no-bundle
 
+      - name: TEMP record macOS fixtures (nm, lsof)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          echo "===NM-BEGIN"
+          nm src-tauri/target/release/meeting-companion | grep -E ' _(ggml|gguf|llama|whisper)_'
+          nm src-tauri/target/release/meeting-companion | grep -m5 -E '4ureq'
+          echo "===NM-END"
+          cat > /tmp/sock.mjs <<'JS'
+          import net from "node:net"; import dgram from "node:dgram";
+          const mode = process.argv[2];
+          if (mode === "tcp") net.createServer().listen(1234);
+          if (mode === "udp") dgram.createSocket("udp4").bind(0);
+          if (mode === "out") net.connect(443, "github.com");
+          setTimeout(() => {}, 5000);
+          JS
+          for m in none tcp udp out; do
+            node /tmp/sock.mjs $m & pid=$!
+            sleep 2
+            echo "===LSOF-BEGIN $m $pid"
+            lsof -a -p $pid -n -P -F ftPnT -Tqs
+            echo "===LSOF-END $m"
+            kill $pid
+          done
+
       # Job 016: exactly one ggml (no symbol of the listed set defined twice), whisper.cpp and llama.cpp
-      # both linked, and no cpp-httplib, curl or llama-server code. Reads the ELF symbol table with nm.
+      # both linked, and no cpp-httplib, curl or llama-server code. Reads the symbol table with the system
+      # nm: ELF on Linux, Mach-O on macOS (job 017).
       - name: One ggml, both engines and no HTTP client in the release app
-        if: runner.os == 'Linux'
         run: node scripts/ggml-check.mjs src-tauri/target/release/meeting-companion
+
+      # Job 017: the binary built without a bundle declares why it uses the microphone (its embedded
+      # __TEXT,__info_plist holds NSMicrophoneUsageDescription from src-tauri/Info.plist); without it
+      # macOS refuses the capture without asking. The debug build is what `npm run tauri dev` runs.
+      - name: The macOS app binaries declare the microphone use (embedded Info.plist)
+        if: runner.os == 'macOS'
+        run: |
+          node scripts/plist-check.mjs src-tauri/target/release/meeting-companion
+          cargo build --manifest-path src-tauri/Cargo.toml
+          node scripts/plist-check.mjs src-tauri/target/debug/meeting-companion
 
       - name: The release app holds no speaker corpus
         shell: bash
@@ -184,6 +219,7 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run -a node scripts/smoke.mjs
 
+      # On macOS the smoke test scans the app's sockets with lsof (job 017).
       - name: Smoke test the built app
         if: runner.os != 'Linux'
         run: node scripts/smoke.mjs
