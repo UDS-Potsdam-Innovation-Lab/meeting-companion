@@ -88,3 +88,27 @@ Notes for review:
 - **Edit and Undo.** An edit keeps the original item or topic (open question 3 of the spec). Edits have no Undo notice: the spec asks for one only after a save and after a delete. Esc or Cancel discards an edit.
 - **Narrow windows.** Below 800 px, `fullPage` screenshots show the sticky composer over the list. That comes from how a full-page capture handles sticky elements. The window-sized screenshots (`live-captures-768x1024.png`, `-480x800.png`) show the real layout.
 - **Shared scratch files.** Job 020's builder writes to the same scratchpad and uses port 4173. One full-suite log was overwritten by its run, and I re-ran the suite with a job-specific log name. If CI or a reviewer runs two worktrees' Playwright suites at once, they will fight over port 4173.
+
+## Round 2 response
+
+Reviews in `round-1/`: security, code and ux PASS; ui CHANGES with two must-fix items and one note. CI run 41427707411 (round 1) passed.
+
+| Requested change | What I did |
+|---|---|
+| ui must-fix 1: at 1280×800 the editor's Löschen/Abbrechen/Speichern were cut off under the always-open composer (frame s21c) | Done. At rest the composer shows only the kind buttons and a one-line field (frames 21s "Rest" and 21c). The Wer/Bis rows, the target line and Save appear when the composer gets focus or a tap, or while it holds a draft. While a card's inline editor is open the composer stays closed, and a draft is kept. Opening the editor scrolls its action row into the list's view (`scrollIntoView` nearest, clear of the bottom fade). The open/close change waits until a tap's click has finished: the composer is pinned to the bottom, so resizing it during a tap would move the button under the pointer. A Playwright run caught this for the kind buttons and for Undo. The `editing` state moved into `useCaptures` so the composer can read it. On the board, the one-line field keeps 48 px. |
+| ui must-fix 2: at 375×812 the "Festgehalten" tab content was hidden behind the sticky composer and the time-up nudge (frame s21k) | Done. Below 800 px, opening "Festgehalten" scrolls the centre card to the top of the window. The card then fills the window above the composer (`100dvh` minus the measured composer height) and the list scrolls inside it. The resting composer is about 110 px instead of 216 px. While "Festgehalten" is open, the nudge stays in the page flow below the card instead of sticking over it. The timer card still shows the overrun, and the nudge sticks as before on the transcript tab. |
+| ui note: no hint that the list scrolls | Done. The list fades out over its last 20 px and has matching bottom padding, so the end of the list is never faded. |
+| ui notes on dark mode and 768/1024 | No change needed. |
+| code note: `CapturesPanel.tsx` is large | Declined for now. Splitting the composer and editor fits better with job 019, which adds suggestion cards next to them. |
+| security note: `restore_capture` takes the whole capture from the UI | No change, as the reviewer suggested. It is local IPC only and fully re-validated. Before job 012 or 019 opens capture commands to other clients, the core should hold the removed capture or issue a restore token. |
+
+New checks:
+- `e2e/captures.spec.ts` › "round 2 (UI review)", 3 tests:
+  - At 1280×800 with an editor open, the composer is at rest, and Löschen, Abbrechen and Speichern are inside the window, not covered (checked with `elementFromPoint`) and above the composer.
+  - At 375×812, both while running and with the time-up nudge (`LIVE_TIMES.over`): the kind tabs and the first card are in the window and not covered, the card ends above the composer, and the last card can be scrolled into view uncovered.
+- `src/features/captures/Captures.test.tsx` › "round 2: the composer rests as one line…": the rest state, opening with focus, a draft keeping it open, and an editor closing it.
+- The AC4 network check in `e2e/captures.spec.ts` now compares against the page's own origin instead of a fixed port.
+
+Test run: `npm run lint` is clean. `npm test` (job-specific log; port 4173 was free) gives vitest 322 passed, cargo 345 passed and 7 ignored, Playwright 288 passed. The capture screenshots were re-run (35 passed). Not pushed.
+
+Commit: `4b0459f fix(ui): resting composer and a readable captures tab on narrow windows`.
