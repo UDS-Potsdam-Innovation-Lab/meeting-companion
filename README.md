@@ -7,3 +7,7 @@ apps the team already uses.
 - What it does: [docs/vision.md](docs/vision.md)
 - Prototype: `design/meeting-companion.figcraft` (open in FigCraft), screens in `design/screens/`
 - How it is built: the [software factory](https://github.com/janrenz/factory), see `factory/`
+
+## Licence
+
+AGPL-3.0-only, see [LICENSE](LICENSE).
