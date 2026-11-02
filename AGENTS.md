@@ -38,12 +38,20 @@ STATUS: CONFIGURED
   Playwright needs Chromium once: `npx playwright install chromium`.
 - Lint command: `npm run lint` (`tsc --noEmit`, ESLint, Prettier, `cargo fmt --check`, `cargo clippy -D warnings`).
 - Build: `npm run tauri build -- --no-bundle`; smoke test of the built app: `node scripts/smoke.mjs`
-  (on headless Linux: `xvfb-run -a node scripts/smoke.mjs`; on Linux it also fails if the running app has any
-  listening TCP or bound UDP socket). `node scripts/ggml-check.mjs src-tauri/target/release/meeting-companion`
-  (job 016, Linux/ELF, needs `nm`) fails when a ggml/gguf symbol of its list is defined twice (a second ggml),
+  (on headless Linux: `xvfb-run -a node scripts/smoke.mjs`; on Linux and macOS it also fails if the running app
+  has any listening TCP or bound UDP socket, and when no scan of its sockets succeeded: Linux reads `/proc`, macOS
+  runs `lsof -a -p <pid> -n -P -F ftPnT -Tqs` (job 017; `scripts/sockets.mjs`, whose `--lsof <file> <pid>`
+  parses the recorded listings in `scripts/fixtures/sockets/`, tested in `src/config.test.ts`)).
+  `node scripts/ggml-check.mjs src-tauri/target/release/meeting-companion`
+  (job 016; ELF on Linux, Mach-O on macOS (job 017: the format comes from the binary's magic number, and one
+  leading underscore is stripped from every Mach-O name); needs the system `nm`) fails when a ggml/gguf symbol of its list is defined twice (a second ggml),
   when whisper.cpp's or llama.cpp's model loader is missing, or when any cpp-httplib, curl or llama-server
-  symbol is linked; `--symbols <file>` reads a recorded `nm` listing (the fixtures in `scripts/fixtures/ggml-check/`,
-  tested in `src/config.test.ts`). CI runs it after the release build.
+  symbol is linked; `--symbols <file> [--format elf|macho]` reads a recorded `nm` listing (the fixtures in `scripts/fixtures/ggml-check/`,
+  macOS ones in `macos/`, tested in `src/config.test.ts`). CI runs it after the release build on both OSes.
+  `node scripts/plist-check.mjs <binary>` (job 017, macOS) fails unless the binary's `__TEXT,__info_plist`
+  section holds `NSMicrophoneUsageDescription` with the German text of `src-tauri/Info.plist` (it parses the
+  Mach-O itself). The unbundled release binary gets the section from `src-tauri/src/main.rs`
+  (`embed_info_plist!`, `not(dev)`), the `tauri dev` binary from `tauri::generate_context!`; CI checks both.
 - Phone page (job 012): the second Vite entry `phone.html` + `src/phone/`, built on its own by
   `vite.phone.config.ts` into `dist/phone/` (part of `npm run build`; `npm run build:e2e` puts it in
   `dist-e2e/phone/`). `src-tauri/build.rs` embeds exactly those files in the core (a release build fails without
@@ -121,16 +129,20 @@ STATUS: CONFIGURED
     test). Tests bind 127.0.0.1 only (`binding_loopback`) and hold one lock so the `/proc` port scan sees only
     their own sockets.
   - `e2e/` — Playwright specs (axe, keyboard, layout); `e2e/screenshots/` for `npm run screenshot`.
-  - `.github/workflows/ci.yml` — lint, test, compile and smoke test. Linux (`ubuntu-latest`) is the only
-    CI-tested target for now; macOS and Windows are deferred until the feature set is final (add them to
-    the matrix; OS-specific code stays in place).
+  - `.github/workflows/ci.yml` — lint, test, compile and smoke test, on every push and pull request, matrix
+    `[ubuntu-latest, macos-latest]` (`fail-fast: false`; macOS is Apple Silicon arm64, job 017). On macOS the job
+    runs the same steps (sherpa-onnx fetch + verify, shared ggml build + verify with `GGML_NATIVE=OFF` cached per
+    OS/arch, Playwright, lint, test, the speaker-accuracy run, release build, `ggml-check` on the Mach-O binary,
+    `plist-check` on the release and debug binary, corpus marker checks, smoke test with the `lsof` socket scan);
+    only disk cleanup, apt and `xvfb-run` are Linux-only. Windows comes later (add `windows-latest`; OS-specific
+    code stays in place). Intel Macs are not built.
 - Settings: one sealed file `<app_data>/settings` (same data key, AAD binds the purpose "settings");
   the UI (`src/features/settings/`) caches only locale and theme in `localStorage` for the first paint
   (`public/theme-boot.js` sets `data-theme` before React). Colours come only from the token blocks at
   the top of `src/styles.css` (light `:root`, dark `:root[data-theme="dark"]`; `src/styles.test.ts`).
 - Data at rest: meeting files (`<app_data>/meetings/<id>.meeting`) and transcripts
   (`<app_data>/meetings/<id>.transcript`, one sealed record per final segment) are encrypted; audio is
-  never written. The data key lives only in the OS keychain (Linux: Secret Service). Tests never touch the real keychain; the one keychain test
+  never written. The data key lives only in the OS keychain (Linux: Secret Service; macOS: Keychain). Tests never touch the real keychain; the one keychain test
   is `#[ignore]` and run by hand (`cargo test --manifest-path src-tauri/Cargo.toml -- --ignored keychain`).
   Likewise the one test with a real speech model: `cargo test --manifest-path src-tauri/Cargo.toml
   --release -- --ignored whisper` (uses `MEETING_COMPANION_WHISPER_MODEL`, else the model the scan prefers),
@@ -158,12 +170,25 @@ STATUS: CONFIGURED
   `--ignored speaker` of the two-WAV check above matches these tests too; they need the env var set.
 - Native build dependencies on Linux: `libasound2-dev` (microphone), `cmake`, `clang`, `libclang-dev`
   (whisper.cpp and llama.cpp are compiled from source by `whisper-rs` and `llama-cpp-2`); CI installs them.
+  On macOS (Apple Silicon): the Xcode command line tools (clang, libclang for bindgen, `nm`), Homebrew `cmake`;
+  the system frameworks Accelerate (ggml's BLAS and CPU code), CoreAudio (cpal), Security (the Keychain through
+  `keyring` apple-native; tests never touch it) and Foundation/Metal/MetalKit (linked by llama-cpp-sys-2 only;
+  no Metal backend is built). Oldest macOS: 13.3 (`bundle.macOS.minimumSystemVersion` in `tauri.conf.json`,
+  `MACOSX_DEPLOYMENT_TARGET` in `.cargo/config.toml` for `tauri dev`/`cargo test`, `CMAKE_OSX_DEPLOYMENT_TARGET` of
+  the ggml build; Accelerate's new LAPACK interface needs 13.3). GitHub's macOS runners oversleep short sleeps
+  (25 ms → about 100 ms), so the 25 Hz level-rate checks in `src/recording/level_tests.rs` skip themselves there
+  with a note on stderr (`coarse_timers()`, macOS only; Linux always runs them). The macOS setup in order is in README.md ("Set up on macOS"); in `tauri dev` macOS
+  asks for the microphone on behalf of the terminal app.
 - One ggml (job 016). whisper.cpp (`whisper-rs = "=0.16.0"`, whisper-rs-sys 0.15.0, whisper.cpp 1.8.3, which
   vendors ggml 0.9.5) and llama.cpp (`llama-cpp-2`/`llama-cpp-sys-2 = "=0.1.160"`, ggml 0.26.0) would each build
   static `libggml*.a` under the same names, and the linker would silently keep one for both. Decision (option (a) of
   the spec, probed first): ggml is built **once**, from the ggml tree llama-cpp-sys-2 vendors, and both engines link
   that copy. Run `node scripts/ggml.mjs build` once per checkout (and after a change of the llama-cpp-sys-2 version):
-  it builds and installs ggml into `src-tauri/native/ggml/prefix/` (static, PIC, CPU only, no OpenMP; `GGML_NATIVE`
+  it builds and installs ggml into `src-tauri/native/ggml/prefix/` (static, PIC, CPU only, Metal off on every
+  platform, no OpenMP; on macOS with the BLAS backend on Accelerate, because whisper-rs-sys asks rustc for
+  `static=ggml-blas` and the Accelerate framework there: archives `libggml.a`, `libggml-base.a`, `libggml-cpu.a`,
+  `libggml-blas.a`; elsewhere BLAS off and the first three; `node scripts/ggml.mjs plan [--platform <p>]` prints
+  options and archives, and `src/config.test.ts` pins the hook's lists to them; `GGML_NATIVE`
   at ggml's default unless set in the environment; CI sets `OFF`), records the source and a build id in `prefix/SOURCE`. Both sys crates keep a copy of the archives in their build
   output, and cargo does not rerun their build scripts when `.cargo/config.toml` or the prefix changes. So CMake hooks
   (`whisper-shared-ggml.cmake`, `llama-shared-ggml.cmake`) stamp each crate's build folder with `prefix/SOURCE`, and
