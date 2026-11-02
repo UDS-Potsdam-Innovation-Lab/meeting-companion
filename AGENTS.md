@@ -64,6 +64,8 @@ STATUS: CONFIGURED
   and the speaker fixtures `speakers|speakers-empty|speakers-no-model|live-speakers` (open frame 06 with the footer button),
   and the agenda-free fixtures `free` (setup) and `live-free|live-free-empty` (frame 16);
   the live fixtures are meant for a fixed clock, see `LIVE_TIMES` and `FREE_TIMES` in `src/features/agenda/fixtures.ts`).
+  `&omarchy=tokyo-night|catppuccin-latte|fwu-dark|low-contrast|junk` (or `none`) makes the fake core report that Omarchy
+  theme (job 020; the settings fixtures then open in "System"); `window.__mockOmarchy(name | null)` switches it at run time.
 - Layout:
   - `src/` — React UI. `src/i18n/de.json` + `en.json` (flat keys, de default), `src/features/<feature>/`,
     `src/ui/` shared components (`SoundWave.tsx`: the level wave of frame 02 and the settings meter, drawn through refs
@@ -128,6 +130,18 @@ STATUS: CONFIGURED
   the UI (`src/features/settings/`) caches only locale and theme in `localStorage` for the first paint
   (`public/theme-boot.js` sets `data-theme` before React). Colours come only from the token blocks at
   the top of `src/styles.css` (light `:root`, dark `:root[data-theme="dark"]`; `src/styles.test.ts`).
+- Omarchy theme (job 020, Linux): `src-tauri/src/theme/` reads the active theme read-only from
+  `~/.local/state/omarchy/current/` (`omarchy.rs`: `ThemeSource` + `OmarchyThemeSource`; regular files of at most 16 KB
+  opened with `O_NONBLOCK`, only `#rrggbb` values of known keys and a `[a-z0-9-]{1,64}` slug pass; nothing from the
+  files is logged) and polls `theme.generation` + the `colors.toml` mtime once a second (`watch.rs`; a folder missing
+  for fewer than 3 polls keeps the theme). Command `omarchy_theme` → `{ name, mode, palette } | null`, event
+  `omarchy-theme` once per switch; other platforms have no source and no thread. With the setting "System" the UI
+  maps the palette onto every colour token of `:root` (`src/features/theme/omarchy.ts`, a pure function that keeps
+  WCAG AA and the four status hues apart) and sets them as inline properties on `<html>` (`apply.ts`); "Light" and
+  "Dark" remove them. The last map is cached as `meeting-companion.omarchy` (colours and mode only) and applied by
+  `public/theme-boot.js` before React. A new colour token in `:root` needs a value in the mapping
+  (`src/features/theme/omarchy.test.ts` fails otherwise). Fixtures: `src-tauri/testdata/omarchy/` and their core
+  reading in `src/features/theme/fixtures/`.
 - Data at rest: meeting files (`<app_data>/meetings/<id>.meeting`) and transcripts
   (`<app_data>/meetings/<id>.transcript`, one sealed record per final segment) are encrypted; audio is
   never written. The data key lives only in the OS keychain (Linux: Secret Service). Tests never touch the real keychain; the one keychain test
