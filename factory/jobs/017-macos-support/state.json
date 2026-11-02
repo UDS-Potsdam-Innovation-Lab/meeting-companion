@@ -19,6 +19,6 @@
   "history": [],
   "decision": "APPROVE",
   "waiting": null,
-  "note": "Merged; main had moved (018) — CI on main (Linux+macOS) is the post-merge check; Jan tests on the Mac",
-  "updated": "2026-11-02T12:12:40Z"
+  "note": "Merged; CI on main green on Linux and macOS (run 41447002398); Jan tests on the Mac",
+  "updated": "2026-11-02T13:21:40Z"
 }

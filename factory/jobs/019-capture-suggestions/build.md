@@ -85,3 +85,25 @@ c304895 docs: capture suggestions, hardened Undo and the split captures module i
 fedad98 feat(core): hardened capture undo and the capture suggester
 ```
 Rebased onto `main` (b45f09d, after 017) before the first push; the branch is not pushed yet. In `fedad98` alone, `config.test.ts` would fail, because that commit still declares `EVENT_SUGGESTIONS`. `157cadd` removes it, and the branch tip is green.
+
+## Round 2 response
+Reviews in `round-1/`: security, code and ux PASS; ui CHANGES.
+
+- **UI must-fix: tab labels wrap at 375 px with the waiting dot.** Fixed in `src/styles.css`:
+  - `.capture-tabs__tab` no longer wraps (`white-space: nowrap`).
+  - The dot has no margin of its own (the tab's gap spaces it) and does not shrink (`flex: none`).
+  - Below 480 px the tab row gives each tab at least its one-line width (`grid-auto-columns: minmax(min-content, 1fr)`) with a 4 px gap and 6 px side padding.
+
+  New e2e test: `e2e/suggestions.spec.ts` › "round 2 (UI review): tab labels stay on one line with the dot at 375 px", in en and de. It checks that every tab name is one line box under 24 px, that no tab overflows or leaves the row, and that each dot lies inside its tab. The re-shot `live-suggest-375` and `live-suggest-de-375` show "Decisions 1 •  To-dos 2 •  Questions 0" and "Beschlüsse 1 •  Aufgaben 2 •  Fragen 0" on one line each.
+- **UX note: the clipped tab dot.** Fixed by the same change: the dot now sits inside the tab at every width (covered by the `dotInside` check).
+- **UI note: at 1280 the cloud chip sat left of REC.** `RecordingControls` has a new `extra` slot, and the chip now sits after the device chip and before Pause, as in s21g. No overlap: the existing no-overlap layout tests at 5 sizes pass, plus a new e2e check of the order device chip → chip → Pause at 1280. A side effect: at 375 px the chip now shares the REC row instead of the language-switch row.
+- **Security note 1: lines from before a setting change.** `CaptureSuggester::setting_changed` now clears the collected lines, the new-segment count and the wait timer. The first request to a newly chosen engine therefore holds only lines spoken after the change. New test `suggestions/tests.rs::a_new_setting_sends_only_lines_spoken_after_the_change` covers off → Claude and then Claude → local: no line from before the change is sent, and the count starts again at the change.
+- **Security notes 2 and 3, code notes, UI notes on the 375 px header and the English fixture text:** left as they are, as instructed.
+
+Test run: `npm run lint` passes. `npm test` (port 4173) → vitest 394 passed; cargo 384 passed, 7 ignored; Playwright 318 passed; exit 0. The screenshot suite for `live-suggest*` (scratch config, port 4183) → 39 passed. gitleaks exits 0.
+
+Commits:
+```
+fix(ui): capture tab labels stay on one line with the dot; cloud chip before Pause
+fix(core): a new language model setting drops the collected lines
+```

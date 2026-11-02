@@ -8,17 +8,27 @@
   "targets": null,
   "external": null,
   "stage": "review",
-  "round": 1,
+  "round": 2,
   "max_round": 3,
   "reviews": {
-    "security": "pending",
-    "ux": "pending",
-    "ui": "pending",
-    "code": "pending"
+    "security": "PASS",
+    "ux": "PASS",
+    "ui": "PASS",
+    "code": "PASS"
   },
-  "history": [],
+  "history": [
+    {
+      "round": 1,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "CHANGES",
+        "code": "PASS"
+      }
+    }
+  ],
   "decision": null,
   "waiting": null,
-  "note": "Round 1 reviews",
-  "updated": "2026-11-02T12:43:18Z"
+  "note": "Round 2: all reviews PASS; CI gate",
+  "updated": "2026-11-02T12:52:47Z"
 }
