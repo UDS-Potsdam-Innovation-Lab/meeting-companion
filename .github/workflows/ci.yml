@@ -139,7 +139,12 @@ jobs:
         run: npm run lint
 
       - name: Test
+        if: runner.os == 'Linux'
         run: npm test
+
+      - name: TEMP Test (macOS, level tests measured separately)
+        if: runner.os == 'macOS'
+        run: npx vitest run && cargo test --manifest-path src-tauri/Cargo.toml -- --skip recording::level_tests && npx playwright test
 
       # The real speaker model on the test meetings of src-tauri/testdata/speakers, in the debug test
       # profile npm test has just built (no second release build). Fails on a regression against
@@ -188,6 +193,29 @@ jobs:
             echo "===LSOF-END $m"
             kill $pid
           done
+
+      - name: TEMP timer and level-test diagnostics (macOS)
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          cat > /tmp/slp.py <<'PY'
+          import time
+          for ms in (1, 25, 40):
+              t = time.perf_counter()
+              for _ in range(40):
+                  time.sleep(ms / 1000)
+              print(f"sleep {ms} ms -> {(time.perf_counter() - t) / 40 * 1000:.1f} ms")
+          PY
+          sysctl -n hw.ncpu
+          python3 /tmp/slp.py
+          echo "--- taskpolicy -l 0 -t 0"
+          taskpolicy -l 0 -t 0 python3 /tmp/slp.py || echo "taskpolicy failed"
+          echo "--- level tests, serial"
+          cargo test --manifest-path src-tauri/Cargo.toml level_tests -- --test-threads=1 2>&1 | tail -30 || echo "level tests failed"
+          echo "--- level tests, parallel"
+          cargo test --manifest-path src-tauri/Cargo.toml level_tests 2>&1 | tail -30 || echo "level tests failed"
+          echo "--- level tests, serial, taskpolicy"
+          taskpolicy -l 0 -t 0 cargo test --manifest-path src-tauri/Cargo.toml level_tests -- --test-threads=1 2>&1 | tail -30 || echo "level tests failed"
 
       # Job 016: exactly one ggml (no symbol of the listed set defined twice), whisper.cpp and llama.cpp
       # both linked, and no cpp-httplib, curl or llama-server code. Reads the symbol table with the system
