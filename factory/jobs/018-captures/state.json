@@ -1,1 +1,24 @@
-{"id":"018-captures","issue":18,"title":"Captures","branch":"factory/018-captures","builder":"builder-018-captures","flavour":"local","targets":null,"external":null,"stage":"spec","round":0,"max_round":3,"reviews":{"security":"pending","ux":"pending","ui":"pending","code":"pending"},"history":[],"decision":null,"waiting":null,"note":"Writing spec","updated":"2026-11-02T08:48:22Z"}
+{
+  "id": "018-captures",
+  "issue": 18,
+  "title": "Captures",
+  "branch": "factory/018-captures",
+  "builder": "builder-018-captures",
+  "flavour": "local",
+  "targets": null,
+  "external": null,
+  "stage": "spec",
+  "round": 0,
+  "max_round": 3,
+  "reviews": {
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
+  },
+  "history": [],
+  "decision": null,
+  "waiting": "design",
+  "note": "Split: quick capture only; design (FigCraft) for the whole column",
+  "updated": "2026-11-02T08:51:53Z"
+}
