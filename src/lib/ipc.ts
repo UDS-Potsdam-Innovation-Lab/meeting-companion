@@ -527,6 +527,8 @@ export function applyNameRound(meetingId: string): Promise<SpeakerState> {
 export type CaptureType = "decision" | "todo" | "question";
 export const CAPTURE_KINDS: readonly CaptureType[] = ["decision", "todo", "question"];
 
+export type CaptureSource = "typed" | "suggested";
+
 /** A stored capture, as the core keeps it. */
 export interface Capture {
   id: string;
@@ -540,8 +542,10 @@ export interface Capture {
   itemId: string | null;
   /** Agenda-free meetings: the topic it belongs to. Neither id: "no topic". */
   topicId: string | null;
-  /** `typed`; suggestions (job 019) will add `suggested`. */
-  source: "typed";
+  /** `typed` by a person, or `suggested`: a person confirmed a suggestion (job 019). */
+  source: CaptureSource;
+  /** Suggested captures: the numbers of the transcript lines it came from (numbers only). */
+  segments?: number[];
   createdAt: number;
   editedAt?: number;
 }
@@ -628,9 +632,87 @@ export function deleteCapture(meetingId: string, captureId: string): Promise<Cap
   return captureCommand("delete_capture", { meetingId, captureId });
 }
 
-/** "Undo" of a delete: the capture comes back with its id, time and item. */
-export function restoreCapture(meetingId: string, capture: Capture): Promise<CaptureSaved> {
-  return captureCommand("restore_capture", { meetingId, capture });
+/**
+ * "Undo" of a delete: the core puts back its own copy of the capture it removed, with its id, time and
+ * item. Only the two ids go to the core; it refuses a capture body.
+ */
+export function restoreCapture(meetingId: string, captureId: string): Promise<CaptureSaved> {
+  return captureCommand("restore_capture", { restore: { meetingId, captureId } });
+}
+
+// ---- capture suggestions (job 019) -------------------------------------------------------------------
+// The core asks the chosen language model about the transcript and keeps the waiting suggestions in
+// memory. Nothing becomes a capture until a person taps Bestätigen. Suggestion text is model output:
+// rendered as text only.
+
+/** A suggestion waiting for a person. */
+export interface CaptureSuggestion {
+  id: string;
+  kind: CaptureType;
+  text: string;
+  /** To-dos only: a participant id. */
+  owner: string | null;
+  /** The transcript lines (sequence numbers) it came from, ascending. */
+  segments: number[];
+  createdAt: number;
+}
+
+/** The waiting suggestions of a meeting and why the last run gave nothing, if it failed. */
+export interface SuggestionsState {
+  meetingId: string;
+  pending: CaptureSuggestion[];
+  error: LlmError | null;
+}
+
+/** Bestätigen: the target the UI shows, and the person's edit (Bearbeiten), if any. */
+export interface ConfirmSuggestion {
+  suggestionId: string;
+  itemId: string | null;
+  topicId: string | null;
+  edit?: CaptureChange;
+}
+
+export const EVENT_SUGGESTIONS = "capture-suggestions";
+
+function suggestionsState(s: unknown, meetingId: string): SuggestionsState {
+  const st = s as Partial<SuggestionsState> | undefined;
+  const kind = (st?.error as { kind?: unknown } | null | undefined)?.kind;
+  return {
+    meetingId,
+    pending: Array.isArray(st?.pending) ? st.pending : [],
+    error: LLM_ERRORS.includes(kind as LlmErrorKind) ? { kind: kind as LlmErrorKind } : null,
+  };
+}
+
+export async function loadSuggestions(meetingId: string): Promise<SuggestionsState> {
+  try {
+    return suggestionsState(await invoke("load_suggestions", { meetingId }), meetingId);
+  } catch {
+    return { meetingId, pending: [], error: null };
+  }
+}
+
+/** Stores the suggestion (or its edit) as a capture. Rejects with a {@link CaptureError}. */
+export function confirmSuggestion(meetingId: string, confirm: ConfirmSuggestion): Promise<CaptureSaved> {
+  return captureCommand("confirm_suggestion", { meetingId, confirm });
+}
+
+/** Verwerfen: the suggestion goes for this meeting. */
+export async function dismissSuggestion(meetingId: string, suggestionId: string): Promise<SuggestionsState> {
+  return suggestionsState(
+    await captureCommand("dismiss_suggestion", { meetingId, suggestionId }),
+    meetingId,
+  );
+}
+
+/** Undo of a confirm: the capture goes and the suggestion waits again. */
+export function unconfirmSuggestion(meetingId: string, captureId: string): Promise<CaptureSaved> {
+  return captureCommand("unconfirm_suggestion", { meetingId, captureId });
+}
+
+/** Calls `handler` whenever the waiting suggestions of a meeting change. */
+export function onSuggestions(handler: (s: SuggestionsState) => void): () => void {
+  return subscribe<SuggestionsState>(EVENT_SUGGESTIONS, (s) => handler(suggestionsState(s, s.meetingId)));
 }
 
 export async function listSpeakerModels(): Promise<SpeakerModelList> {

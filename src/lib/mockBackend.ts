@@ -22,8 +22,18 @@ import {
   SPEAKER_TRANSCRIPT,
 } from "../features/agenda/fixtures";
 import { isMeetingValid, type Meeting } from "../features/agenda/model";
-import { fakeCaptureCommand } from "../features/captures/fakeCore";
-import { FREE_CAPTURES, LIVE_CAPTURES } from "../features/captures/fixtures";
+import { fakeCaptureCommand, fakeMemory, isCaptureCommand, type FakeMemory } from "../features/captures/fakeCore";
+import {
+  CONFIRMED_DECISION,
+  FREE_CAPTURES,
+  LIVE_CAPTURES,
+  MANY_CAPTURES,
+  SUGGEST_DECISION,
+  SUGGEST_DECISION_2,
+  SUGGEST_SPEAKERS,
+  SUGGEST_TODO,
+  SUGGEST_VOICES,
+} from "../features/captures/fixtures";
 import {
   CAPTURE_OFF,
   DEFAULT_SETTINGS,
@@ -33,6 +43,7 @@ import {
   EVENT_PHONE_VIEW,
   EVENT_SEGMENT,
   EVENT_SETTINGS,
+  EVENT_SUGGESTIONS,
   EVENT_SWITCHED,
   EVENT_VOICE,
   MIC_TEST_OFF,
@@ -141,7 +152,14 @@ type Fixture =
   | "live-captures-empty"
   | "live-captures-edit"
   | "live-captures-error"
-  | "live-free-captures";
+  | "live-free-captures"
+  | "live-suggest"
+  | "live-suggest-edit"
+  | "live-suggest-many"
+  | "live-suggest-off"
+  | "live-suggest-local"
+  | "live-suggest-cloud"
+  | "live-suggest-error";
 
 const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   filled: filledMeeting,
@@ -177,6 +195,13 @@ const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   "live-captures-edit": liveConsentedMeeting,
   "live-captures-error": liveConsentedMeeting,
   "live-free-captures": liveFreeMeeting,
+  "live-suggest": liveConsentedMeeting,
+  "live-suggest-edit": liveConsentedMeeting,
+  "live-suggest-many": liveConsentedMeeting,
+  "live-suggest-off": liveConsentedMeeting,
+  "live-suggest-local": liveConsentedMeeting,
+  "live-suggest-cloud": liveConsentedMeeting,
+  "live-suggest-error": liveConsentedMeeting,
   "live-free-empty": liveFreeEmptyMeeting,
   "live-free": liveFreeMeeting,
   "live-level-speech": liveConsentedMeeting,
@@ -294,6 +319,33 @@ const SCRIPT_VOICES = ["A", "B", "A", "C"];
 
 // ---- recording state (in memory: a reload is a restart) -----------------------------------------
 let capture: CaptureState = CAPTURE_OFF;
+/** What the core keeps in memory (job 019): the Undo copy and the capture suggestions. */
+let memory: FakeMemory = fakeMemory();
+
+/** The capture-suggestion fixtures (job 019): language model, waiting suggestions, captures, error. */
+const SUGGEST: Partial<
+  Record<
+    Fixture,
+    {
+      model: "none" | "local" | "claude";
+      pending: (typeof SUGGEST_DECISION)[];
+      captures: Capture[];
+      error?: "offline";
+    }
+  >
+> = {
+  "live-suggest": { model: "claude", pending: [SUGGEST_DECISION, SUGGEST_TODO], captures: LIVE_CAPTURES },
+  "live-suggest-edit": { model: "local", pending: [SUGGEST_TODO], captures: [...LIVE_CAPTURES, CONFIRMED_DECISION] },
+  "live-suggest-many": {
+    model: "local",
+    pending: [SUGGEST_DECISION, SUGGEST_DECISION_2],
+    captures: MANY_CAPTURES,
+  },
+  "live-suggest-off": { model: "none", pending: [], captures: LIVE_CAPTURES },
+  "live-suggest-local": { model: "local", pending: [SUGGEST_DECISION], captures: LIVE_CAPTURES },
+  "live-suggest-cloud": { model: "claude", pending: [SUGGEST_TODO], captures: LIVE_CAPTURES },
+  "live-suggest-error": { model: "claude", pending: [], captures: LIVE_CAPTURES, error: "offline" },
+};
 let timer: ReturnType<typeof setInterval> | null = null;
 let step = 0;
 
@@ -322,6 +374,13 @@ function seed(fixture: Fixture, dark: boolean) {
   if (fixture === "live-captures" || fixture === "live-captures-edit" || fixture === "live-captures-error")
     meetings[0]!.captures = structuredClone(LIVE_CAPTURES);
   if (fixture === "live-free-captures") meetings[0]!.captures = structuredClone(FREE_CAPTURES);
+  const suggest = SUGGEST[fixture];
+  memory = fakeMemory(suggest?.pending ?? [], suggest?.error ? { kind: suggest.error } : null);
+  memory.emit = (state) => void emit(EVENT_SUGGESTIONS, state);
+  if (suggest) {
+    meetings[0]!.captures = structuredClone(suggest.captures);
+    meetings[0]!.speakers = structuredClone(SUGGEST_SPEAKERS);
+  }
   if (fixture === "live-captures-error") localStorage.setItem(CAPTURE_FAIL_KEY, "storageFailed");
   localStorage.setItem(KEY, JSON.stringify(meetings));
   localStorage.setItem(TRANSCRIPTS_KEY, "{}");
@@ -348,6 +407,21 @@ function seed(fixture: Fixture, dark: boolean) {
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     localStorage.setItem("meeting-companion.theme", settings.theme);
+  } else if (suggest) {
+    const settings: Settings = {
+      ...DEFAULT_SETTINGS,
+      locale: (localStorage.getItem("meeting-companion.locale") as Settings["locale"]) ?? "en",
+      theme: dark ? "dark" : "light",
+      languageModel:
+        suggest.model === "local"
+          ? { local: LLM_MODELS.models[0]!.id }
+          : suggest.model === "claude"
+            ? "claude"
+            : "none",
+    };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    localStorage.setItem("meeting-companion.theme", settings.theme);
+    if (suggest.model === "claude") localStorage.setItem(API_KEY_KEY, "set");
   } else if (dark) {
     // Any other fixture in the dark theme (job 018: the captures column in dark).
     const settings: Settings = {
@@ -391,10 +465,17 @@ function seed(fixture: Fixture, dark: boolean) {
   ) {
     setTranscript(id!, LIVE_TRANSCRIPT);
   }
+  if (suggest) {
+    setTranscript(
+      id!,
+      LIVE_TRANSCRIPT.map((l, i) => ({ ...l, voice: SUGGEST_VOICES[i] ?? null })),
+    );
+  }
   // Fixed states for screenshots: the script does not run, so nothing moves.
   if (
     fixture === "live-free" ||
     fixture.includes("captures") ||
+    !!suggest ||
     fixture === "live-transcript" ||
     fixture === "settings-recording" ||
     fixture === "settings-dark" ||
@@ -764,14 +845,15 @@ export function installMockBackend() {
   mockIPC(
     (cmd, args) => {
       const a = (args ?? {}) as Record<string, unknown>;
-      if (cmd === "load_captures" || cmd.endsWith("_capture")) {
+      if (isCaptureCommand(cmd)) {
         const fail = localStorage.getItem(CAPTURE_FAIL_KEY);
-        if (fail && cmd !== "load_captures") throw { kind: fail };
+        if (fail && cmd !== "load_captures" && cmd !== "load_suggestions") throw { kind: fail };
         return fakeCaptureCommand(
           {
             meeting: (id) => all().find((m) => m.id === id),
             put: (m) => put(m as Stored),
             now: () => Date.now(),
+            memory,
           },
           cmd,
           a,

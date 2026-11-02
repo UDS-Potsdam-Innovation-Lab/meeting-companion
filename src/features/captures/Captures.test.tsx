@@ -306,7 +306,8 @@ describe("AC3 everything captured can be edited or undone", () => {
     await user.click(within(notice()!).getByRole("button", { name: "Undo" }));
     await waitFor(() => expect(core.captures()).toEqual([stored()]));
     const restore = core.calls.find((c) => c.cmd === "restore_capture");
-    expect(restore?.args).toEqual({ meetingId: "fixture-live", capture: stored() });
+    // 019 AC1: only the two ids go to the core; it puts back its own copy.
+    expect(restore?.args).toEqual({ restore: { meetingId: "fixture-live", captureId: stored().id } });
     expect(within(list()!).getByText(/Thursday check-ins/)).toBeVisible();
     expect(tab(/^To-dos/)).toHaveTextContent("1");
     expect(notice()).toHaveTextContent("Restored");
