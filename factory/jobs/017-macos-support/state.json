@@ -7,18 +7,18 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "review",
+  "stage": "merged",
   "round": 1,
   "max_round": 3,
   "reviews": {
-    "security": "pending",
+    "security": "PASS",
     "ux": "PASS",
     "ui": "PASS",
-    "code": "pending"
+    "code": "PASS"
   },
   "history": [],
-  "decision": null,
+  "decision": "APPROVE",
   "waiting": null,
-  "note": "Round 1 reviews (security, code); CI green on Linux+macOS",
-  "updated": "2026-11-02T12:10:09Z"
+  "note": "Merged; main had moved (018) — CI on main (Linux+macOS) is the post-merge check; Jan tests on the Mac",
+  "updated": "2026-11-02T12:12:40Z"
 }
