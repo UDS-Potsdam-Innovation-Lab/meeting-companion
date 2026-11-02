@@ -6,6 +6,7 @@ import { App } from "../app/App";
 import { I18nProvider } from "../i18n";
 import { ClockProvider, FakeClock, systemClock, type Clock } from "../lib/clock";
 import type { Meeting } from "../features/agenda/model";
+import { fakeCaptureCommand } from "../features/captures/fakeCore";
 import {
   CAPTURE_OFF,
   DEFAULT_SETTINGS,
@@ -21,6 +22,7 @@ import {
   type SpeakerModelList,
   type SpeakerState,
   type TranscriptLoad,
+  type Capture,
   type LlmModelList,
   type LlmTestReply,
 } from "../lib/ipc";
@@ -52,6 +54,15 @@ export interface FakeRecording {
   keychainUnavailable?: boolean;
   /** Answers `run_llm_test` (default: a reply at once); may reject with `{ kind }` or settle late. */
   llmTest?: () => Promise<LlmTestReply>;
+  /** Captures stored at the start (job 018). */
+  captures?: Capture[];
+  /**
+   * Answers a capture command instead of the built-in fake (which mirrors the core's rules); return
+   * `undefined` to fall through to it. May return a promise, to hold the answer back.
+   */
+  captureReply?: (cmd: string, args: Record<string, unknown>) => unknown;
+  /** The core's clock for capture times (default: `Date.now`). */
+  captureNow?: () => number;
 }
 
 export const FAKE_LLM_MODELS: LlmModelList = {
@@ -128,6 +139,8 @@ export interface FakeCore {
   apiKeySet: boolean;
   /** The last meeting the core accepted. */
   last: () => Meeting | undefined;
+  /** The captures the fake core holds now. */
+  captures: () => Capture[];
 }
 
 /** Mocks the Tauri core: `load_latest_meeting` returns `load`, saves are recorded. */
@@ -144,7 +157,9 @@ export function fakeCore(
     events: [],
     apiKeySet: rec.apiKeySet ?? false,
     last: () => core.saved[core.saved.length - 1],
+    captures: () => structuredClone(captured),
   };
+  let captured: Capture[] = structuredClone(rec.captures ?? []);
   const send = (event: string, payload: unknown) => {
     core.events.push({ event, payload: structuredClone(payload) });
     void emit(event, payload);
@@ -180,6 +195,25 @@ export function fakeCore(
         return null;
       }
       const meetingId = (args as { meetingId?: string } | undefined)?.meetingId ?? null;
+      if (cmd === "load_captures" || cmd.endsWith("_capture")) {
+        const a = (args ?? {}) as Record<string, unknown>;
+        const reply = rec.captureReply?.(cmd, a);
+        if (reply !== undefined) return reply;
+        return fakeCaptureCommand(
+          {
+            meeting: (id) => {
+              const m = core.last() ?? load.meeting ?? undefined;
+              return m && m.id === id ? { ...m, captures: captured } : undefined;
+            },
+            put: (m) => {
+              captured = m.captures ?? [];
+            },
+            now: rec.captureNow ?? Date.now,
+          },
+          cmd,
+          a,
+        );
+      }
       switch (cmd) {
         case "load_settings": {
           const status = rec.settingsStatus ?? (rec.settings ? "stored" : "missing");

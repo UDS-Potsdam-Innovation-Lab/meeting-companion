@@ -3973,3 +3973,708 @@ select {
     font-size: 16px;
   }
 }
+
+/* ---- captures (job 018, frames 21) ------------------------------------------------------------------
+ * Right column of frames 02 and 16: kind tabs with counts, cards grouped by item or topic, the Undo
+ * notice and the composer, the last two pinned at the bottom. Below 1200 px the list is the centre
+ * card's second tab and the composer sticks to the bottom of the window. Nothing here is modal.
+ */
+@media (min-width: 1200px) {
+  .live {
+    grid-template-columns: 300px minmax(0, 1fr) 360px;
+  }
+
+  .live__right {
+    grid-column: 3;
+    grid-row: 1;
+    min-width: 0;
+  }
+}
+
+@media (min-width: 1400px) {
+  .live {
+    grid-template-columns: 300px minmax(0, 1fr) 380px;
+  }
+}
+
+.captures-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  height: max(440px, calc(100vh - 160px));
+}
+
+.captures-column__bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Tabs "Decisions n / To-dos n / Questions n", and the centre card's "Transcript / Captured n". */
+.capture-tabs,
+.centre-tabs {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--sunken);
+}
+
+.centre-tabs {
+  width: 100%;
+}
+
+.capture-tabs__tab,
+.centre-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.capture-tabs__tab[aria-pressed="true"],
+.centre-tabs__tab[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-small);
+}
+
+.capture-tabs__count,
+.centre-tabs__count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+/* The list scrolls; tabs and composer stay. */
+.capture-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 2px;
+}
+
+.capture-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.capture-group__heading {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.capture-group__heading--now {
+  color: var(--accent-ink);
+}
+
+.capture-group__empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.capture-group__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.capture-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-small);
+  cursor: pointer;
+}
+
+.capture-card--saved {
+  border-width: 2px;
+  padding: 11px 13px;
+}
+
+.capture-card--saved.capture-card--decision {
+  border-color: var(--green);
+}
+
+.capture-card--saved.capture-card--todo {
+  border-color: var(--warn-line);
+}
+
+.capture-card--saved.capture-card--question {
+  border-color: var(--accent);
+}
+
+.capture-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.capture-card__time {
+  font-variant-numeric: tabular-nums;
+}
+
+.capture-card__saved {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--amber-ink);
+}
+
+.capture-card__edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.capture-card__saved + .capture-card__edit {
+  margin-left: 0;
+}
+
+.capture-card__edit:hover {
+  background: var(--hover-tint);
+  color: var(--ink);
+}
+
+.capture-card__text {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.capture-card__todo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.capture-card__owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.capture-card__due {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--sunken);
+  font-size: 12px;
+}
+
+.kind-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.kind-badge--decision {
+  background: var(--green-soft);
+  color: var(--green-ink);
+}
+
+.kind-badge--todo {
+  background: var(--amber-soft);
+  color: var(--amber-ink);
+}
+
+.kind-badge--question {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.capture-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+}
+
+.capture-empty__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.capture-empty__body {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Kind buttons above the field: Decision / To-do / Question, a dot in the kind's colour. */
+.kind-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.kind-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.kind-button__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.kind-button--decision .kind-button__dot {
+  background: var(--green);
+}
+
+.kind-button--todo .kind-button__dot {
+  background: var(--warn-line);
+}
+
+.kind-button--question .kind-button__dot {
+  background: var(--accent);
+}
+
+.kind-button--decision[aria-pressed="true"] {
+  border: 2px solid var(--green);
+  background: var(--green-soft);
+  color: var(--green-ink);
+}
+
+.kind-button--todo[aria-pressed="true"] {
+  border: 2px solid var(--warn-line);
+  background: var(--amber-soft);
+  color: var(--amber-ink);
+}
+
+.kind-button--question[aria-pressed="true"] {
+  border: 2px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/* Owner and date chips: rows inside the composer and the editor, no popovers. */
+.chip-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.chip-row__label {
+  padding-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.chip-row__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chip--person {
+  padding-left: 4px;
+}
+
+.chip[aria-pressed="true"] {
+  border: 2px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.chip svg {
+  width: 12px;
+  height: 12px;
+}
+
+.chip-date__input {
+  width: auto;
+  min-height: 32px;
+}
+
+.capture-field {
+  display: block;
+  min-height: 56px;
+  padding: 10px 40px 10px 12px;
+  border-color: var(--line-strong);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.4;
+  resize: none;
+}
+
+.capture-field:focus {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.capture-error {
+  margin: 0;
+}
+
+/* The composer: pinned under the list (wide) or at the bottom of the window (narrow). */
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.composer__field {
+  position: relative;
+}
+
+.composer__command {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  font-size: 12px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.composer__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+/* Written out in full: a long item title wraps instead of being cut. */
+.composer__target {
+  flex: 1 1 160px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.composer__target svg {
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.composer__target-hint {
+  margin-left: 6px;
+}
+
+.composer__target svg {
+  width: 12px;
+  height: 12px;
+}
+
+.composer__target-hint,
+.composer__hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.composer__counter {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.composer__counter--over {
+  font-weight: 700;
+  color: var(--overrun);
+}
+
+/* The inline editor takes the card's place. */
+.capture-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.capture-editor__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.capture-editor__where {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.capture-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.capture-editor__spacer {
+  flex: 1;
+}
+
+/* Undo notice: dark, above the composer, its bar running down over 8 s. */
+.undo-notice {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px 12px;
+  border-radius: 12px;
+  background: var(--dark);
+  color: var(--dark-ink);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.undo-notice__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.undo-notice__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.undo-notice__sub {
+  margin: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--dark-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.undo-notice__error {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--dark-overrun);
+}
+
+.undo-notice .button:focus-visible {
+  outline-color: var(--dark-accent);
+}
+
+.undo-notice__bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: var(--dark-accent);
+  transform-origin: left;
+  animation: undo-bar 8s linear forwards;
+}
+
+@keyframes undo-bar {
+  from {
+    transform: scaleX(1);
+  }
+
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .undo-notice__bar {
+    animation: none;
+  }
+}
+
+/* Narrow: the list as the centre card's second tab, the composer at the bottom of the window. */
+.transcript-card__captures {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px 16px 16px;
+}
+
+.captures-column--narrow {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+.transcript-card__header:has(.centre-tabs) {
+  padding: 10px 16px;
+}
+
+.live__composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 8px;
+}
+
+@media (min-width: 800px) and (max-width: 1199px) {
+  .live__composer {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .live__footer {
+    grid-row: 3;
+  }
+
+  .live {
+    grid-template-rows: minmax(0, 1fr) auto auto;
+  }
+}
+
+@media (max-width: 799px) {
+  .captures-column--narrow .capture-list {
+    min-height: 120px;
+    max-height: min(60vh, 520px);
+  }
+
+  /* The nudge sticks above the composer, not over it. */
+  .live__stage {
+    bottom: calc(var(--composer-height, 0px) + 12px);
+  }
+}
+
+/* Board (1920×1080): touch targets of at least 48 px, legible from 3 m. */
+@media (min-width: 1800px) and (min-height: 1000px) {
+  .live {
+    grid-template-columns: 340px minmax(0, 1fr) 460px;
+  }
+
+  .capture-tabs__tab,
+  .centre-tabs__tab,
+  .kind-button,
+  .chip,
+  .composer .button,
+  .capture-editor .button,
+  .undo-notice .button,
+  .chip-date__input {
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .capture-card__edit {
+    width: 48px;
+    height: 48px;
+  }
+
+  .capture-card__text {
+    font-size: 18px;
+  }
+
+  .capture-field {
+    font-size: 18px;
+  }
+
+  .composer__target,
+  .capture-group__heading {
+    font-size: 14px;
+  }
+}
+
+/* The transcript stays mounted under the "Captured" tab, out of sight. */
+.transcript-card__body[hidden],
+.transcript-card__footer[hidden] {
+  display: none;
+}
+
+/* "1 to-do" under a topic in frame 16's left column. */
+.topic-row__captured {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.live-row--now .live-row__captured,
+.topic-row--now .topic-row__captured {
+  color: inherit;
+}

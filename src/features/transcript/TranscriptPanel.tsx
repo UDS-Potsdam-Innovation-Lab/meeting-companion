@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n, type MessageKey } from "../../i18n";
 import { useClock } from "../../lib/clock";
 import type { CaptureState, RecordReason } from "../../lib/ipc";
@@ -22,6 +22,17 @@ export interface FeedScroll {
   pinned: boolean;
 }
 
+/**
+ * Narrow windows (job 018): the card has two tabs, "Transcript" and "Captured n"; the captures list
+ * replaces the transcript while its tab is open. The transcript stays mounted underneath.
+ */
+export interface CentreTabs {
+  showCaptures: boolean;
+  onShow: (captures: boolean) => void;
+  count: number;
+  panel: ReactNode;
+}
+
 interface Props {
   recording: Recording;
   /** The stored meeting has the consent confirmation. */
@@ -35,6 +46,8 @@ interface Props {
   onOpenSettings: () => void;
   /** The settings view covers the live view: the feed keeps its scroll position for the return. */
   hidden?: boolean;
+  /** Narrow windows: the "Transcript / Captured" tabs. */
+  tabs?: CentreTabs;
 }
 
 /**
@@ -50,8 +63,10 @@ export function TranscriptPanel({
   initialScroll,
   onOpenSettings,
   hidden = false,
+  tabs,
 }: Props) {
   const { t, tp } = useI18n();
+  const showCaptures = !!tabs?.showCaptures;
   const { capture, lines, partial } = recording;
   const active = capture.state === "recording" || capture.state === "paused";
   const error = capture.state === "error" ? capture.reason : null;
@@ -59,13 +74,42 @@ export function TranscriptPanel({
   const wave = waveState(capture.state, error, noSignal);
 
   return (
-    <section className="transcript-card" aria-labelledby="transcript-heading">
+    <section
+      className="transcript-card"
+      aria-labelledby={showCaptures ? "centre-captures-tab" : "transcript-heading"}
+      data-centre={showCaptures ? "captures" : "transcript"}
+    >
       <div className="transcript-card__header">
-        <h2 className="transcript-card__tab" id="transcript-heading">
-          {t("transcript.heading")}
-        </h2>
+        {tabs ? (
+          <div className="centre-tabs" role="group" aria-label={t("captures.centre.label")}>
+            <button
+              type="button"
+              id="transcript-heading"
+              className="centre-tabs__tab"
+              aria-pressed={!showCaptures}
+              onClick={() => tabs.onShow(false)}
+            >
+              {t("transcript.heading")}
+            </button>
+            <button
+              type="button"
+              id="centre-captures-tab"
+              className="centre-tabs__tab"
+              aria-pressed={showCaptures}
+              onClick={() => tabs.onShow(true)}
+            >
+              {t("captures.centre.captures")}
+              <span className="centre-tabs__count">{tabs.count}</span>
+            </button>
+          </div>
+        ) : (
+          <h2 className="transcript-card__tab" id="transcript-heading">
+            {t("transcript.heading")}
+          </h2>
+        )}
       </div>
-      <div className="transcript-card__body">
+      {showCaptures ? <div className="transcript-card__captures">{tabs?.panel}</div> : null}
+      <div className="transcript-card__body" hidden={showCaptures}>
         {active ? null : !consented ? (
           <ConsentNotice recording={recording} reason={error} />
         ) : error === "chosenMicrophoneMissing" ? (
@@ -94,12 +138,12 @@ export function TranscriptPanel({
             active={active}
             speakers={speakers}
             initialScroll={initialScroll}
-            hidden={hidden}
+            hidden={hidden || showCaptures}
           />
         ) : null}
       </div>
       {active || lines.length > 0 || wave === "lost" ? (
-        <div className="transcript-card__footer">
+        <div className="transcript-card__footer" hidden={showCaptures}>
           <SoundWave state={wave} source={capture.meetingId} />
           <button
             type="button"
