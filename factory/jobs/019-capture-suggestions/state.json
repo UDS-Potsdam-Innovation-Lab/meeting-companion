@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "build",
+  "stage": "review",
   "round": 1,
   "max_round": 3,
   "reviews": {
@@ -19,6 +19,6 @@
   "history": [],
   "decision": null,
   "waiting": null,
-  "note": "Building (human gate at the end)",
-  "updated": "2026-11-02T11:10:40Z"
+  "note": "Round 1 reviews",
+  "updated": "2026-11-02T12:43:18Z"
 }
