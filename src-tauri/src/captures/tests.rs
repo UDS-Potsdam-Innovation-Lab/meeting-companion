@@ -157,6 +157,7 @@ fn a_save_from_the_ui_keeps_the_stored_captures() {
         item_id: None,
         topic_id: None,
         source: "typed".into(),
+        segments: vec![],
         created_at: 1,
         edited_at: None,
     }];
@@ -313,24 +314,6 @@ fn an_unknown_item_or_topic_is_refused() {
 }
 
 #[test]
-fn a_capture_id_that_already_exists_is_refused() {
-    let store = MemoryMeetingStore::new();
-    stored(&store);
-    let saved = add_capture(&store, "m-1", decision("Beta am 14."), NOW).unwrap();
-    assert_eq!(
-        fields(restore_capture(&store, "m-1", saved.capture.clone(), NOW)),
-        [("id".into(), "duplicate")]
-    );
-    let mut malformed = saved.capture;
-    malformed.id = "../x".into();
-    assert_eq!(
-        fields(restore_capture(&store, "m-1", malformed, NOW)),
-        [("id".into(), "invalid")]
-    );
-    assert_eq!(load_captures(&store, "m-1").unwrap().len(), 1);
-}
-
-#[test]
 fn only_a_running_meeting_takes_captures() {
     let store = MemoryMeetingStore::new();
     store.save(&sample()).unwrap();
@@ -440,6 +423,7 @@ fn delete_and_undo_restore_the_capture_with_its_original_id_time_and_item() {
     let dir = tempfile::tempdir().unwrap();
     let keys = MemoryKeyProvider::new();
     let store = file_store(dir.path(), &keys);
+    let kept = UndoCopies::new();
     stored(&store);
     let first = add_capture(&store, "m-1", decision("Erste"), NOW)
         .unwrap()
@@ -448,20 +432,20 @@ fn delete_and_undo_restore_the_capture_with_its_original_id_time_and_item() {
         .unwrap()
         .capture;
 
-    let deleted = delete_capture(&store, "m-1", &first.id, NOW + 2_000).unwrap();
+    let deleted = delete_capture(&store, &kept, "m-1", &first.id, NOW + 2_000).unwrap();
     assert_eq!(deleted.capture, first);
     let reloaded = file_store(dir.path(), &keys).load("m-1").unwrap().unwrap();
     assert_eq!(reloaded.captures, vec![second.clone()]);
 
-    let restored = restore_capture(&store, "m-1", deleted.capture, NOW + 3_000).unwrap();
+    let restored = restore_capture(&store, &kept, "m-1", &first.id, NOW + 3_000).unwrap();
     assert_eq!(restored.captures, vec![first.clone(), second.clone()]);
     let reloaded = file_store(dir.path(), &keys).load("m-1").unwrap().unwrap();
     assert_eq!(reloaded.captures, vec![first, second.clone()]);
 
     // Undo of a new capture is a delete of it.
-    delete_capture(&store, "m-1", &second.id, NOW + 4_000).unwrap();
+    delete_capture(&store, &kept, "m-1", &second.id, NOW + 4_000).unwrap();
     assert_eq!(
-        delete_capture(&store, "m-1", &second.id, NOW + 4_000),
+        delete_capture(&store, &kept, "m-1", &second.id, NOW + 4_000),
         Err(CaptureError::UnknownCapture)
     );
     assert_eq!(
@@ -475,27 +459,266 @@ fn delete_and_undo_restore_the_capture_with_its_original_id_time_and_item() {
     );
 }
 
+// ---- 019 AC1: Undo restores only what the core removed ------------------------------------------
+
+/// A suggested, edited to-do with every field set: what a restore must bring back unchanged.
+fn full_capture(store: &dyn MeetingStore) -> Capture {
+    let c = add_suggested(
+        store,
+        "m-1",
+        todo("Dritter Pilotschule schreiben"),
+        vec![7, 9],
+        NOW,
+    )
+    .unwrap()
+    .capture;
+    update_capture(
+        store,
+        "m-1",
+        &c.id,
+        change_todo("Dritter Pilotschule bis Freitag schreiben"),
+        NOW + 500,
+    )
+    .unwrap()
+    .capture
+}
+
+fn change_todo(text: &str) -> CaptureChange {
+    CaptureChange {
+        kind: KIND_TODO.into(),
+        text: text.into(),
+        owner: Some("p-ya".into()),
+        due: Some("2026-11-06".into()),
+    }
+}
+
 #[test]
-fn a_restored_capture_is_checked_like_any_input() {
+fn restore_puts_back_exactly_the_copy_the_core_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let keys = MemoryKeyProvider::new();
+    let store = file_store(dir.path(), &keys);
+    let kept = UndoCopies::new();
+    stored(&store);
+    let c = full_capture(&store);
+    assert_eq!(c.source, "suggested");
+    assert_eq!(c.segments, vec![7, 9]);
+    assert_eq!(c.edited_at, Some(NOW + 500));
+    delete_capture(&store, &kept, "m-1", &c.id, NOW + 1_000).unwrap();
+    assert!(kept.holds("m-1"));
+    let back = restore_capture(&store, &kept, "m-1", &c.id, NOW + 2_000)
+        .unwrap()
+        .capture;
+    // Every field: id, kind, text, owner, due, item, topic, source, segments, createdAt, editedAt.
+    assert_eq!(back, c);
+    let reloaded = file_store(dir.path(), &keys).load("m-1").unwrap().unwrap();
+    assert_eq!(reloaded.captures, vec![c]);
+    assert!(!kept.holds("m-1"));
+}
+
+#[test]
+fn a_capture_that_was_never_removed_restores_nothing() {
     let store = MemoryMeetingStore::new();
+    let kept = UndoCopies::new();
+    stored(&store);
+    let c = add_capture(&store, "m-1", decision("Beta am 14."), NOW)
+        .unwrap()
+        .capture;
+    assert_eq!(
+        fields(restore_capture(&store, &kept, "m-1", &c.id, NOW)),
+        [("captureId".into(), "notRemoved")]
+    );
+    assert_eq!(
+        fields(restore_capture(
+            &store,
+            &kept,
+            "m-1",
+            "c-0123456789abcdef",
+            NOW
+        )),
+        [("captureId".into(), "notRemoved")]
+    );
+    assert_eq!(load_captures(&store, "m-1").unwrap(), vec![c]);
+}
+
+#[test]
+fn a_second_restore_of_the_same_capture_restores_nothing() {
+    let store = MemoryMeetingStore::new();
+    let kept = UndoCopies::new();
     stored(&store);
     let c = add_capture(&store, "m-1", decision("x"), NOW)
         .unwrap()
         .capture;
-    delete_capture(&store, "m-1", &c.id, NOW).unwrap();
-    let mut suggested = c.clone();
-    suggested.source = "suggested".into();
+    delete_capture(&store, &kept, "m-1", &c.id, NOW).unwrap();
+    restore_capture(&store, &kept, "m-1", &c.id, NOW).unwrap();
     assert_eq!(
-        fields(restore_capture(&store, "m-1", suggested, NOW)),
-        [("source".into(), "unknown")]
+        fields(restore_capture(&store, &kept, "m-1", &c.id, NOW)),
+        [("captureId".into(), "notRemoved")]
     );
-    let mut padded = c.clone();
-    padded.text = " x ".into();
+    assert_eq!(load_captures(&store, "m-1").unwrap(), vec![c]);
+}
+
+#[test]
+fn a_capture_replaced_as_the_kept_copy_by_a_later_delete_restores_nothing() {
+    let store = MemoryMeetingStore::new();
+    let kept = UndoCopies::new();
+    stored(&store);
+    let a = add_capture(&store, "m-1", decision("A"), NOW)
+        .unwrap()
+        .capture;
+    let b = add_capture(&store, "m-1", decision("B"), NOW + 1)
+        .unwrap()
+        .capture;
+    delete_capture(&store, &kept, "m-1", &a.id, NOW + 2).unwrap();
+    delete_capture(&store, &kept, "m-1", &b.id, NOW + 3).unwrap();
     assert_eq!(
-        fields(restore_capture(&store, "m-1", padded, NOW)),
-        [("text".into(), "untrimmed")]
+        fields(restore_capture(&store, &kept, "m-1", &a.id, NOW + 4)),
+        [("captureId".into(), "notRemoved")]
     );
     assert!(load_captures(&store, "m-1").unwrap().is_empty());
+    // The later one is still kept.
+    restore_capture(&store, &kept, "m-1", &b.id, NOW + 5).unwrap();
+    assert_eq!(load_captures(&store, "m-1").unwrap(), vec![b]);
+}
+
+#[test]
+fn a_meeting_that_is_not_running_restores_nothing() {
+    let store = MemoryMeetingStore::new();
+    let kept = UndoCopies::new();
+    stored(&store);
+    let c = add_capture(&store, "m-1", decision("x"), NOW)
+        .unwrap()
+        .capture;
+    delete_capture(&store, &kept, "m-1", &c.id, NOW).unwrap();
+    let mut ended = store.load("m-1").unwrap().unwrap();
+    let run = ended.run.as_mut().unwrap();
+    run.ended_at = Some(NOW + 1);
+    run.items[1].ended_at = Some(NOW + 1);
+    store.save(&ended).unwrap();
+    assert_eq!(
+        fields(restore_capture(&store, &kept, "m-1", &c.id, NOW + 2)),
+        [("meetingId".into(), "notRunning")]
+    );
+    assert!(load_captures(&store, "m-1").unwrap().is_empty());
+    // The copy is gone with the meeting's end.
+    assert!(!kept.holds("m-1"));
+}
+
+#[test]
+fn another_meetings_id_restores_nothing() {
+    let store = MemoryMeetingStore::new();
+    let kept = UndoCopies::new();
+    stored(&store);
+    let mut other = running();
+    other.id = "m-2".into();
+    people(&mut other);
+    store.save(&other).unwrap();
+    let c = add_capture(&store, "m-1", decision("x"), NOW)
+        .unwrap()
+        .capture;
+    delete_capture(&store, &kept, "m-1", &c.id, NOW).unwrap();
+    assert_eq!(
+        fields(restore_capture(&store, &kept, "m-2", &c.id, NOW)),
+        [("captureId".into(), "notRemoved")]
+    );
+    assert!(load_captures(&store, "m-2").unwrap().is_empty());
+    assert!(load_captures(&store, "m-1").unwrap().is_empty());
+    // Still restorable in its own meeting.
+    restore_capture(&store, &kept, "m-1", &c.id, NOW).unwrap();
+    assert_eq!(load_captures(&store, "m-1").unwrap(), vec![c]);
+}
+
+#[test]
+fn forgetting_a_meeting_drops_its_copy() {
+    let store = MemoryMeetingStore::new();
+    let kept = UndoCopies::new();
+    stored(&store);
+    let c = add_capture(&store, "m-1", decision("x"), NOW)
+        .unwrap()
+        .capture;
+    delete_capture(&store, &kept, "m-1", &c.id, NOW).unwrap();
+    kept.forget("m-1");
+    assert_eq!(
+        fields(restore_capture(&store, &kept, "m-1", &c.id, NOW)),
+        [("captureId".into(), "notRemoved")]
+    );
+}
+
+#[test]
+fn the_restore_request_has_no_capture_body_and_refuses_one() {
+    let ok: RestoreRequest =
+        serde_json::from_value(serde_json::json!({ "meetingId": "m-1", "captureId": "c-1" }))
+            .unwrap();
+    assert_eq!(
+        ok,
+        RestoreRequest {
+            meeting_id: "m-1".into(),
+            capture_id: "c-1".into()
+        }
+    );
+    for extra in [
+        serde_json::json!({ "meetingId": "m-1", "captureId": "c-1", "capture": { "id": "c-1",
+            "kind": "decision", "text": "forged", "source": "typed", "createdAt": 1 } }),
+        serde_json::json!({ "meetingId": "m-1", "captureId": "c-1", "text": "forged" }),
+        serde_json::json!({ "meetingId": "m-1", "captureId": "c-1", "source": "suggested" }),
+    ] {
+        assert!(serde_json::from_value::<RestoreRequest>(extra).is_err());
+    }
+}
+
+#[test]
+fn a_failed_restore_write_keeps_the_copy_for_another_try() {
+    let store = MemoryMeetingStore::new();
+    let kept = UndoCopies::new();
+    stored(&store);
+    let c = add_capture(&store, "m-1", decision("x"), NOW)
+        .unwrap()
+        .capture;
+    delete_capture(&store, &kept, "m-1", &c.id, NOW).unwrap();
+    let failing = FailingStore(MemoryMeetingStore::new());
+    failing
+        .0
+        .save(&store.load("m-1").unwrap().unwrap())
+        .unwrap();
+    assert_eq!(
+        restore_capture(&failing, &kept, "m-1", &c.id, NOW),
+        Err(CaptureError::StorageFailed)
+    );
+    restore_capture(&store, &kept, "m-1", &c.id, NOW).unwrap();
+    assert_eq!(load_captures(&store, "m-1").unwrap(), vec![c]);
+}
+
+#[test]
+fn a_suggested_capture_is_checked_like_a_typed_one() {
+    let store = MemoryMeetingStore::new();
+    stored(&store);
+    let padded = add_suggested(&store, "m-1", decision("  Beta am 14.  "), vec![3], NOW)
+        .unwrap()
+        .capture;
+    assert_eq!(padded.text, "Beta am 14.");
+    assert_eq!(padded.source, "suggested");
+    assert_eq!(
+        fields(add_suggested(&store, "m-1", decision(" "), vec![3], NOW)),
+        [("text".into(), "empty")]
+    );
+    let owner_on_decision = NewCapture {
+        owner: Some("p-ya".into()),
+        ..decision("x")
+    };
+    assert_eq!(
+        fields(add_suggested(
+            &store,
+            "m-1",
+            owner_on_decision,
+            vec![3],
+            NOW
+        )),
+        [("owner".into(), "notTodo")]
+    );
+    assert_eq!(
+        fields(add_suggested(&store, "m-1", decision("x"), vec![], NOW)),
+        [("segments".into(), "empty")]
+    );
+    assert_eq!(load_captures(&store, "m-1").unwrap().len(), 1);
 }
 
 // ---- AC4: inert, never logged, no language model ----------------------------------------------
@@ -529,14 +752,17 @@ fn capture_text_never_reaches_the_log_or_an_error() {
         add_capture(&store, "m-1", decision(&SECRET.repeat(20)), NOW).unwrap_err(),
         update_capture(&store, "m-1", "c-x", change(KIND_TODO, SECRET), NOW).unwrap_err(),
     ];
-    let deleted = delete_capture(&store, "m-1", &c.id, NOW).unwrap().capture;
+    let kept = UndoCopies::new();
+    let deleted = delete_capture(&store, &kept, "m-1", &c.id, NOW)
+        .unwrap()
+        .capture;
     let failing = FailingStore(MemoryMeetingStore::new());
     stored(&failing.0);
     let errors = [
         errors,
         vec![
             add_capture(&failing, "m-1", todo(SECRET), NOW).unwrap_err(),
-            restore_capture(&failing, "m-1", deleted, NOW).unwrap_err(),
+            restore_capture(&failing, &kept, "m-1", &deleted.id, NOW).unwrap_err(),
         ],
     ]
     .concat();
@@ -578,8 +804,11 @@ fn capture_edit_and_delete_make_no_language_model_request() {
     stored(&store);
     let c = add_capture(&store, "m-1", todo("x"), NOW).unwrap().capture;
     update_capture(&store, "m-1", &c.id, change(KIND_QUESTION, "y"), NOW).unwrap();
-    let d = delete_capture(&store, "m-1", &c.id, NOW).unwrap().capture;
-    restore_capture(&store, "m-1", d, NOW).unwrap();
+    let kept = UndoCopies::new();
+    let d = delete_capture(&store, &kept, "m-1", &c.id, NOW)
+        .unwrap()
+        .capture;
+    restore_capture(&store, &kept, "m-1", &d.id, NOW).unwrap();
     assert!(engine.requests().is_empty());
     // And the capture code has no way to one: no engine, language model or network type in it.
     let source = include_str!("mod.rs");

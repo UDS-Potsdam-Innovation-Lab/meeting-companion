@@ -45,8 +45,12 @@ pub const KIND_DECISION: &str = "decision";
 pub const KIND_TODO: &str = "todo";
 pub const KIND_QUESTION: &str = "question";
 pub const CAPTURE_KINDS: [&str; 3] = [KIND_DECISION, KIND_TODO, KIND_QUESTION];
-/// `source` of a capture a person typed. Suggestions from the transcript (job 019) add `suggested`.
+/// `source` of a capture a person typed.
 pub const CAPTURE_SOURCE_TYPED: &str = "typed";
+/// `source` of a capture a person confirmed from a suggestion of the language model (job 019).
+pub const CAPTURE_SOURCE_SUGGESTED: &str = "suggested";
+/// Most source segment numbers one suggested capture keeps.
+pub const CAPTURE_SEGMENTS_MAX: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -113,8 +117,13 @@ pub struct Capture {
     /// Agenda-free meetings: the topic it belongs to. Neither id: "no topic".
     #[serde(default)]
     pub topic_id: Option<String>,
-    /// Only `typed` in this version.
+    /// `typed` (a person typed it) or `suggested` (a person confirmed a suggestion, job 019).
     pub source: String,
+    /// Suggested captures only: the numbers of the transcript segments the suggestion came from, in
+    /// ascending order. Numbers only, never text. Left out of the JSON while empty, so captures of
+    /// job 018 load and are stored unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub segments: Vec<u64>,
     /// When it was captured (ms since epoch), from the core's clock.
     pub created_at: u64,
     /// When it was last edited, if ever.
@@ -523,8 +532,22 @@ pub fn validate_capture(m: &Meeting, c: &Capture) -> Vec<FieldError> {
             }
         }
     }
-    if c.source != CAPTURE_SOURCE_TYPED {
-        errs.push(FieldError::new("source", "unknown"));
+    match c.source.as_str() {
+        CAPTURE_SOURCE_TYPED => {
+            if !c.segments.is_empty() {
+                errs.push(FieldError::new("segments", "notSuggested"));
+            }
+        }
+        CAPTURE_SOURCE_SUGGESTED => {
+            if c.segments.is_empty() {
+                errs.push(FieldError::new("segments", "empty"));
+            } else if c.segments.len() > CAPTURE_SEGMENTS_MAX {
+                errs.push(FieldError::new("segments", "tooMany"));
+            } else if c.segments.windows(2).any(|w| w[0] >= w[1]) {
+                errs.push(FieldError::new("segments", "unsorted"));
+            }
+        }
+        _ => errs.push(FieldError::new("source", "unknown")),
     }
     if let Some(edited) = c.edited_at {
         if edited < c.created_at {
@@ -1237,6 +1260,7 @@ pub(crate) mod tests {
             item_id: Some("i-2".into()),
             topic_id: None,
             source: CAPTURE_SOURCE_TYPED.into(),
+            segments: vec![],
             created_at: 400_000,
             edited_at: None,
         }
@@ -1274,7 +1298,7 @@ pub(crate) mod tests {
         let mut bad = capture("c-1", "note");
         bad.text = " ".into();
         bad.due = Some("2026-13-01".into());
-        bad.source = "suggested".into();
+        bad.source = "pasted".into();
         bad.edited_at = Some(1);
         m.captures = vec![capture("c-1", KIND_DECISION), bad];
         assert_eq!(
@@ -1288,6 +1312,61 @@ pub(crate) mod tests {
                 ("captures[1].id".into(), "duplicate"),
             ]
         );
+    }
+
+    #[test]
+    fn a_suggested_capture_keeps_its_segment_numbers_and_a_018_file_still_loads() {
+        // A capture as job 018 wrote it: no `segments`.
+        let json = serde_json::json!({
+            "id": "c-1", "kind": "decision", "text": "Beta startet am 14.", "owner": null,
+            "due": null, "itemId": "i-2", "topicId": null, "source": "typed", "createdAt": 400000
+        });
+        let old: Capture = serde_json::from_value(json.clone()).unwrap();
+        assert!(old.segments.is_empty());
+        assert_eq!(serde_json::to_value(&old).unwrap(), json);
+
+        let mut m = running();
+        let mut c = capture("c-2", KIND_DECISION);
+        c.source = CAPTURE_SOURCE_SUGGESTED.into();
+        c.segments = vec![3, 4];
+        m.captures = vec![old, c];
+        assert!(validate(&m).is_empty(), "{:?}", validate(&m));
+        let json = serde_json::to_value(&m).unwrap();
+        assert_eq!(json["captures"][1]["source"], "suggested");
+        assert_eq!(json["captures"][1]["segments"], serde_json::json!([3, 4]));
+        let back: Meeting = serde_json::from_value(json).unwrap();
+        assert_eq!(back, m);
+    }
+
+    #[test]
+    fn segments_belong_to_suggested_captures_only_and_are_numbers_in_order() {
+        let m = running();
+        let mut typed = capture("c-1", KIND_DECISION);
+        typed.segments = vec![1];
+        let codes_of = |c: &Capture| {
+            validate_capture(&m, c)
+                .into_iter()
+                .map(|e| (e.field, e.code))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(codes_of(&typed), vec![("segments".into(), "notSuggested")]);
+        let mut s = capture("c-1", KIND_DECISION);
+        s.source = CAPTURE_SOURCE_SUGGESTED.into();
+        assert_eq!(codes_of(&s), vec![("segments".into(), "empty")]);
+        s.segments = vec![4, 3];
+        assert_eq!(codes_of(&s), vec![("segments".into(), "unsorted")]);
+        s.segments = vec![4, 4];
+        assert_eq!(codes_of(&s), vec![("segments".into(), "unsorted")]);
+        s.segments = (0..=CAPTURE_SEGMENTS_MAX as u64).collect();
+        assert_eq!(codes_of(&s), vec![("segments".into(), "tooMany")]);
+        s.segments = vec![2, 7];
+        assert!(codes_of(&s).is_empty());
+        // Text in place of a number does not parse: the schema is closed.
+        let json = serde_json::json!({
+            "id": "c-1", "kind": "decision", "text": "x", "itemId": "i-2", "source": "suggested",
+            "segments": ["Mara: so machen wir es"], "createdAt": 1
+        });
+        assert!(serde_json::from_value::<Capture>(json).is_err());
     }
 
     #[test]
