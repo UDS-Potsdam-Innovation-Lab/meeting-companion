@@ -4,7 +4,7 @@
 factory_version: 0.2.1
 flavour: local
 main: main
-ci_workflow: ci.yml             # Linux only until the feature set is final (decision 2026-10-30)
+ci_workflow: ci.yml             # Linux and macOS (decision 2026-11-02; repo public); Windows later
 lenses: [security, ux, ui, code]
 ui_paths:
   - "src/**"
