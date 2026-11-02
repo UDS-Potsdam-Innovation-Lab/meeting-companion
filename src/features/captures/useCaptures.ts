@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   addCapture,
+  confirmSuggestion,
   deleteCapture,
   loadCaptures,
   restoreCapture,
+  unconfirmSuggestion,
   updateCapture,
   type Capture,
   type CaptureChange,
   type CaptureError,
+  type ConfirmSuggestion,
   type NewCapture,
 } from "../../lib/ipc";
 import { useClock } from "../../lib/clock";
@@ -36,6 +39,8 @@ export interface Captures {
   /** The card that says "just saved" (for 2 s after the core wrote it). */
   justSaved: string | null;
   add: (input: NewCapture) => Promise<CaptureResult>;
+  /** Bestätigen of a suggestion (job 019): the core stores it with `source: "suggested"`. */
+  confirm: (confirm: ConfirmSuggestion) => Promise<CaptureResult>;
   update: (id: string, change: CaptureChange) => Promise<CaptureResult>;
   remove: (id: string) => Promise<CaptureResult>;
   /** Undo of the notice's action. */
@@ -52,7 +57,12 @@ export interface Captures {
  * core has answered: the list is replaced by the core's list after every command. Notices expire by
  * the clock (8 s for Undo), so tests run them on a fake clock.
  */
-export function useCaptures(meetingId: string, onSaved?: (capture: Capture) => void): Captures {
+export function useCaptures(
+  meetingId: string,
+  onSaved?: (capture: Capture) => void,
+  /** Undo of a confirm put a suggestion back: the view reads the suggestions again. */
+  onSuggestionBack?: () => void,
+): Captures {
   const clock = useClock();
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -62,9 +72,11 @@ export function useCaptures(meetingId: string, onSaved?: (capture: Capture) => v
   const [editing, setEditing] = useState<string | null>(null);
   const seq = useRef(0);
   const savedRef = useRef(onSaved);
+  const backRef = useRef(onSuggestionBack);
   useEffect(() => {
     savedRef.current = onSaved;
-  }, [onSaved]);
+    backRef.current = onSuggestionBack;
+  }, [onSaved, onSuggestionBack]);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,6 +145,19 @@ export function useCaptures(meetingId: string, onSaved?: (capture: Capture) => v
     [clock, meetingId, run, show],
   );
 
+  const confirm = useCallback(
+    (c: ConfirmSuggestion) =>
+      run(
+        () => confirmSuggestion(meetingId, c),
+        (saved) => {
+          show("saved", saved);
+          setJustSaved({ id: saved.id, until: clock.now() + JUST_SAVED_MS });
+          savedRef.current?.(saved);
+        },
+      ),
+    [clock, meetingId, run, show],
+  );
+
   const update = useCallback(
     (id: string, change: CaptureChange) => run(() => updateCapture(meetingId, id, change)),
     [meetingId, run],
@@ -150,14 +175,22 @@ export function useCaptures(meetingId: string, onSaved?: (capture: Capture) => v
   const undo = useCallback(async () => {
     if (!notice || (notice.type !== "saved" && notice.type !== "deleted")) return null;
     const { type, capture } = notice;
+    // Undo of a save removes the capture (a confirmed suggestion waits again); Undo of a delete asks the
+    // core to put back its own copy, by id only.
     const result =
       type === "saved"
         ? await run(
-            () => deleteCapture(meetingId, capture.id),
-            (c) => show("removed", c),
+            () =>
+              capture.source === "suggested"
+                ? unconfirmSuggestion(meetingId, capture.id)
+                : deleteCapture(meetingId, capture.id),
+            (c) => {
+              show("removed", c);
+              if (c.source === "suggested") backRef.current?.();
+            },
           )
         : await run(
-            () => restoreCapture(meetingId, capture),
+            () => restoreCapture(meetingId, capture.id),
             (c) => show("restored", c),
           );
     if (!result.ok) setUndoFailed(true);
@@ -171,6 +204,7 @@ export function useCaptures(meetingId: string, onSaved?: (capture: Capture) => v
     notice,
     justSaved: justSaved?.id ?? null,
     add,
+    confirm,
     update,
     remove,
     undo,

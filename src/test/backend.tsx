@@ -6,7 +6,12 @@ import { App } from "../app/App";
 import { I18nProvider } from "../i18n";
 import { ClockProvider, FakeClock, systemClock, type Clock } from "../lib/clock";
 import type { Meeting } from "../features/agenda/model";
-import { fakeCaptureCommand } from "../features/captures/fakeCore";
+import {
+  fakeCaptureCommand,
+  fakeMemory,
+  isCaptureCommand,
+  type FakeMemory,
+} from "../features/captures/fakeCore";
 import {
   CAPTURE_OFF,
   DEFAULT_SETTINGS,
@@ -25,6 +30,8 @@ import {
   type Capture,
   type LlmModelList,
   type LlmTestReply,
+  type CaptureSuggestion,
+  type LlmError,
 } from "../lib/ipc";
 
 /** How the fake core answers the recording commands. Events are sent by the test with `emit`. */
@@ -63,6 +70,9 @@ export interface FakeRecording {
   captureReply?: (cmd: string, args: Record<string, unknown>) => unknown;
   /** The core's clock for capture times (default: `Date.now`). */
   captureNow?: () => number;
+  /** Capture suggestions waiting at the start (job 019), and the last run's error. */
+  suggestions?: CaptureSuggestion[];
+  suggestionError?: LlmError | null;
 }
 
 export const FAKE_LLM_MODELS: LlmModelList = {
@@ -141,6 +151,10 @@ export interface FakeCore {
   last: () => Meeting | undefined;
   /** The captures the fake core holds now. */
   captures: () => Capture[];
+  /** What the fake core keeps in memory: the Undo copy and the suggestions. */
+  memory: FakeMemory;
+  /** Offers suggestions (and an error) as the core's suggester would; the UI reads them by command. */
+  suggest: (pending: CaptureSuggestion[], error?: LlmError | null) => void;
 }
 
 /** Mocks the Tauri core: `load_latest_meeting` returns `load`, saves are recorded. */
@@ -158,6 +172,11 @@ export function fakeCore(
     apiKeySet: rec.apiKeySet ?? false,
     last: () => core.saved[core.saved.length - 1],
     captures: () => structuredClone(captured),
+    memory: fakeMemory(rec.suggestions, rec.suggestionError ?? null),
+    suggest: (pending, error = null) => {
+      core.memory.pending = structuredClone(pending);
+      core.memory.error = error;
+    },
   };
   let captured: Capture[] = structuredClone(rec.captures ?? []);
   const send = (event: string, payload: unknown) => {
@@ -195,7 +214,7 @@ export function fakeCore(
         return null;
       }
       const meetingId = (args as { meetingId?: string } | undefined)?.meetingId ?? null;
-      if (cmd === "load_captures" || cmd.endsWith("_capture")) {
+      if (isCaptureCommand(cmd)) {
         const a = (args ?? {}) as Record<string, unknown>;
         const reply = rec.captureReply?.(cmd, a);
         if (reply !== undefined) return reply;
@@ -209,6 +228,7 @@ export function fakeCore(
               captured = m.captures ?? [];
             },
             now: rec.captureNow ?? Date.now,
+            memory: core.memory,
           },
           cmd,
           a,

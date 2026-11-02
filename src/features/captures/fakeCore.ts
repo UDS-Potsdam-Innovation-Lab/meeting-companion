@@ -1,6 +1,16 @@
-// A stand-in for the core's capture commands (src-tauri/src/captures), shared by the component tests'
-// fake core and the e2e build's mock backend. It mirrors the core's rules; the core stays the judge.
-import type { Capture, CaptureChange, CaptureFieldError, NewCapture } from "../../lib/ipc";
+// A stand-in for the core's capture commands (src-tauri/src/captures) and the suggestion commands
+// (src-tauri/src/suggestions), shared by the component tests' fake core and the e2e build's mock
+// backend. It mirrors the core's rules; the core stays the judge.
+import type {
+  Capture,
+  CaptureChange,
+  CaptureFieldError,
+  CaptureSuggestion,
+  ConfirmSuggestion,
+  LlmError,
+  NewCapture,
+  SuggestionsState,
+} from "../../lib/ipc";
 import { isValidDate, type Meeting } from "../agenda/model";
 import { TEXT_MAX } from "./model";
 
@@ -33,8 +43,26 @@ export function checkCapture(m: Meeting, c: Capture): CaptureFieldError[] {
     if (c.topicId) add("topicId", "notInAgendaMode");
     if (c.itemId && !m.items.some((it) => it.id === c.itemId)) add("itemId", "unknown");
   }
-  if (c.source !== "typed") add("source", "unknown");
+  const segments = c.segments ?? [];
+  if (c.source === "typed") {
+    if (segments.length) add("segments", "notSuggested");
+  } else if (c.source === "suggested") {
+    if (!segments.length) add("segments", "empty");
+  } else add("source", "unknown");
   return errs;
+}
+
+/** What the core keeps in memory only: the Undo copy per meeting and the suggestions. */
+export interface FakeMemory {
+  kept: Record<string, Capture>;
+  pending: CaptureSuggestion[];
+  /** Confirmed suggestions by capture id (for Undo of a confirm). */
+  confirmed: Record<string, CaptureSuggestion>;
+  error: LlmError | null;
+}
+
+export function fakeMemory(pending: CaptureSuggestion[] = [], error: LlmError | null = null): FakeMemory {
+  return { kept: {}, pending: structuredClone(pending), confirmed: {}, error };
 }
 
 export interface FakeCaptureStore {
@@ -43,7 +71,23 @@ export interface FakeCaptureStore {
   now: () => number;
   /** Makes capture ids; the default counts up. */
   newId?: () => string;
+  memory: FakeMemory;
 }
+
+/** Whether `cmd` is a capture or suggestion command of the core. */
+export const isCaptureCommand = (cmd: string) =>
+  cmd === "load_captures" ||
+  cmd.endsWith("_capture") ||
+  cmd === "load_suggestions" ||
+  cmd.endsWith("_suggestion");
+
+const suggestionState = (meetingId: string, mem: FakeMemory): SuggestionsState => ({
+  meetingId,
+  pending: structuredClone(mem.pending),
+  error: mem.error,
+});
+
+const unknownSuggestion = { kind: "invalid", fields: [{ field: "suggestionId", code: "unknown" }] };
 
 /**
  * Answers one capture command like the core does, or returns `undefined` for any other command.
@@ -54,7 +98,17 @@ export function fakeCaptureCommand(
   cmd: string,
   args: Record<string, unknown>,
 ): unknown {
-  if (!cmd.endsWith("_capture") && cmd !== "load_captures") return undefined;
+  if (!isCaptureCommand(cmd)) return undefined;
+  const mem = store.memory;
+  // The restore request carries the two ids only (a closed schema, like the core's RestoreRequest).
+  if (cmd === "restore_capture") {
+    const req = args.restore as Record<string, unknown> | undefined;
+    const keys = Object.keys(args);
+    if (!req || keys.length !== 1 || Object.keys(req).sort().join() !== "captureId,meetingId")
+      throw { kind: "invalid", fields: [{ field: "restore", code: "unknownField" }] };
+    args = { meetingId: req.meetingId, captureId: req.captureId };
+  }
+  if (cmd === "load_suggestions") return suggestionState(args.meetingId as string, mem);
   const m = store.meeting(args.meetingId as string);
   if (!m) throw { kind: "noMeeting" };
   const list = m.captures ?? [];
@@ -64,6 +118,21 @@ export function fakeCaptureCommand(
   const write = (captures: Capture[], capture: Capture) => {
     store.put({ ...m, captures });
     return { capture: structuredClone(capture), captures: structuredClone(captures) };
+  };
+  let n = list.length + 1;
+  const make = store.newId ?? (() => `c-${n++}`);
+  const newId = () => {
+    let id = make();
+    while (list.some((c) => c.id === id)) id = make();
+    return id;
+  };
+  const remove = () => {
+    const i = find();
+    mem.kept[m.id] = structuredClone(list[i]!);
+    return write(
+      list.filter((_, j) => j !== i),
+      list[i]!,
+    );
   };
   const invalid = (fields: CaptureFieldError[]) => {
     if (fields.length) throw { kind: "invalid", fields };
@@ -76,12 +145,8 @@ export function fakeCaptureCommand(
   switch (cmd) {
     case "add_capture": {
       const input = args.capture as NewCapture;
-      let n = list.length + 1;
-      const make = store.newId ?? (() => `c-${n++}`);
-      let id = make();
-      while (list.some((c) => c.id === id)) id = make();
       const capture: Capture = {
-        id,
+        id: newId(),
         kind: input.kind,
         text: input.text.trim(),
         owner: blank(input.owner),
@@ -111,22 +176,54 @@ export function fakeCaptureCommand(
         capture,
       );
     }
-    case "delete_capture": {
-      const i = find();
+    case "delete_capture":
+      return remove();
+    case "restore_capture": {
+      const kept = mem.kept[m.id];
+      if (!kept || kept.id !== args.captureId)
+        throw { kind: "invalid", fields: [{ field: "captureId", code: "notRemoved" }] };
+      delete mem.kept[m.id];
       return write(
-        list.filter((_, j) => j !== i),
-        list[i]!,
+        [...list, kept].sort((a, b) => a.createdAt - b.createdAt),
+        kept,
       );
     }
-    case "restore_capture": {
-      const capture = args.capture as Capture;
-      const errs = checkCapture(m, capture);
-      if (list.some((c) => c.id === capture.id)) errs.push({ field: "id", code: "duplicate" });
-      invalid(errs);
-      return write(
-        [...list, capture].sort((a, b) => a.createdAt - b.createdAt),
-        capture,
-      );
+    case "confirm_suggestion": {
+      const confirm = args.confirm as ConfirmSuggestion;
+      const s = mem.pending.find((p) => p.id === confirm.suggestionId);
+      if (!s) throw unknownSuggestion;
+      const edit = confirm.edit;
+      const capture: Capture = {
+        id: newId(),
+        kind: edit?.kind ?? s.kind,
+        text: (edit?.text ?? s.text).trim(),
+        owner: blank(edit ? edit.owner : s.owner),
+        due: blank(edit?.due ?? null),
+        itemId: blank(confirm.itemId),
+        topicId: blank(confirm.topicId),
+        source: "suggested",
+        segments: [...s.segments],
+        createdAt: now,
+      };
+      invalid(checkCapture(m, capture));
+      const out = write([...list, capture], capture);
+      mem.pending = mem.pending.filter((p) => p.id !== s.id);
+      mem.confirmed[capture.id] = s;
+      return out;
+    }
+    case "dismiss_suggestion": {
+      if (!mem.pending.some((p) => p.id === args.suggestionId)) throw unknownSuggestion;
+      mem.pending = mem.pending.filter((p) => p.id !== args.suggestionId);
+      return suggestionState(m.id, mem);
+    }
+    case "unconfirm_suggestion": {
+      const out = remove();
+      const back = mem.confirmed[args.captureId as string];
+      if (back) {
+        delete mem.confirmed[args.captureId as string];
+        mem.pending = [...mem.pending, back].sort((a, b) => a.createdAt - b.createdAt);
+      }
+      return out;
     }
   }
   return undefined;

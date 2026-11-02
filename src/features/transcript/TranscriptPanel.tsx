@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { useI18n, type MessageKey } from "../../i18n";
 import { useClock } from "../../lib/clock";
 import type { CaptureState, RecordReason } from "../../lib/ipc";
-import { GearIcon, MicIcon } from "../../ui/icons";
+import { CheckIcon, GearIcon, MicIcon } from "../../ui/icons";
+import type { LineMark } from "../captures/suggestions";
 import { LineSpeaker } from "../speakers/LineSpeaker";
 import { voiceCount } from "../speakers/model";
 import type { Speakers } from "../speakers/useSpeakers";
@@ -48,6 +49,10 @@ interface Props {
   hidden?: boolean;
   /** Narrow windows: the "Transcript / Captured" tabs. */
   tabs?: CentreTabs;
+  /** Capture suggestions (job 019): the chip per line, the source lines of the pinned card, and a tap. */
+  marks?: ReadonlyMap<number, LineMark>;
+  highlight?: ReadonlySet<number>;
+  onMark?: (suggestionId: string) => void;
 }
 
 /**
@@ -64,6 +69,9 @@ export function TranscriptPanel({
   onOpenSettings,
   hidden = false,
   tabs,
+  marks,
+  highlight,
+  onMark,
 }: Props) {
   const { t, tp } = useI18n();
   const showCaptures = !!tabs?.showCaptures;
@@ -139,6 +147,9 @@ export function TranscriptPanel({
             speakers={speakers}
             initialScroll={initialScroll}
             hidden={hidden || showCaptures}
+            marks={marks}
+            highlight={highlight}
+            onMark={onMark}
           />
         ) : null}
       </div>
@@ -167,12 +178,18 @@ function Feed({
   speakers,
   initialScroll,
   hidden,
+  marks,
+  highlight,
+  onMark,
 }: {
   recording: Recording;
   active: boolean;
   speakers: Speakers;
   initialScroll: FeedScroll | null;
   hidden: boolean;
+  marks?: ReadonlyMap<number, LineMark>;
+  highlight?: ReadonlySet<number>;
+  onMark?: (suggestionId: string) => void;
 }) {
   const { t } = useI18n();
   const { lines, partial } = recording;
@@ -242,12 +259,22 @@ function Feed({
           aria-label={t("transcript.heading")}
         >
           {lines.map((line, i) => (
-            <li className="transcript-line" key={`${line.seq ?? "x"}-${line.startMs}-${i}`} lang={line.lang}>
+            <li
+              className={`transcript-line${line.seq !== undefined && highlight?.has(line.seq) ? " transcript-line--source" : ""}`}
+              key={`${line.seq ?? "x"}-${line.startMs}-${i}`}
+              lang={line.lang}
+              data-seq={line.seq}
+            >
               <LineSpeaker
                 line={line}
                 speakers={speakers}
                 open={picking !== null && picking === line.seq}
                 onToggle={(open) => setPicking(open && line.seq !== undefined ? line.seq : null)}
+                chip={
+                  line.seq !== undefined && marks?.has(line.seq) ? (
+                    <LineChip mark={marks.get(line.seq)!} onMark={onMark} />
+                  ) : null
+                }
               />
               <p className="transcript-line__text">{line.text}</p>
             </li>
@@ -265,6 +292,41 @@ function Feed({
         </ol>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Frame 21s "Transcript chips": "✦ Beschluss erkannt" on the source line of a waiting suggestion, a tap
+ * moves focus to its card; "✓ Beschluss festgehalten" once confirmed. The page language follows the
+ * app, not the line.
+ */
+function LineChip({ mark, onMark }: { mark: LineMark; onMark?: (suggestionId: string) => void }) {
+  const { t, locale } = useI18n();
+  if (mark.state === "captured") {
+    return (
+      <span
+        className={`line-chip line-chip--captured line-chip--${mark.kind}`}
+        lang={locale}
+        data-testid="line-chip"
+      >
+        <CheckIcon />
+        {t(`transcript.chip.captured.${mark.kind}` as MessageKey)}
+      </span>
+    );
+  }
+  const label = t(`transcript.chip.pending.${mark.kind}` as MessageKey);
+  return (
+    <button
+      type="button"
+      className={`line-chip line-chip--pending line-chip--${mark.kind}`}
+      lang={locale}
+      onClick={() => mark.suggestionId && onMark?.(mark.suggestionId)}
+      aria-label={t("transcript.chip.open", { label })}
+      data-testid="line-chip"
+    >
+      <span aria-hidden="true">{t("captures.suggest.glyph")} </span>
+      {label}
+    </button>
   );
 }
 

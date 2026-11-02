@@ -284,6 +284,38 @@ const VIEWS: View[] = [
     dark: true,
     act: capturesTab("todo"),
   },
+  // Frames 21 suggestions (job 019): the pinned card with the cloud status line and top-bar chip, the
+  // inline editor on this device, waiting behind ("1 more suggestion") over many captures, off, on this
+  // device, Claude, an engine error, dark and German.
+  { name: "live-suggest", fixture: "live-suggest", time: LIVE_TIMES.running, act: capturesTab() },
+  { name: "live-suggest-de", fixture: "live-suggest", time: LIVE_TIMES.running, act: capturesTab() },
+  {
+    name: "live-suggest-edit",
+    fixture: "live-suggest-edit",
+    time: LIVE_TIMES.running,
+    act: async (page) => {
+      await capturesTab("todo")(page);
+      await page.locator("[data-suggest-edit]").click();
+      await page.locator(".suggest-card--editing").waitFor();
+    },
+  },
+  { name: "live-suggest-many", fixture: "live-suggest-many", time: LIVE_TIMES.running, act: capturesTab() },
+  { name: "live-suggest-off", fixture: "live-suggest-off", time: LIVE_TIMES.running, act: capturesTab() },
+  { name: "live-suggest-local", fixture: "live-suggest-local", time: LIVE_TIMES.running, act: capturesTab() },
+  {
+    name: "live-suggest-cloud",
+    fixture: "live-suggest-cloud",
+    time: LIVE_TIMES.running,
+    act: capturesTab("todo"),
+  },
+  { name: "live-suggest-error", fixture: "live-suggest-error", time: LIVE_TIMES.running, act: capturesTab() },
+  {
+    name: "live-suggest-dark",
+    fixture: "live-suggest",
+    time: LIVE_TIMES.running,
+    dark: true,
+    act: capturesTab(),
+  },
 ];
 
 /** Waits for the captures column; below 1200 px opens the centre card's "Captured" tab. */
@@ -354,6 +386,9 @@ const RESPONSIVE_VIEWS = [
   "live-free-adding",
   "live-captures",
   "live-captures-edit",
+  "live-suggest",
+  "live-suggest-edit",
+  "live-suggest-many",
 ];
 
 const sized = [

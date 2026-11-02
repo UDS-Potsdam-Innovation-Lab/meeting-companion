@@ -18,7 +18,7 @@ import { AT_BOTTOM, TranscriptPanel, type FeedScroll } from "../transcript/Trans
 import { useRecording } from "../transcript/useRecording";
 import { SpeakersView } from "../speakers/SpeakersView";
 import { useSpeakers } from "../speakers/useSpeakers";
-import type { Capture, CaptureType } from "../../lib/ipc";
+import type { Capture, CaptureSuggestion, CaptureType } from "../../lib/ipc";
 import { NARROW_LIVE_QUERY, useMediaQuery } from "../../lib/media";
 import {
   CaptureList,
@@ -30,6 +30,14 @@ import {
 } from "../captures/CapturesPanel";
 import { countByKind, countByTarget, currentTarget } from "../captures/model";
 import { useCaptures } from "../captures/useCaptures";
+import { KIND_KEYS } from "../captures/labels";
+import { SuggestionPin, type LineSource } from "../captures/SuggestionCard";
+import { CloudSuggestChip, SuggestionStatusLine } from "../captures/SuggestionStatus";
+import { lineMarks, pendingKinds, suggestStatus, tabSuggestions } from "../captures/suggestions";
+import { useSuggestions } from "../captures/useSuggestions";
+import { useSettings } from "../settings/useSettings";
+import type { Section } from "../settings/SettingsView";
+import { lineSpeaker } from "../speakers/model";
 
 export const LIVE_VIEW = "live";
 
@@ -38,6 +46,8 @@ interface Props {
   meeting: Meeting;
   state: MeetingState;
   onOpenSettings: () => void;
+  /** Opens the settings at one section ("Sprachmodell wählen" → the language model). */
+  onOpenSettingsAt?: (section: Section) => void;
   /** The settings view covers this one; recording and the transcript carry on underneath. */
   hidden?: boolean;
 }
@@ -52,7 +62,7 @@ interface Props {
  * recording; its left column is the whole-meeting timer and "Topics so far", and its nudge comes at
  * half time.
  */
-export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Props) {
+export function LiveView({ meeting, state, onOpenSettings, onOpenSettingsAt, hidden = false }: Props) {
   const i18n = useI18n();
   const { t } = i18n;
   const clock = useClock();
@@ -77,7 +87,24 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
     (c: Capture) => setCaptureSaid((s) => ({ text: savedAnnouncement(i18n, meeting, c), n: s.n + 1 })),
     [i18n, meeting],
   );
-  const captures = useCaptures(meeting.id, onCaptureSaved);
+  // Capture suggestions (job 019): read from the core, pinned one per tab, announced once, never focused
+  // on their own. The status line says where the transcript text goes.
+  const { settings } = useSettings();
+  const onSuggestion = useCallback(
+    (s: CaptureSuggestion) =>
+      setCaptureSaid((x) => ({
+        text: t("captures.suggest.announce", { kind: t(KIND_KEYS[s.kind]) }),
+        n: x.n + 1,
+      })),
+    [t],
+  );
+  const suggestions = useSuggestions(meeting.id, onSuggestion);
+  const captures = useCaptures(meeting.id, onCaptureSaved, suggestions.refresh);
+  const suggest = suggestStatus(settings.languageModel, suggestions.error);
+  const marks = lineMarks(suggestions.pending, captures.captures);
+  const pinnedNow = tabSuggestions(suggestions.pending, captureKind, suggestions.front)[0];
+  const highlight = new Set(pinnedNow?.segments ?? []);
+  const cloudChip = settings.languageModel === "claude" && recording.capture.state === "recording";
   const captureTarget = currentTarget(meeting);
   const captureCounts = countByTarget(captures.captures);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -152,6 +179,55 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
     if (was.isConnected && !(was as HTMLButtonElement).disabled) return;
     viewRef.current?.querySelector<HTMLButtonElement>("[data-rec-action]:not(:disabled)")?.focus();
   }, [captureState, recording.busy]);
+
+  // A tap on a transcript chip opens its kind's tab (the centre card's "Captured" tab when narrow) with
+  // its card in front, and focus moves there. "›" on a card shows its source line in the transcript.
+  const onMark = (id: string) => {
+    const s = suggestions.pending.find((p) => p.id === id);
+    if (!s) return;
+    setCaptureType(s.kind);
+    if (narrow) setCentreCaptures(true);
+    suggestions.bringForward(id);
+  };
+  const onShowLine = (seq: number) => {
+    if (narrow) setCentreCaptures(false);
+    setTimeout(() => {
+      const line = viewRef.current?.querySelector<HTMLElement>(`.transcript-line[data-seq="${seq}"]`);
+      line?.scrollIntoView?.({ block: "center" });
+      line?.querySelector<HTMLButtonElement>(".line-speaker")?.focus();
+    }, 0);
+  };
+  const sourceOf = (seq: number): LineSource | null => {
+    const line = recording.lines.find((l) => l.seq === seq);
+    if (!line) return null;
+    const who = lineSpeaker(speakers.state, line);
+    const name =
+      who.kind === "person"
+        ? who.person.name
+        : who.kind === "voice"
+          ? t("speakers.voice", { voice: who.voice })
+          : null;
+    return { name, at: line.at };
+  };
+  const pin = (
+    <SuggestionPin
+      meeting={meeting}
+      kind={captureKind}
+      captures={captures}
+      suggestions={suggestions}
+      target={captureTarget}
+      sourceOf={sourceOf}
+      onShowLine={onShowLine}
+      onEmpty={focusComposer}
+    />
+  );
+  const statusLine = (
+    <SuggestionStatusLine
+      status={suggest}
+      onChooseModel={() => (onOpenSettingsAt ?? onOpenSettings)("llm")}
+    />
+  );
+  const suggested = pendingKinds(suggestions.pending);
 
   // Nudge: shown from 80 % of the current budget until "Wrap up", "+5 min" or the item ends; at most
   // once per item and budget. Dismissals last for this session.
@@ -273,6 +349,7 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
               busy={recording.busy}
               onPause={() => void recording.pause()}
               onResume={() => void recording.start()}
+              extra={cloudChip ? <CloudSuggestChip /> : null}
             />
           </>
         }
@@ -326,6 +403,9 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
             initialScroll={feedScroll}
             onOpenSettings={onOpenSettings}
             hidden={hidden}
+            marks={marks}
+            highlight={highlight}
+            onMark={onMark}
             tabs={
               narrow
                 ? {
@@ -338,6 +418,7 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
                           counts={countByKind(captures.captures)}
                           kind={captureKind}
                           onKind={setCaptureType}
+                          suggested={suggested}
                         />
                         <CaptureList
                           meeting={meeting}
@@ -345,6 +426,7 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
                           kind={captureKind}
                           target={captureTarget}
                           onDeleted={focusComposer}
+                          top={pin}
                         />
                       </div>
                     ),
@@ -364,6 +446,7 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
               onKind={setCaptureType}
               target={captureTarget}
             />
+            {statusLine}
           </div>
         ) : (
           <div className="live__right">
@@ -374,6 +457,9 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
               onKind={setCaptureType}
               target={captureTarget}
               composerRef={composerRef}
+              pin={pin}
+              status={statusLine}
+              suggested={suggested}
             />
           </div>
         )}

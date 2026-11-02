@@ -1,5 +1,7 @@
-//! Builds the language model engine from the `languageModel` setting and runs the settings view's
-//! "Test". No meeting feature uses the engine yet; nothing in the recording pipeline can reach it.
+//! Builds the language model engine from the `languageModel` setting, runs the settings view's "Test",
+//! and runs the requests of capture suggestions ([`LanguageModelService::run_task`], job 019). The
+//! recording pipeline itself never reaches the engine: the suggester takes the transcript from the
+//! core's events on its own thread.
 //!
 //! - [`build_engine`] is the factory: `none` builds nothing ([`LlmError::NotConfigured`], without
 //!   touching the network, the keychain or a model file), `local` asks the [`LocalLlmProvider`],
@@ -17,7 +19,8 @@ use serde::Serialize;
 
 use crate::engines::claude::{ClaudeLanguageModel, ClaudeModel, Transport};
 use crate::engines::llm::{
-    run_cancellable, CancelToken, LanguageModel, LlmError, LlmRequest, ScriptedLanguageModel,
+    run_cancellable, CancelToken, LanguageModel, LlmError, LlmReply, LlmRequest,
+    ScriptedLanguageModel,
 };
 use crate::engines::models::{self, LlmModelList, ModelLocation};
 use crate::secrets::SecretStore;
@@ -234,6 +237,30 @@ impl LanguageModelService {
                 Err(e)
             }
         }
+    }
+
+    /// One request of a meeting feature (capture suggestions, job 019) through the chosen engine,
+    /// cancellable. `Busy` while the settings view's Test runs; `NotConfigured` for "Off", without
+    /// touching the network, the keychain or a model file. Blocks: call it off the UI thread.
+    pub fn run_task(
+        &self,
+        settings: &Settings,
+        req: &LlmRequest,
+        cancel: &CancelToken,
+    ) -> Result<LlmReply, LlmError> {
+        if self
+            .running
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+        {
+            return Err(LlmError::Busy);
+        }
+        if matches!(settings.language_model, LanguageModelSetting::None) {
+            return Err(LlmError::NotConfigured);
+        }
+        let engine = build_engine(&settings.language_model, settings.claude_model, &self.deps)?;
+        run_cancellable(engine, req, cancel)
     }
 
     /// "Cancel test": the running test returns `Cancelled` within a second.

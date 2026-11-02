@@ -19,6 +19,7 @@ pub mod secrets;
 pub mod settings;
 pub mod speakers;
 pub mod store;
+pub mod suggestions;
 pub mod transcript;
 
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -27,7 +28,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{Emitter, Manager, RunEvent, State};
 
-use captures::{CaptureChange, CaptureError, CaptureSaved, NewCapture};
+use captures::{CaptureChange, CaptureError, CaptureSaved, NewCapture, RestoreRequest, UndoCopies};
 use crypto::KeychainKeyProvider;
 use engines::audio::{AudioSource, FakeAudioSource};
 use engines::claude::UreqTransport;
@@ -59,6 +60,9 @@ use settings::{
 };
 use speakers::{GuestAdded, LineTarget, SpeakerError, SpeakerState};
 use store::{FileMeetingStore, LockedMeetingStore, MeetingStore, MemoryMeetingStore, StoreError};
+use suggestions::{
+    AppEngine, CaptureSuggester, Confirm, SuggesterSink, SuggestionEvents, SuggestionsState,
+};
 use transcript::{
     LockedTranscriptStore, MemoryTranscriptStore, Segment, TranscriptError, TranscriptStore,
 };
@@ -101,9 +105,13 @@ pub struct AppState {
     recorder: Recorder,
     /// The opt-in phone web view; closed unless a person opened it during a recording.
     phone: Arc<PhoneViewServer>,
-    settings: SettingsService,
-    /// The language model engine; only the settings view's "Test" uses it in this version.
-    llm: LanguageModelService,
+    settings: Arc<SettingsService>,
+    /// The language model engine: the settings view's "Test" and the capture suggestions.
+    llm: Arc<LanguageModelService>,
+    /// Capture suggestions from the transcript of the recording meeting (job 019).
+    suggester: Arc<CaptureSuggester>,
+    /// The capture each meeting removed last, for "Undo" (memory only).
+    kept: UndoCopies,
     /// Where meetings and transcripts are stored, shown read-only in the settings.
     storage_folder: String,
     smoke: bool,
@@ -358,6 +366,11 @@ pub fn save_from_ui(
 // Async: never on the main thread, so a stop in progress cannot freeze the window.
 #[tauri::command(async)]
 fn save_meeting(state: State<'_, AppState>, meeting: Meeting) -> Result<u64, SaveError> {
+    if meeting.run.as_ref().is_some_and(|r| r.ended_at.is_some()) {
+        // The end of the meeting drops its suggestions and its Undo copy.
+        state.suggester.meeting_ended(&meeting.id);
+        state.kept.forget(&meeting.id);
+    }
     save_from_ui(
         state.store.as_ref(),
         &state.recorder,
@@ -504,18 +517,76 @@ fn delete_capture(
     capture_id: String,
 ) -> Result<CaptureSaved, CaptureError> {
     let _edit = state.edit();
-    captures::delete_capture(state.store.as_ref(), &meeting_id, &capture_id, now_ms())
+    captures::delete_capture(
+        state.store.as_ref(),
+        &state.kept,
+        &meeting_id,
+        &capture_id,
+        now_ms(),
+    )
 }
 
-/// "Undo" of a delete: the capture comes back with its original id, time and item.
+/// "Undo" of a delete: the core puts back its own copy of the capture it removed. The request names
+/// the meeting and the capture only; a capture body sent along is refused ([`RestoreRequest`]).
 #[tauri::command(async)]
 fn restore_capture(
     state: State<'_, AppState>,
-    meeting_id: String,
-    capture: model::Capture,
+    restore: RestoreRequest,
 ) -> Result<CaptureSaved, CaptureError> {
     let _edit = state.edit();
-    captures::restore_capture(state.store.as_ref(), &meeting_id, capture, now_ms())
+    captures::restore_capture(
+        state.store.as_ref(),
+        &state.kept,
+        &restore.meeting_id,
+        &restore.capture_id,
+        now_ms(),
+    )
+}
+
+/// The waiting capture suggestions of a meeting (job 019).
+#[tauri::command(async)]
+fn load_suggestions(state: State<'_, AppState>, meeting_id: String) -> SuggestionsState {
+    state.suggester.state(&meeting_id)
+}
+
+/// Bestätigen: a person's tap stores the suggestion (or their edit of it) as a capture.
+#[tauri::command(async)]
+fn confirm_suggestion(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    confirm: Confirm,
+) -> Result<CaptureSaved, CaptureError> {
+    let _edit = state.edit();
+    state
+        .suggester
+        .confirm(state.store.as_ref(), &meeting_id, confirm, now_ms())
+}
+
+/// Verwerfen: the suggestion goes for this meeting.
+#[tauri::command(async)]
+fn dismiss_suggestion(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    suggestion_id: String,
+) -> Result<SuggestionsState, CaptureError> {
+    state.suggester.dismiss(&meeting_id, &suggestion_id)
+}
+
+/// Undo of a confirm: the capture goes and the suggestion waits again.
+#[tauri::command(async)]
+fn unconfirm_suggestion(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    capture_id: String,
+) -> Result<CaptureSaved, CaptureError> {
+    let _edit = state.edit();
+    state.suggester.unconfirm(
+        state.store.as_ref(),
+        &state.kept,
+        &meeting_id,
+        &capture_id,
+        now_ms(),
+    )
 }
 
 #[tauri::command(async)]
@@ -546,9 +617,14 @@ fn update_setting(
     state: State<'_, AppState>,
     change: serde_json::Value,
 ) -> Result<SettingsUpdate, SettingsError> {
+    let before = state.settings.current().language_model;
     let update = state.settings.update(&change, &state.catalog())?;
     // A local model that is no longer chosen leaves memory.
     state.llm.setting_changed(&update.settings.language_model);
+    if update.settings.language_model != before {
+        // A running suggestion request is cancelled; the next one uses the new choice.
+        state.suggester.setting_changed();
+    }
     let _ = app.emit(EVENT_SETTINGS, &update.settings);
     Ok(update)
 }
@@ -690,6 +766,14 @@ impl EventSink for ClosesPhoneView {
     }
 }
 
+/// The window reads the suggestions with `load_suggestions` (no core event of its own: the list of
+/// core events is pinned in `src/config.test.ts`).
+struct ReadByCommand;
+
+impl SuggestionEvents for ReadByCommand {
+    fn suggestions(&self, _: &SuggestionsState) {}
+}
+
 struct TauriPhoneEvents(tauri::AppHandle);
 
 impl PhoneEvents for TauriPhoneEvents {
@@ -783,7 +867,7 @@ pub fn run() {
                     Err(e) => return Err(Box::new(e)),
                 }
             };
-            let settings = SettingsService::open(settings_store);
+            let settings = Arc::new(SettingsService::open(settings_store));
             let fake_audio = smoke || env_is(ENV_AUDIO, "fake");
             let audio: engines::AudioFactory = if fake_audio {
                 Box::new(|| Box::new(FakeAudioSource::demo()) as Box<dyn AudioSource>)
@@ -833,12 +917,22 @@ pub fn run() {
             } else {
                 Arc::new(KeychainSecretStore::new(app.config().identifier.clone()))
             };
-            let llm = LanguageModelService::new(EngineDeps {
+            let llm = Arc::new(LanguageModelService::new(EngineDeps {
                 local,
                 transport: Arc::new(UreqTransport::new()),
                 secrets: secret_store,
                 fake: fake_llm.then_some(scripted),
-            });
+            }));
+            let suggester = Arc::new(CaptureSuggester::new(
+                Arc::new(AppEngine {
+                    llm: llm.clone(),
+                    settings: settings.clone(),
+                }),
+                store.clone(),
+                Arc::new(ReadByCommand),
+                suggestions::CADENCE,
+                now_ms,
+            ));
             // The phone view's server runs on Tauri's tokio runtime; it opens no port until asked.
             let phone = Arc::new(PhoneViewServer::new(
                 tauri::async_runtime::handle().inner().clone(),
@@ -850,7 +944,10 @@ pub fn run() {
                 stt,
                 transcripts,
                 Arc::new(ClosesPhoneView {
-                    inner: Arc::new(TauriEvents(app.handle().clone())),
+                    inner: Arc::new(SuggesterSink {
+                        inner: Arc::new(TauriEvents(app.handle().clone())),
+                        suggester: suggester.clone(),
+                    }),
                     phone: phone.clone(),
                 }),
                 now_ms,
@@ -863,6 +960,8 @@ pub fn run() {
                 phone,
                 settings,
                 llm,
+                suggester,
+                kept: UndoCopies::new(),
                 storage_folder,
                 smoke,
                 edits: Mutex::new(()),
@@ -900,6 +999,10 @@ pub fn run() {
             update_capture,
             delete_capture,
             restore_capture,
+            load_suggestions,
+            confirm_suggestion,
+            dismiss_suggestion,
+            unconfirm_suggestion,
             load_settings,
             update_setting,
             list_input_devices,

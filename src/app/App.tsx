@@ -4,7 +4,7 @@ import { AgendaSetup } from "../features/agenda/AgendaSetup";
 import { useMeeting } from "../features/agenda/useMeeting";
 import { LiveView } from "../features/live/LiveView";
 import { isRunning } from "../features/live/run";
-import { SettingsView } from "../features/settings/SettingsView";
+import { SettingsView, type Section } from "../features/settings/SettingsView";
 import { SettingsProvider } from "../features/settings/useSettings";
 import { SETTINGS_BUTTON, TopBar } from "./TopBar";
 
@@ -26,9 +26,18 @@ function Shell() {
   const defaultTitle = useCallback(() => t("meeting.defaultTitle"), [t]);
   const state = useMeeting(defaultTitle);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<Section>("audio");
   const returnFocus = useRef(false);
 
-  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const openSettings = useCallback(() => {
+    setSettingsSection("audio");
+    setSettingsOpen(true);
+  }, []);
+  // "Sprachmodell wählen" under the composer opens the language model section (job 019).
+  const openSettingsAt = useCallback((section: Section) => {
+    setSettingsSection(section);
+    setSettingsOpen(true);
+  }, []);
   const closeSettings = useCallback(() => {
     returnFocus.current = true;
     setSettingsOpen(false);
@@ -67,6 +76,7 @@ function Shell() {
             meeting={live}
             state={state}
             onOpenSettings={openSettings}
+            onOpenSettingsAt={openSettingsAt}
             hidden={settingsOpen}
           />
         ) : (
@@ -81,6 +91,7 @@ function Shell() {
           origin={live ? "live" : "setup"}
           meetingTitle={live?.title ?? state.meeting?.title}
           onBack={closeSettings}
+          initialSection={settingsSection}
         />
       ) : null}
     </div>
