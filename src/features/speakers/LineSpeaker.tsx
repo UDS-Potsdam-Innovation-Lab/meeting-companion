@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { useI18n } from "../../i18n";
@@ -20,6 +21,8 @@ interface Props {
   speakers: Speakers;
   open: boolean;
   onToggle: (open: boolean) => void;
+  /** After the time: the line's suggestion chip (job 019). */
+  chip?: ReactNode;
 }
 
 /**
@@ -27,7 +30,7 @@ interface Props {
  * ("Voice B", muted) while nobody is confirmed, or an empty circle. It is a button that opens the
  * non-modal "Who said this?" picker for this line only, closed by Escape or a click outside.
  */
-export function LineSpeaker({ line, speakers, open, onToggle }: Props) {
+export function LineSpeaker({ line, speakers, open, onToggle, chip }: Props) {
   const { t, locale } = useI18n();
   const trigger = useRef<HTMLButtonElement>(null);
   const time = formatClock(line.at, locale);
@@ -79,6 +82,7 @@ export function LineSpeaker({ line, speakers, open, onToggle }: Props) {
         <time className="transcript-line__meta" dateTime={new Date(line.at).toISOString()}>
           {time}
         </time>
+        {chip}
       </div>
       {open && line.seq !== undefined ? (
         <LinePicker

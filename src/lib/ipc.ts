@@ -642,7 +642,8 @@ export function restoreCapture(meetingId: string, captureId: string): Promise<Ca
 
 // ---- capture suggestions (job 019) -------------------------------------------------------------------
 // The core asks the chosen language model about the transcript and keeps the waiting suggestions in
-// memory. Nothing becomes a capture until a person taps Bestätigen. Suggestion text is model output:
+// memory; the UI reads them with `load_suggestions` (no event of their own). Nothing becomes a capture
+// until a person taps Bestätigen. Suggestion text is model output:
 // rendered as text only.
 
 /** A suggestion waiting for a person. */
@@ -672,8 +673,6 @@ export interface ConfirmSuggestion {
   edit?: CaptureChange;
 }
 
-export const EVENT_SUGGESTIONS = "capture-suggestions";
-
 function suggestionsState(s: unknown, meetingId: string): SuggestionsState {
   const st = s as Partial<SuggestionsState> | undefined;
   const kind = (st?.error as { kind?: unknown } | null | undefined)?.kind;
@@ -699,20 +698,12 @@ export function confirmSuggestion(meetingId: string, confirm: ConfirmSuggestion)
 
 /** Verwerfen: the suggestion goes for this meeting. */
 export async function dismissSuggestion(meetingId: string, suggestionId: string): Promise<SuggestionsState> {
-  return suggestionsState(
-    await captureCommand("dismiss_suggestion", { meetingId, suggestionId }),
-    meetingId,
-  );
+  return suggestionsState(await captureCommand("dismiss_suggestion", { meetingId, suggestionId }), meetingId);
 }
 
 /** Undo of a confirm: the capture goes and the suggestion waits again. */
 export function unconfirmSuggestion(meetingId: string, captureId: string): Promise<CaptureSaved> {
   return captureCommand("unconfirm_suggestion", { meetingId, captureId });
-}
-
-/** Calls `handler` whenever the waiting suggestions of a meeting change. */
-export function onSuggestions(handler: (s: SuggestionsState) => void): () => void {
-  return subscribe<SuggestionsState>(EVENT_SUGGESTIONS, (s) => handler(suggestionsState(s, s.meetingId)));
 }
 
 export async function listSpeakerModels(): Promise<SpeakerModelList> {

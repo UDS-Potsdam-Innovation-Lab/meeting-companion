@@ -1,6 +1,6 @@
 // The right column of frames 02/16 (job 018): kind tabs, the list, the Undo notice and the composer.
 // The parts live in their own modules; this one puts the column together.
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { useI18n } from "../../i18n";
 import type { CaptureType } from "../../lib/ipc";
 import { CAPTURE_KINDS } from "../../lib/ipc";
@@ -22,10 +22,13 @@ export function CaptureTabs({
   counts,
   kind,
   onKind,
+  suggested,
 }: {
   counts: KindCounts;
   kind: CaptureType;
   onKind: (k: CaptureType) => void;
+  /** Kinds with a suggestion waiting: a dot on the tab (job 019). */
+  suggested?: ReadonlySet<CaptureType>;
 }) {
   const { t, tp } = useI18n();
   return (
@@ -44,6 +47,11 @@ export function CaptureTabs({
             {counts[k]}
           </span>
           <span className="visually-hidden">{tp("captures.tab.count", counts[k])}</span>
+          {suggested?.has(k) ? (
+            <span className="capture-tabs__dot" data-testid={`suggest-dot-${k}`}>
+              <span className="visually-hidden">{t("captures.suggest.pendingTab")}</span>
+            </span>
+          ) : null}
         </button>
       ))}
     </div>
@@ -55,19 +63,29 @@ export function CaptureTabs({
 export interface CapturesColumnProps extends ComposerProps {
   /** Focus target after a delete or when the notice goes: the composer field. */
   composerRef: RefObject<HTMLTextAreaElement | null>;
+  /** The pinned suggestion of the open tab (job 019). */
+  pin?: ReactNode;
+  /** The status line under the composer (job 019). */
+  status?: ReactNode;
+  suggested?: ReadonlySet<CaptureType>;
 }
 
 /** Frame 02/16 right column: tabs with counts, the cards, the Undo notice and the composer, pinned. */
 export function CapturesColumn(props: CapturesColumnProps) {
   const { t } = useI18n();
-  const { meeting, captures, kind, onKind, target, composerRef } = props;
+  const { meeting, captures, kind, onKind, target, composerRef, pin, status, suggested } = props;
   const focusComposer = () => composerRef.current?.focus();
   return (
     <section className="captures-column" aria-labelledby="captures-heading" data-testid="captures-column">
       <h2 id="captures-heading" className="visually-hidden">
         {t("captures.heading")}
       </h2>
-      <CaptureTabs counts={countByKind(captures.captures)} kind={kind} onKind={onKind} />
+      <CaptureTabs
+        counts={countByKind(captures.captures)}
+        kind={kind}
+        onKind={onKind}
+        suggested={suggested}
+      />
       {captures.loadFailed ? (
         <p className="banner banner--error" role="alert">
           {t("captures.loadFailed")}
@@ -79,6 +97,7 @@ export function CapturesColumn(props: CapturesColumnProps) {
         kind={kind}
         target={target}
         onDeleted={focusComposer}
+        top={pin}
       />
       <div className="captures-column__bottom">
         <UndoNotice meeting={meeting} captures={captures} onGone={focusComposer} />
@@ -90,6 +109,7 @@ export function CapturesColumn(props: CapturesColumnProps) {
           onKind={onKind}
           target={target}
         />
+        {status}
       </div>
     </section>
   );

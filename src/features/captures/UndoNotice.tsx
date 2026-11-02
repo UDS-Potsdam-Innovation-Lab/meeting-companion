@@ -52,9 +52,11 @@ export function UndoNotice({
   if (notice.type === "saved") {
     title = savedAnnouncement(i18n, meeting, c);
     const owner = c.owner ? meeting.participants.find((p) => p.id === c.owner)?.name : undefined;
-    const parts = [owner, c.due ? t("captures.dueOn", { date: formatDue(c.due, locale) }) : undefined].filter(
-      Boolean,
-    );
+    const parts = [
+      c.source === "suggested" ? t("captures.notice.fromSuggestion") : undefined,
+      owner,
+      c.due ? t("captures.dueOn", { date: formatDue(c.due, locale) }) : undefined,
+    ].filter(Boolean);
     if (parts.length) sub = parts.join(" · ");
   } else if (notice.type === "deleted") {
     title = t("captures.notice.deleted", { kind });

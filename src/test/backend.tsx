@@ -6,12 +6,16 @@ import { App } from "../app/App";
 import { I18nProvider } from "../i18n";
 import { ClockProvider, FakeClock, systemClock, type Clock } from "../lib/clock";
 import type { Meeting } from "../features/agenda/model";
-import { fakeCaptureCommand, fakeMemory, isCaptureCommand, type FakeMemory } from "../features/captures/fakeCore";
+import {
+  fakeCaptureCommand,
+  fakeMemory,
+  isCaptureCommand,
+  type FakeMemory,
+} from "../features/captures/fakeCore";
 import {
   CAPTURE_OFF,
   DEFAULT_SETTINGS,
   EVENT_SETTINGS,
-  EVENT_SUGGESTIONS,
   MIC_TEST_OFF,
   type CaptureState,
   type MicTestError,
@@ -149,7 +153,7 @@ export interface FakeCore {
   captures: () => Capture[];
   /** What the fake core keeps in memory: the Undo copy and the suggestions. */
   memory: FakeMemory;
-  /** Offers suggestions (and an error) as the core's suggester would, with its event. */
+  /** Offers suggestions (and an error) as the core's suggester would; the UI reads them by command. */
   suggest: (pending: CaptureSuggestion[], error?: LlmError | null) => void;
 }
 
@@ -172,11 +176,8 @@ export function fakeCore(
     suggest: (pending, error = null) => {
       core.memory.pending = structuredClone(pending);
       core.memory.error = error;
-      const meetingId = core.last()?.id ?? load.meeting?.id ?? "";
-      send(EVENT_SUGGESTIONS, { meetingId, pending, error });
     },
   };
-  core.memory.emit = (state) => send(EVENT_SUGGESTIONS, state);
   let captured: Capture[] = structuredClone(rec.captures ?? []);
   const send = (event: string, payload: unknown) => {
     core.events.push({ event, payload: structuredClone(payload) });

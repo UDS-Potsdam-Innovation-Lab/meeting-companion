@@ -59,8 +59,6 @@ export interface FakeMemory {
   /** Confirmed suggestions by capture id (for Undo of a confirm). */
   confirmed: Record<string, CaptureSuggestion>;
   error: LlmError | null;
-  /** The core's `capture-suggestions` event. */
-  emit?: (state: SuggestionsState) => void;
 }
 
 export function fakeMemory(pending: CaptureSuggestion[] = [], error: LlmError | null = null): FakeMemory {
@@ -121,7 +119,6 @@ export function fakeCaptureCommand(
     store.put({ ...m, captures });
     return { capture: structuredClone(capture), captures: structuredClone(captures) };
   };
-  const changed = () => mem.emit?.(suggestionState(m.id, mem));
   let n = list.length + 1;
   const make = store.newId ?? (() => `c-${n++}`);
   const newId = () => {
@@ -212,13 +209,11 @@ export function fakeCaptureCommand(
       const out = write([...list, capture], capture);
       mem.pending = mem.pending.filter((p) => p.id !== s.id);
       mem.confirmed[capture.id] = s;
-      changed();
       return out;
     }
     case "dismiss_suggestion": {
       if (!mem.pending.some((p) => p.id === args.suggestionId)) throw unknownSuggestion;
       mem.pending = mem.pending.filter((p) => p.id !== args.suggestionId);
-      changed();
       return suggestionState(m.id, mem);
     }
     case "unconfirm_suggestion": {
@@ -227,7 +222,6 @@ export function fakeCaptureCommand(
       if (back) {
         delete mem.confirmed[args.captureId as string];
         mem.pending = [...mem.pending, back].sort((a, b) => a.createdAt - b.createdAt);
-        changed();
       }
       return out;
     }

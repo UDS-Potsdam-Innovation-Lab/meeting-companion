@@ -57,7 +57,12 @@ export interface Captures {
  * core has answered: the list is replaced by the core's list after every command. Notices expire by
  * the clock (8 s for Undo), so tests run them on a fake clock.
  */
-export function useCaptures(meetingId: string, onSaved?: (capture: Capture) => void): Captures {
+export function useCaptures(
+  meetingId: string,
+  onSaved?: (capture: Capture) => void,
+  /** Undo of a confirm put a suggestion back: the view reads the suggestions again. */
+  onSuggestionBack?: () => void,
+): Captures {
   const clock = useClock();
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -67,9 +72,11 @@ export function useCaptures(meetingId: string, onSaved?: (capture: Capture) => v
   const [editing, setEditing] = useState<string | null>(null);
   const seq = useRef(0);
   const savedRef = useRef(onSaved);
+  const backRef = useRef(onSuggestionBack);
   useEffect(() => {
     savedRef.current = onSaved;
-  }, [onSaved]);
+    backRef.current = onSuggestionBack;
+  }, [onSaved, onSuggestionBack]);
 
   useEffect(() => {
     let cancelled = false;
@@ -177,7 +184,10 @@ export function useCaptures(meetingId: string, onSaved?: (capture: Capture) => v
               capture.source === "suggested"
                 ? unconfirmSuggestion(meetingId, capture.id)
                 : deleteCapture(meetingId, capture.id),
-            (c) => show("removed", c),
+            (c) => {
+              show("removed", c);
+              if (c.source === "suggested") backRef.current?.();
+            },
           )
         : await run(
             () => restoreCapture(meetingId, capture.id),

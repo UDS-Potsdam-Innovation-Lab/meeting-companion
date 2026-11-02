@@ -22,7 +22,12 @@ import {
   SPEAKER_TRANSCRIPT,
 } from "../features/agenda/fixtures";
 import { isMeetingValid, type Meeting } from "../features/agenda/model";
-import { fakeCaptureCommand, fakeMemory, isCaptureCommand, type FakeMemory } from "../features/captures/fakeCore";
+import {
+  fakeCaptureCommand,
+  fakeMemory,
+  isCaptureCommand,
+  type FakeMemory,
+} from "../features/captures/fakeCore";
 import {
   CONFIRMED_DECISION,
   FREE_CAPTURES,
@@ -43,7 +48,6 @@ import {
   EVENT_PHONE_VIEW,
   EVENT_SEGMENT,
   EVENT_SETTINGS,
-  EVENT_SUGGESTIONS,
   EVENT_SWITCHED,
   EVENT_VOICE,
   MIC_TEST_OFF,
@@ -335,7 +339,11 @@ const SUGGEST: Partial<
   >
 > = {
   "live-suggest": { model: "claude", pending: [SUGGEST_DECISION, SUGGEST_TODO], captures: LIVE_CAPTURES },
-  "live-suggest-edit": { model: "local", pending: [SUGGEST_TODO], captures: [...LIVE_CAPTURES, CONFIRMED_DECISION] },
+  "live-suggest-edit": {
+    model: "local",
+    pending: [SUGGEST_TODO],
+    captures: [...LIVE_CAPTURES, CONFIRMED_DECISION],
+  },
   "live-suggest-many": {
     model: "local",
     pending: [SUGGEST_DECISION, SUGGEST_DECISION_2],
@@ -376,7 +384,6 @@ function seed(fixture: Fixture, dark: boolean) {
   if (fixture === "live-free-captures") meetings[0]!.captures = structuredClone(FREE_CAPTURES);
   const suggest = SUGGEST[fixture];
   memory = fakeMemory(suggest?.pending ?? [], suggest?.error ? { kind: suggest.error } : null);
-  memory.emit = (state) => void emit(EVENT_SUGGESTIONS, state);
   if (suggest) {
     meetings[0]!.captures = structuredClone(suggest.captures);
     meetings[0]!.speakers = structuredClone(SUGGEST_SPEAKERS);

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useI18n, type MessageKey } from "../../i18n";
 import type { Capture, CaptureType } from "../../lib/ipc";
 import { Avatar } from "../../ui/Avatar";
@@ -20,10 +20,12 @@ interface ListProps {
   target: Target;
   /** Called after a delete, so focus can go somewhere that still exists. */
   onDeleted: () => void;
+  /** Above the cards: the pinned suggestion of the tab (job 019). */
+  top?: ReactNode;
 }
 
 /** Cards of the open kind, grouped by item or topic (running first, newest first); one inline editor. */
-export function CaptureList({ meeting, captures, kind, target, onDeleted }: ListProps) {
+export function CaptureList({ meeting, captures, kind, target, onDeleted, top }: ListProps) {
   const { t } = useI18n();
   const { editing, setEditing } = captures;
   const free = meeting.mode === "free";
@@ -49,6 +51,7 @@ export function CaptureList({ meeting, captures, kind, target, onDeleted }: List
   if (total === 0) {
     return (
       <div className="capture-list capture-list--empty">
+        {top}
         <div className="capture-empty">
           <p className="capture-empty__title">{t("captures.empty.title")}</p>
           <p className="capture-empty__body">{t("captures.empty.body")}</p>
@@ -59,6 +62,7 @@ export function CaptureList({ meeting, captures, kind, target, onDeleted }: List
   const none = groups.every((g) => g.captures.length === 0);
   return (
     <div className="capture-list" ref={listRef} tabIndex={-1} data-testid="capture-list">
+      {top}
       {groups.map((g) => {
         const headingId = `capture-group-${g.key.replace(/[^A-Za-z0-9-]/g, "-")}`;
         return (
@@ -140,6 +144,12 @@ function CaptureCard({
           {formatClock(c.createdAt, locale)}
         </time>
         {c.editedAt ? <span className="capture-card__edited">{t("captures.edited")}</span> : null}
+        {c.source === "suggested" ? (
+          <span className="capture-card__suggested" data-testid="from-suggestion">
+            <span aria-hidden="true">{t("captures.suggest.glyph")}</span>
+            <span className="visually-hidden">{t("captures.fromSuggestion")}</span>
+          </span>
+        ) : null}
         {justSaved ? (
           <span className="capture-card__saved" data-testid="just-saved">
             {t("captures.justSaved")}
