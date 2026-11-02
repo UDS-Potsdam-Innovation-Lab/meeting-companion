@@ -12,7 +12,7 @@ while running and `[x] … → <job-id> (<stage>)` when done.
 - [x] Speaker threshold tuning (follow-up of 013): raise `SAME_VOICE` from 0.5 to ~0.55 — 013's sweep merged two German female speakers at 0.5 (name-round DER 16.7 % → 2.2 % at 0.55, others unchanged; 0.60 worse); re-baseline thresholds.json → 015-speaker-threshold (merged)
 - [x] Language model engine: local model or Claude API behind one interface, API key in the OS keychain → 011-language-model-engine (merged)
 - [x] Local language model runtime (follow-up of 011): fill the `LocalLlmProvider` slot — whisper-rs and llama-cpp-2 each ship their own libggml under the same names, so one copy silently wins at link time; needs one shared ggml build, or llama-server on loopback (own security review, no vendored HTTP client) → 016-local-llm-runtime (merged)
-- [ ] Captures (frame 02, right column): quick capture of decisions, to-dos and questions; suggestions from the transcript that a person confirms, edits or dismisses
+- [~] Captures (frame 02, right column): quick capture of decisions, to-dos and questions; suggestions from the transcript that a person confirms, edits or dismisses
 - [ ] Live mind map (frame 03): topics grouped by agenda item, decisions/to-dos/questions/parked as leaves, topic details with transcript links
 - [ ] Wrap-up (frame 04): summary, decisions, to-dos with owner and due date, time report; export as Markdown and PDF; in agenda-free meetings, seed the next meeting's agenda from the topics
 - [ ] Team review (frame 08): notes with suggested edits, owners accept / re-date / hand over their to-dos; on a phone via QR code over the local network
