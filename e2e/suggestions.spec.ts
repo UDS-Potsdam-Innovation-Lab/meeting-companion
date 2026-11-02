@@ -241,3 +241,53 @@ test("AC5 nothing leaves the page: the mock build makes no request to another or
   const origin = new URL(page.url()).origin;
   expect(requests.filter((u) => new URL(u).origin !== origin)).toEqual([]);
 });
+
+test.describe("round 2 (UI review): tab labels stay on one line with the dot at 375 px", () => {
+  for (const locale of ["en", "de"] as const) {
+    test(`375×812 (${locale})`, async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 812 });
+      await openAt(page, "live-suggest", { locale });
+      await capturedTab(page);
+      // live-suggest has a decision and a to-do waiting: two tabs carry the dot.
+      await expect(page.locator(".capture-tabs__dot")).toHaveCount(2);
+      const tabs = await page.evaluate(() => {
+        const row = document.querySelector(".capture-tabs")!.getBoundingClientRect();
+        return Array.from(document.querySelectorAll<HTMLElement>(".capture-tabs__tab")).map((tab) => {
+          const r = tab.getBoundingClientRect();
+          const name = tab.querySelector(".capture-tabs__name")!;
+          const dot = tab.querySelector(".capture-tabs__dot")?.getBoundingClientRect();
+          return {
+            label: tab.textContent,
+            nameLines: name.getClientRects().length,
+            nameHeight: name.getBoundingClientRect().height,
+            fits: tab.scrollWidth <= tab.clientWidth + 0.5,
+            inRow: r.left >= row.left - 0.5 && r.right <= row.right + 0.5,
+            dotInside:
+              !dot ||
+              (dot.left >= r.left && dot.right <= r.right && dot.top >= r.top && dot.bottom <= r.bottom),
+          };
+        });
+      });
+      for (const t of tabs) {
+        expect(t.nameLines, `${t.label} wraps`).toBe(1);
+        expect(t.nameHeight, `${t.label} wraps`).toBeLessThan(24);
+        expect(t.fits, `${t.label} overflows its tab`).toBe(true);
+        expect(t.inRow, `${t.label} leaves the tab row`).toBe(true);
+        expect(t.dotInside, `${t.label}: dot clipped`).toBe(true);
+      }
+    });
+  }
+});
+
+test("round 2 (UI review): at 1280 the cloud chip sits after the device chip, before Pause (frame 21g)", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openAt(page, "live-suggest");
+  const x = async (s: string) => (await page.locator(s).first().boundingBox())!;
+  const device = await x("[data-testid='device-chip']");
+  const chip = await x("[data-testid='suggest-cloud-chip']");
+  const pause = await x("[data-rec-action]");
+  expect(device.x + device.width).toBeLessThanOrEqual(chip.x);
+  expect(chip.x + chip.width).toBeLessThanOrEqual(pause.x);
+});

@@ -344,12 +344,12 @@ export function LiveView({ meeting, state, onOpenSettings, onOpenSettingsAt, hid
         actions={
           <>
             {free ? <span className="mode-chip">{t("free.chip")}</span> : null}
-            {cloudChip ? <CloudSuggestChip /> : null}
             <RecordingControls
               capture={recording.capture}
               busy={recording.busy}
               onPause={() => void recording.pause()}
               onResume={() => void recording.start()}
+              extra={cloudChip ? <CloudSuggestChip /> : null}
             />
           </>
         }

@@ -4900,13 +4900,29 @@ select {
 
 /* A suggestion waits in this tab. */
 .capture-tabs__dot {
+  flex: none;
   display: inline-block;
   width: 7px;
   height: 7px;
-  margin-left: 6px;
   border-radius: 50%;
   background: var(--accent);
-  vertical-align: middle;
+}
+
+/* Label, count and dot stay on one line (frame 21l). */
+.capture-tabs__tab {
+  white-space: nowrap;
+}
+
+@media (max-width: 479px) {
+  /* The narrow tab row gives each tab at least its one-line width; the rest is shared. */
+  .capture-tabs {
+    grid-auto-columns: minmax(min-content, 1fr);
+  }
+
+  .capture-tabs__tab {
+    gap: 4px;
+    padding: 6px 6px;
+  }
 }
 
 /* A card that came from a suggestion: "✦" after "bearbeitet". */
