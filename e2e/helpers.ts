@@ -41,7 +41,14 @@ export type Fixture =
   | "live-captures-empty"
   | "live-captures-edit"
   | "live-captures-error"
-  | "live-free-captures";
+  | "live-free-captures"
+  | "live-suggest"
+  | "live-suggest-edit"
+  | "live-suggest-many"
+  | "live-suggest-off"
+  | "live-suggest-local"
+  | "live-suggest-cloud"
+  | "live-suggest-error";
 
 /** Fixtures whose meeting is running: they open in the live view (the settings ones on top of it). */
 const LIVE_UNDER: Fixture[] = ["settings-recording", "settings-dark"];
