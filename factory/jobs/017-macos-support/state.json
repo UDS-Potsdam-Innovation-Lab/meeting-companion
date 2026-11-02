@@ -7,18 +7,18 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "build",
+  "stage": "review",
   "round": 1,
   "max_round": 3,
   "reviews": {
     "security": "pending",
-    "ux": "pending",
-    "ui": "pending",
+    "ux": "PASS",
+    "ui": "PASS",
     "code": "pending"
   },
   "history": [],
   "decision": null,
   "waiting": null,
-  "note": "Building; Jan tests on the Mac after CI is green",
-  "updated": "2026-11-02T08:48:22Z"
+  "note": "Round 1 reviews (security, code); CI green on Linux+macOS",
+  "updated": "2026-11-02T12:10:09Z"
 }
