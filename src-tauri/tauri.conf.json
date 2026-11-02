@@ -47,6 +47,7 @@
       "icons/icon.ico"
     ],
     "macOS": {
+      "minimumSystemVersion": "13.3",
       "files": {
         "Resources/de.lproj/InfoPlist.strings": "macos/de.lproj/InfoPlist.strings",
         "Resources/en.lproj/InfoPlist.strings": "macos/en.lproj/InfoPlist.strings"

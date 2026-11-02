@@ -3,7 +3,8 @@
 #
 # whisper.cpp compiles against the shared ggml (WHISPER_USE_SYSTEM_GGML=ON finds it through
 # CMAKE_PREFIX_PATH) and builds no ggml of its own. whisper-rs-sys's build script still asks rustc for
-# `static=ggml`, `static=ggml-base` and `static=ggml-cpu`, and only searches its own build folder. This
+# `static=ggml`, `static=ggml-base` and `static=ggml-cpu` (on macOS also `static=ggml-blas`, built on
+# Accelerate), and only searches its own build folder. This
 # copies the shared archives, unchanged, into that folder, so rustc finds the very same files that
 # llama-cpp-sys-2 links, and stamps the build folder with the prefix's SOURCE, so
 # `node scripts/ggml.mjs build` can find and clean an output built against another ggml.
@@ -13,8 +14,11 @@ if(NOT _mc_ggml OR NOT EXISTS "${_mc_ggml}/SOURCE")
   message(FATAL_ERROR
     "The shared ggml is missing (${_mc_ggml}): run `node scripts/ggml.mjs build` once per checkout")
 endif()
+# The same per-platform list as `archives()` in scripts/ggml.mjs (src/config.test.ts pins both).
 if(WIN32)
   set(_mc_names ggml.lib ggml-base.lib ggml-cpu.lib)
+elseif(APPLE)
+  set(_mc_names libggml.a libggml-base.a libggml-cpu.a libggml-blas.a)
 else()
   set(_mc_names libggml.a libggml-base.a libggml-cpu.a)
 endif()

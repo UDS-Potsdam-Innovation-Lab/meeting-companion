@@ -1,4 +1,4 @@
-// Checks the built app for the promises of job 016, on its symbol table (ELF, Linux CI):
+// Checks the built app for the promises of job 016, on its symbol table (ELF on Linux, Mach-O on macOS):
 //
 //   - one ggml: none of the ggml/gguf symbols below is defined more than once. whisper.cpp and llama.cpp
 //     each vendor a ggml; two copies in one binary mean one engine runs on the other's ggml.
@@ -6,13 +6,18 @@
 //   - no HTTP client: no cpp-httplib, curl or llama-server symbol (the `common` and server parts of
 //     llama.cpp stay out).
 //
-//   node scripts/ggml-check.mjs <binary>            read the symbols with `nm` (binutils)
-//   node scripts/ggml-check.mjs --symbols <file>    read a recorded `nm` listing (the tests' fixtures)
+//   node scripts/ggml-check.mjs <binary>            read the symbols with the system `nm`
+//   node scripts/ggml-check.mjs --symbols <file> [--format elf|macho]
+//                                                   read a recorded `nm` listing (the tests' fixtures)
+//
+// Mach-O (job 017): the C compiler gives every symbol a leading underscore (`_ggml_init`), so the names
+// of a Mach-O listing are read without it and the same lists apply unchanged. The format of a binary is
+// taken from its magic number; a recorded listing is ELF unless `--format macho` says otherwise.
 //
 // Exits 0 when every check holds, 1 otherwise (also when the binary has no symbol table: a stripped
 // binary cannot be checked).
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 
 /** Defined at most once: the ggml entry points both engines use, and whisper's GGUF loader. */
 export const ONE_COPY = [
@@ -38,15 +43,17 @@ export const FORBIDDEN = [
   { what: "llama-server", pattern: /llama[-_]server|server_context|server_http_context|server_routes/ },
 ];
 
-/** Parses `nm` output into `{ name, type }` (undefined symbols have type U, w or v). */
-export function parseNm(text) {
+/** Parses `nm` output into `{ name, type }` (undefined symbols have type U, w or v). For a Mach-O
+ * listing (`format` "macho") one leading underscore is removed from every name. */
+export function parseNm(text, format = "elf") {
   const symbols = [];
   for (const line of text.split("\n")) {
     const parts = line.trim().split(/\s+/);
     if (parts.length < 2) continue;
-    const name = parts[parts.length - 1];
+    const raw = parts[parts.length - 1];
     const type = parts[parts.length - 2];
     if (!/^[A-Za-z?-]$/.test(type)) continue;
+    const name = format === "macho" && raw.startsWith("_") ? raw.slice(1) : raw;
     symbols.push({ name, type });
   }
   return symbols;
@@ -74,16 +81,42 @@ export function check(symbols) {
   return problems;
 }
 
+/** "macho" for a Mach-O file (thin or universal), "elf" otherwise. */
+export function formatOf(path) {
+  let head;
+  try {
+    const fd = openSync(path, "r");
+    head = Buffer.alloc(4);
+    readSync(fd, head, 0, 4, 0);
+    closeSync(fd);
+  } catch {
+    return "elf";
+  }
+  const be = head.readUInt32BE(0);
+  const le = head.readUInt32LE(0);
+  return [0xfeedfacf, 0xfeedface].includes(le) || [0xcafebabe, 0xfeedfacf].includes(be) ? "macho" : "elf";
+}
+
 function main(argv) {
   let text;
+  let format = "elf";
   const i = argv.indexOf("--symbols");
   if (i >= 0) {
     if (!argv[i + 1]) return usage();
+    const f = argv.indexOf("--format");
+    if (f >= 0) {
+      format = argv[f + 1];
+      if (!["elf", "macho"].includes(format)) return usage();
+    }
     text = readFileSync(argv[i + 1], "utf8");
   } else {
     if (!argv[0]) return usage();
+    format = formatOf(argv[0]);
+    // GNU nm (Linux) and Apple's nm (llvm-nm) both print one `<value> <type> <name>` line per symbol and
+    // do not demangle by default; `--no-demangle` makes that explicit where it is known to exist.
+    const args = format === "macho" ? [argv[0]] : ["--no-demangle", argv[0]];
     try {
-      text = execFileSync("nm", ["--no-demangle", argv[0]], {
+      text = execFileSync("nm", args, {
         encoding: "utf8",
         maxBuffer: 1024 * 1024 * 1024,
         stdio: ["ignore", "pipe", "pipe"],
@@ -93,18 +126,18 @@ function main(argv) {
       return 1;
     }
   }
-  const problems = check(parseNm(text));
+  const problems = check(parseNm(text, format));
   for (const p of problems) console.error(`ggml-check: ${p}`);
   if (problems.length === 0) {
     console.log(
-      `ggml-check: one ggml, both engines linked, no HTTP client (${ONE_COPY.length} symbols checked)`,
+      `ggml-check: one ggml, both engines linked, no HTTP client (${ONE_COPY.length} symbols checked, ${format})`,
     );
   }
   return problems.length === 0 ? 0 : 1;
 }
 
 function usage() {
-  console.error("usage: node scripts/ggml-check.mjs <binary> | --symbols <nm-listing>");
+  console.error("usage: node scripts/ggml-check.mjs <binary> | --symbols <nm-listing> [--format elf|macho]");
   return 1;
 }
 

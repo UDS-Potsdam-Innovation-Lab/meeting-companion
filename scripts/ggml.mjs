@@ -12,6 +12,7 @@
 //   node scripts/ggml.mjs outputs   exit 1 if a sys crate output was not built against prefix/ (part of
 //                                   verify; reads only prefix/SOURCE and the target dir, no cargo, no env)
 //   node scripts/ggml.mjs path      print the prefix folder
+//   node scripts/ggml.mjs plan      print the CMake options and the archive list (--platform darwin|linux|win32)
 //
 // Both sys crates keep a copy of the archives in their build output, and cargo does not rerun their
 // build scripts when the environment from .cargo/config.toml or the prefix changes. A stale output (for
@@ -70,8 +71,8 @@ function pinnedCrate() {
   return { version: pkg.version, source, ggml };
 }
 
-/** CMake options of the shared build: static, position independent, CPU only, no OpenMP. */
-function options() {
+/** CMake options of the shared build for `platform`: static, position independent, CPU only, no OpenMP. */
+function options(platform = process.platform) {
   const opts = {
     CMAKE_BUILD_TYPE: "Release",
     BUILD_SHARED_LIBS: "OFF",
@@ -83,11 +84,41 @@ function options() {
     GGML_VULKAN: "OFF",
     GGML_BACKEND_DL: "OFF",
   };
-  // whisper-rs-sys links ggml-blas (Accelerate) on macOS; elsewhere BLAS stays off.
-  if (process.platform !== "darwin") opts.GGML_BLAS = "OFF";
+  if (platform === "darwin") {
+    // whisper-rs-sys asks rustc for `static=ggml-blas` and the Accelerate framework on macOS: the BLAS
+    // backend is built on Accelerate (ggml's Apple default, set here explicitly). Metal stays off.
+    opts.GGML_BLAS = "ON";
+    opts.GGML_BLAS_VENDOR = "Apple";
+    opts.GGML_ACCELERATE = "ON";
+    // The same oldest macOS as the app (tauri.conf.json, .cargo/config.toml), so the linker gets no
+    // objects built for a newer macOS than the binary.
+    opts.CMAKE_OSX_DEPLOYMENT_TARGET = macosMinimum();
+  } else {
+    opts.GGML_BLAS = "OFF";
+  }
   // GGML_NATIVE stays at ggml's default (as whisper-rs-sys built it before); it can be set here.
   if (process.env.GGML_NATIVE) opts.GGML_NATIVE = process.env.GGML_NATIVE;
   return opts;
+}
+
+/** bundle.macOS.minimumSystemVersion of src-tauri/tauri.conf.json. */
+function macosMinimum() {
+  const conf = JSON.parse(readFileSync(join(root, "src-tauri/tauri.conf.json"), "utf8"));
+  const version = conf.bundle?.macOS?.minimumSystemVersion;
+  if (!version) fail("src-tauri/tauri.conf.json has no bundle.macOS.minimumSystemVersion");
+  return version;
+}
+
+/**
+ * The static archives the two sys crates link from the prefix, per platform. llama-cpp-sys-2
+ * (`system-ggml-static`) links ggml, ggml-base and ggml-cpu; whisper-rs-sys links the same and, on
+ * macOS, ggml-blas. src-tauri/native/ggml/whisper-shared-ggml.cmake copies exactly this list
+ * (src/config.test.ts pins both).
+ */
+function archives(platform = process.platform) {
+  if (platform === "win32") return ["ggml.lib", "ggml-base.lib", "ggml-cpu.lib"];
+  if (platform === "darwin") return ["libggml.a", "libggml-base.a", "libggml-cpu.a", "libggml-blas.a"];
+  return ["libggml.a", "libggml-base.a", "libggml-cpu.a"];
 }
 
 function stampOf(crate) {
@@ -100,11 +131,7 @@ function stampOf(crate) {
 }
 
 function libraries() {
-  const names =
-    process.platform === "win32"
-      ? ["ggml.lib", "ggml-base.lib", "ggml-cpu.lib"]
-      : ["libggml.a", "libggml-base.a", "libggml-cpu.a"];
-  return names.map((n) => join(prefix, "lib", n));
+  return archives().map((n) => join(prefix, "lib", n));
 }
 
 function current(crate) {
@@ -236,4 +263,17 @@ if (command === "build") build();
 else if (command === "verify") verify();
 else if (command === "outputs") outputs();
 else if (command === "path") console.log(prefix);
-else fail("usage: node scripts/ggml.mjs build|verify|outputs|path [--force] [--prefix <dir>]");
+else if (command === "plan") plan();
+else
+  fail(
+    "usage: node scripts/ggml.mjs build|verify|outputs|path|plan [--force] [--prefix <dir>] [--platform <p>]",
+  );
+
+/** Prints the CMake options and the archive list for a platform as JSON (no cargo, no build). */
+function plan() {
+  const at = process.argv.indexOf("--platform");
+  const platform = at > 0 && process.argv[at + 1] ? process.argv[at + 1] : process.platform;
+  console.log(
+    JSON.stringify({ platform, options: options(platform), archives: archives(platform) }, null, 2),
+  );
+}

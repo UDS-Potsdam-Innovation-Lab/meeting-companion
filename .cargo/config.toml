@@ -15,3 +15,8 @@ WHISPER_USE_SYSTEM_GGML = { value = "ON", force = true }
 "CMAKE_PROJECT_whisper.cpp_INCLUDE" = { value = "src-tauri/native/ggml/whisper-shared-ggml.cmake", relative = true, force = true }
 # Stamps llama-cpp-sys-2's build folder, so a stale one is found and cleaned (see scripts/ggml.mjs).
 "CMAKE_PROJECT_llama.cpp_INCLUDE" = { value = "src-tauri/native/ggml/llama-shared-ggml.cmake", relative = true, force = true }
+# macOS (job 017): the oldest macOS the app runs on, for every build (`tauri dev`, `cargo test`; `tauri build`
+# sets the same from bundle.macOS.minimumSystemVersion in tauri.conf.json, and `node scripts/ggml.mjs build`
+# builds ggml for it). 13.3: ggml's BLAS and CPU code use Accelerate's new LAPACK interface
+# (ACCELERATE_NEW_LAPACK), and llama-cpp-sys-2 needs std::filesystem (10.15). Ignored on other systems.
+MACOSX_DEPLOYMENT_TARGET = "13.3"

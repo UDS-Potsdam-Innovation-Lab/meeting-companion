@@ -492,10 +492,13 @@ fn switch_to_the_system_default_keeps_recording_and_the_elapsed_time() {
         r.recorder
             .start_with(&store, "m-1", &policy(DeviceLost::SwitchToDefault))
             .unwrap();
+        // The default is opened first and the switch reported right after: wait for both (on a slow
+        // machine, such as GitHub's macOS runners, a poll can fall between the two).
         assert!(wait_until(Duration::from_secs(5), || r
             .default_counters
             .starts()
-            == 1));
+            == 1
+            && !r.events.switched.lock().unwrap().is_empty()));
         // Pulled at 1.5 s (or silent from ~0 s, detected after STALL): switched within 2 s of it.
         assert!(started.elapsed() < Duration::from_millis(1_500) + Duration::from_secs(2));
         let switched = r.events.switched.lock().unwrap().clone();

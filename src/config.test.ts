@@ -91,12 +91,12 @@ describe("AC1 CI workflow", () => {
     expect(wf.on.push?.branches).toBeUndefined();
   });
 
-  it("builds, tests and smoke-tests on Linux (macOS and Windows are deferred)", () => {
+  it("builds, tests and smoke-tests on Linux and macOS (Windows later)", () => {
     const job = Object.values(wf.jobs)[0] as {
       strategy: { matrix: { os: string[] }; "fail-fast": boolean };
       steps: { run?: string }[];
     };
-    expect(job.strategy.matrix.os).toContain("ubuntu-latest");
+    expect(job.strategy.matrix.os).toEqual(["ubuntu-latest", "macos-latest"]);
     const runs = job.steps.map((s) => s.run ?? "").join("\n");
     for (const cmd of ["npm ci", "npm run lint", "npm test", "npm run tauri build -- --no-bundle", "smoke"]) {
       expect(runs).toContain(cmd);
@@ -609,5 +609,340 @@ describe("job 016: a cached sys crate output not built against the shared ggml i
     const script = read("scripts/ggml.mjs");
     expect(script).toMatch(/function verify\(\) \{[\s\S]*?if \(!current\(crate\)\)[\s\S]*?outputs\(\);/);
     expect(script).toMatch(/function build\(\) \{[\s\S]*?cleanStale\(\);[\s\S]*?cleanStale\(\);/);
+  });
+});
+
+type Step = { name?: string; if?: string; run?: string; uses?: string };
+const ciJob = () =>
+  Object.values(parse(read(".github/workflows/ci.yml")).jobs)[0] as {
+    strategy: { matrix: { os: string[] }; "fail-fast": boolean };
+    steps: Step[];
+  };
+
+describe("AC1 (job 017) the shared ggml on macOS: Accelerate BLAS, Metal off, one archive list", () => {
+  const plan = (platform: string) => {
+    const env = { ...process.env };
+    delete env.GGML_NATIVE;
+    const r = spawnSync(process.execPath, [join(root, "scripts/ggml.mjs"), "plan", "--platform", platform], {
+      encoding: "utf8",
+      env,
+    });
+    expect(r.status, r.stderr).toBe(0);
+    return JSON.parse(r.stdout) as { options: Record<string, string>; archives: string[] };
+  };
+  /** The `_mc_names` list of whisper-shared-ggml.cmake for the branch `if(WIN32)`, `elseif(APPLE)` or `else()`. */
+  const hook = read("src-tauri/native/ggml/whisper-shared-ggml.cmake");
+  const hookList = (branch: RegExp) => {
+    const m = new RegExp(`${branch.source}\\s*\\n\\s*set\\(_mc_names ([^)]*)\\)`).exec(hook);
+    expect(m, String(branch)).not.toBeNull();
+    return m![1]!.trim().split(/\s+/);
+  };
+
+  it("builds and verifies ggml, ggml-base, ggml-cpu and ggml-blas on macOS, and the hook copies exactly those", () => {
+    const darwin = plan("darwin");
+    expect(darwin.archives).toEqual(["libggml.a", "libggml-base.a", "libggml-cpu.a", "libggml-blas.a"]);
+    expect(hookList(/elseif\(APPLE\)/)).toEqual(darwin.archives);
+    expect(darwin.options).toMatchObject({
+      GGML_BLAS: "ON",
+      GGML_BLAS_VENDOR: "Apple",
+      GGML_ACCELERATE: "ON",
+    });
+    // `verify` (current()) and the build check use the same list as the hook.
+    expect(read("scripts/ggml.mjs")).toMatch(
+      /function libraries\(\) \{\s*return archives\(\)\.map\(\(n\) => join\(prefix, "lib", n\)\);/,
+    );
+  });
+
+  it("builds ggml for the same oldest macOS as the app (tauri.conf.json, .cargo/config.toml)", () => {
+    const min = JSON.parse(read("src-tauri/tauri.conf.json")).bundle.macOS.minimumSystemVersion;
+    expect(min).toBe("13.3");
+    expect(plan("darwin").options.CMAKE_OSX_DEPLOYMENT_TARGET).toBe(min);
+    expect(read(".cargo/config.toml")).toMatch(/^MACOSX_DEPLOYMENT_TARGET = "13\.3"$/m);
+    expect(plan("linux").options.CMAKE_OSX_DEPLOYMENT_TARGET).toBeUndefined();
+  });
+
+  it("keeps the Linux and Windows lists of the hook and the script equal, without BLAS", () => {
+    expect(hookList(/else\(\)/)).toEqual(plan("linux").archives);
+    expect(hookList(/if\(WIN32\)/)).toEqual(plan("win32").archives);
+    expect(plan("linux").archives).toEqual(["libggml.a", "libggml-base.a", "libggml-cpu.a"]);
+    for (const p of ["linux", "win32"]) expect(plan(p).options.GGML_BLAS).toBe("OFF");
+  });
+
+  it("turns Metal and every other GPU backend off on every platform", () => {
+    for (const p of ["darwin", "linux", "win32"]) {
+      const { options } = plan(p);
+      for (const gpu of ["GGML_METAL", "GGML_CUDA", "GGML_VULKAN", "GGML_BACKEND_DL"])
+        expect(options[gpu], `${p} ${gpu}`).toBe("OFF");
+    }
+    // Neither crate is given a Metal feature.
+    expect(read("src-tauri/Cargo.toml")).not.toMatch(/"metal"/);
+  });
+});
+
+describe("AC2 (job 017) ggml-check on recorded macOS (Mach-O) symbol lists", () => {
+  const fixtures = join(root, "scripts/fixtures/ggml-check/macos");
+  const run = (file: string, format = "macho") =>
+    spawnSync(
+      process.execPath,
+      [join(root, "scripts/ggml-check.mjs"), "--symbols", join(fixtures, file), "--format", format],
+      { encoding: "utf8" },
+    );
+
+  it("passes the listing recorded from the macOS release app (leading underscores stripped)", () => {
+    const r = run("clean.txt");
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+    expect(read("scripts/fixtures/ggml-check/macos/clean.txt")).toMatch(/ T _ggml_init$/m);
+  });
+
+  it.each([
+    ["two-ggml.txt", /ggml_init is defined 2 times/],
+    ["no-llama.txt", /llama_model_load_from_file is missing/],
+    ["curl.txt", /curl symbols are linked: curl_easy_init/],
+  ])("fails on %s", (file, message) => {
+    const r = run(file);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(message);
+  });
+
+  it("would not find the engines in a Mach-O listing read as ELF (the underscore matters)", () => {
+    const r = run("clean.txt", "elf");
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/llama_model_load_from_file is missing/);
+  });
+
+  it("reads a binary's format from its magic number", () => {
+    const src = read("scripts/ggml-check.mjs");
+    expect(src).toMatch(/format = formatOf\(argv\[0\]\);/);
+    expect(src).toContain("0xfeedfacf");
+  });
+});
+
+describe("AC3 (job 017) the smoke test's socket scan on macOS (lsof)", () => {
+  const fixtures = join(root, "scripts/fixtures/sockets");
+  const pidOf = (file: string) => /^p(\d+)$/m.exec(read(`scripts/fixtures/sockets/${file}`))![1]!;
+  const run = (file: string, pid = pidOf(file)) =>
+    spawnSync(process.execPath, [join(root, "scripts/sockets.mjs"), "--lsof", join(fixtures, file), pid], {
+      encoding: "utf8",
+    });
+
+  it.each(["none.txt", "outbound.txt"])("passes %s", (file) => {
+    const r = run(file);
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+  });
+
+  it("the outbound fixture really holds an established TCP connection", () => {
+    expect(read("scripts/fixtures/sockets/outbound.txt")).toMatch(
+      /^PTCP\nn[^\n]+->[^\n]+:443\nTST=ESTABLISHED$/m,
+    );
+  });
+
+  it.each([
+    ["tcp-listen.txt", /open: tcp \*:1234 \(LISTEN\)/],
+    ["udp-bound.txt", /open: udp \*:\d+/],
+  ])("fails on %s", (file, message) => {
+    const r = run(file);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(message);
+  });
+
+  it("fails when the listing is not a scan of the app's process (never a silent pass)", () => {
+    expect(run("none.txt", "1").status).toBe(1);
+    expect(run("empty.txt", "1").status).toBe(1);
+  });
+
+  it("the smoke test scans with lsof on macOS and fails when no scan succeeded", () => {
+    const sockets = read("scripts/sockets.mjs");
+    expect(sockets).toMatch(/if \(platform === "darwin"\) return scanLsof;/);
+    expect(sockets).toContain('["-a", "-p", String(pid), "-n", "-P", "-F", "ftPnT", "-Tqs"]');
+    const smoke = read("scripts/smoke.mjs");
+    expect(smoke).toContain("const scanner = scannerFor();");
+    expect(smoke).toMatch(
+      /if \(scans === 0\) \{\s*console\.error\("smoke: could not scan the app's sockets"\);\s*ok = false;/,
+    );
+    expect(smoke).toMatch(/else if \(ports\.size > 0\) \{[\s\S]*?ok = false;/);
+  });
+});
+
+/** A minimal thin 64-bit Mach-O image with one `__TEXT` segment and, if given, an `__info_plist` section. */
+function machO(plist: string | null): Buffer {
+  const data = Buffer.from(plist ?? "", "utf8");
+  const nsects = plist === null ? 0 : 1;
+  const cmdsize = 72 + 80 * nsects;
+  const head = Buffer.alloc(32 + cmdsize);
+  head.writeUInt32LE(0xfeedfacf, 0);
+  head.writeUInt32LE(0x0100000c, 4); // arm64
+  head.writeUInt32LE(2, 12); // MH_EXECUTE
+  head.writeUInt32LE(1, 16); // ncmds
+  head.writeUInt32LE(cmdsize, 20);
+  const seg = 32;
+  head.writeUInt32LE(0x19, seg); // LC_SEGMENT_64
+  head.writeUInt32LE(cmdsize, seg + 4);
+  head.write("__TEXT", seg + 8, "latin1");
+  head.writeUInt32LE(nsects, seg + 64);
+  if (plist !== null) {
+    const sect = seg + 72;
+    head.write("__info_plist", sect, "latin1");
+    head.write("__TEXT", sect + 16, "latin1");
+    head.writeBigUInt64LE(BigInt(data.length), sect + 40);
+    head.writeUInt32LE(head.length, sect + 48);
+  }
+  return Buffer.concat([head, data]);
+}
+
+describe("AC4 (job 017) the unbundled macOS binary declares the microphone use", () => {
+  const info = read("src-tauri/Info.plist");
+  const check = (bytes: Buffer) => {
+    const dir = mkdtempSync(join(tmpdir(), "plist-check-"));
+    writeFileSync(join(dir, "app"), bytes);
+    const r = spawnSync(process.execPath, [join(root, "scripts/plist-check.mjs"), join(dir, "app")], {
+      encoding: "utf8",
+    });
+    rmSync(dir, { recursive: true, force: true });
+    return r;
+  };
+
+  it("passes a binary whose __TEXT,__info_plist is src-tauri/Info.plist", () => {
+    const r = check(machO(info));
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+  });
+
+  it.each([
+    ["no __info_plist section", machO(null), /no __TEXT,__info_plist section/],
+    [
+      "an Info.plist without NSMicrophoneUsageDescription",
+      machO(info.replace(/<key>NSMicrophoneUsageDescription<\/key>\s*<string>[^<]*<\/string>/, "")),
+      /has no NSMicrophoneUsageDescription/,
+    ],
+    [
+      "an English or changed text",
+      machO(
+        info.replace(/(<key>NSMicrophoneUsageDescription<\/key>\s*<string>)[^<]*/, "$1Records the meeting."),
+      ),
+      /differs from src-tauri\/Info.plist/,
+    ],
+    ["an ELF binary", Buffer.from("\x7fELF\x02\x01\x01\x00", "latin1"), /not a 64-bit little-endian Mach-O/],
+  ])("fails on %s", (_, bytes, message) => {
+    const r = check(bytes);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(message);
+  });
+
+  it("the German usage text is the one src-tauri/Info.plist declares", () => {
+    expect(info).toMatch(/<key>NSMicrophoneUsageDescription<\/key>\s*<string>[^<]*Gerät[^<]*<\/string>/);
+  });
+
+  it("main.rs embeds src-tauri/Info.plist in macOS builds that tauri::generate_context! does not cover", () => {
+    const main = read("src-tauri/src/main.rs");
+    expect(main).toContain(
+      '#[cfg(all(target_os = "macos", not(dev)))]\ntauri::embed_plist::embed_info_plist!("../Info.plist");',
+    );
+  });
+});
+
+describe("AC5 (job 017) CI runs on Linux and macOS in the one ci.yml", () => {
+  const wf = parse(read(".github/workflows/ci.yml"));
+  const job = ciJob();
+  const step = (needle: string) => {
+    const s = job.steps.find((x) => (x.run ?? "").includes(needle));
+    expect(s, needle).toBeDefined();
+    return s!;
+  };
+
+  it("runs ubuntu-latest and macos-latest, fail-fast off", () => {
+    expect(job.strategy.matrix.os).toEqual(["ubuntu-latest", "macos-latest"]);
+    expect(job.strategy["fail-fast"]).toBe(false);
+    expect(read(".github/workflows/ci.yml")).not.toMatch(/Linux only for now/);
+  });
+
+  it("triggers on every push and pull request, without branch, tag or path filters", () => {
+    expect(Object.keys(wf.on).sort()).toEqual(["pull_request", "push"]);
+    for (const trigger of ["push", "pull_request"]) {
+      const filters = Object.keys(wf.on[trigger] ?? {});
+      expect(filters, trigger).toEqual([]);
+    }
+    expect(Object.keys(wf.jobs)).toHaveLength(1);
+    expect(wf.permissions).toEqual({ contents: "read" });
+  });
+
+  it("runs every build and check step on macOS too (only disk cleanup, apt and xvfb are Linux-only)", () => {
+    for (const needle of [
+      "npm ci",
+      "node scripts/sherpa-onnx.mjs fetch",
+      "node scripts/sherpa-onnx.mjs verify",
+      "node scripts/ggml.mjs build",
+      "node scripts/ggml.mjs verify",
+      "npx playwright install",
+      "npm run lint",
+      "npm test",
+      "npm run tauri build -- --no-bundle",
+      "node scripts/ggml-check.mjs src-tauri/target/release/meeting-companion",
+      "meeting-companion-speaker-corpus-v1",
+    ]) {
+      expect(step(needle).if, needle).toBeUndefined();
+    }
+    expect(step("node scripts/plist-check.mjs src-tauri/target/release/meeting-companion").if).toBe(
+      "runner.os == 'macOS'",
+    );
+    expect(step("node scripts/plist-check.mjs src-tauri/target/debug/meeting-companion").if).toBe(
+      "runner.os == 'macOS'",
+    );
+    const smokes = job.steps.filter((s) => /node scripts\/smoke\.mjs/.test(s.run ?? ""));
+    expect(smokes.map((s) => s.if).sort()).toEqual(["runner.os != 'Linux'", "runner.os == 'Linux'"]);
+    const linuxOnly = job.steps.filter((s) => s.if === "runner.os == 'Linux'").map((s) => s.run ?? "");
+    for (const run of linuxOnly)
+      expect(run).toMatch(/rm -rf \/usr\/share\/dotnet|apt-get|xvfb-run|speaker_accuracy/);
+  });
+
+  it("caches the shared ggml per OS and architecture and builds it for the baseline CPU", () => {
+    const cache = job.steps.find((s) => s.name === "Cache the shared ggml") as Step & {
+      with: { key: string };
+    };
+    expect(cache.with.key).toMatch(/^ggml-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-/);
+    const build = job.steps.find((s) => (s.run ?? "").includes("node scripts/ggml.mjs build")) as Step & {
+      env: Record<string, string>;
+    };
+    expect(build.env.GGML_NATIVE).toBe("OFF");
+  });
+});
+
+describe("AC6 (job 017) README: Set up on macOS", () => {
+  const readme = read("README.md");
+  const section = /^## Set up on macOS\n([\s\S]*?)(?=^## )/m.exec(readme)?.[1] ?? "";
+
+  it("names every step in order", () => {
+    expect(section).not.toBe("");
+    const steps = [
+      "xcode-select --install",
+      "brew install cmake",
+      "rustup",
+      "rust-toolchain.toml",
+      ".nvmrc",
+      "npm ci",
+      "node scripts/sherpa-onnx.mjs fetch",
+      "node scripts/ggml.mjs build",
+      "npx playwright install chromium",
+      "npm run tauri dev",
+      "npm test",
+      "npm run tauri build -- --no-bundle",
+      "tccutil reset Microphone",
+    ];
+    let at = -1;
+    for (const s of steps) {
+      const next = section.indexOf(s, at + 1);
+      expect(next, s).toBeGreaterThan(at);
+      at = next;
+    }
+    expect(section).toMatch(/Node 22/);
+    expect(section).toMatch(/terminal/i);
+  });
+
+  it("AGENTS.md lists the macOS facts of the stack", () => {
+    const stack = /## Application stack\n([\s\S]*?)(?=\n## |$)/.exec(read("AGENTS.md"))?.[1] ?? "";
+    for (const fact of ["macos-latest", "Accelerate", "libggml-blas.a", "Mach-O", "lsof", "plist-check"]) {
+      expect(stack, fact).toContain(fact);
+    }
   });
 });
