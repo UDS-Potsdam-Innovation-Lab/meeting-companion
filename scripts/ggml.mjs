@@ -90,12 +90,23 @@ function options(platform = process.platform) {
     opts.GGML_BLAS = "ON";
     opts.GGML_BLAS_VENDOR = "Apple";
     opts.GGML_ACCELERATE = "ON";
+    // The same oldest macOS as the app (tauri.conf.json, .cargo/config.toml), so the linker gets no
+    // objects built for a newer macOS than the binary.
+    opts.CMAKE_OSX_DEPLOYMENT_TARGET = macosMinimum();
   } else {
     opts.GGML_BLAS = "OFF";
   }
   // GGML_NATIVE stays at ggml's default (as whisper-rs-sys built it before); it can be set here.
   if (process.env.GGML_NATIVE) opts.GGML_NATIVE = process.env.GGML_NATIVE;
   return opts;
+}
+
+/** bundle.macOS.minimumSystemVersion of src-tauri/tauri.conf.json. */
+function macosMinimum() {
+  const conf = JSON.parse(readFileSync(join(root, "src-tauri/tauri.conf.json"), "utf8"));
+  const version = conf.bundle?.macOS?.minimumSystemVersion;
+  if (!version) fail("src-tauri/tauri.conf.json has no bundle.macOS.minimumSystemVersion");
+  return version;
 }
 
 /**
