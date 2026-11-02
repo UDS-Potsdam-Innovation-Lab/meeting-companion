@@ -108,9 +108,11 @@ export interface Placement {
 }
 
 /**
- * Where the "Who said this?" picker goes, in window coordinates: below its line if it fits, else on
- * the side with more room, never past the window edges (it scrolls inside if even that is too
- * small). It is placed with `position: fixed`, so the scrolling transcript cannot cut it off.
+ * Where the "Who said this?" picker goes, in window coordinates: below its line if it fits, else above
+ * it if it fits there. A picker that fits the window but neither side of its line (a line in the middle
+ * of a short window, e.g. above the captures composer at 375 px) is moved up until it is whole. Only a
+ * picker taller than the window scrolls inside, on the side with more room. Never past the window
+ * edges. It is placed with `position: fixed`, so the scrolling transcript cannot cut it off.
  */
 export function placePicker(
   anchor: DOMRect,
@@ -121,6 +123,10 @@ export function placePicker(
   const left = Math.min(Math.max(MARGIN, anchor.left), viewport.width - width - MARGIN);
   const below = viewport.height - anchor.bottom - 2 * MARGIN;
   const above = anchor.top - 2 * MARGIN;
+  if (natural > below && natural > above && natural <= viewport.height - 2 * MARGIN) {
+    const top = viewport.height - MARGIN - natural;
+    return { top, left, width, maxHeight: natural, above: top < anchor.top };
+  }
   if (natural <= below || below >= above) {
     return { top: anchor.bottom + MARGIN, left, width, maxHeight: Math.max(below, 0), above: false };
   }
