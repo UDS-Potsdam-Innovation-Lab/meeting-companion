@@ -165,28 +165,6 @@ jobs:
       - name: Compile the desktop app
         run: npm run tauri build -- --no-bundle
 
-      - name: TEMP record macOS fixtures (lsof)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          set +e
-          cat > /tmp/sock.mjs <<'JS'
-          import net from "node:net"; import dgram from "node:dgram";
-          const mode = process.argv[2];
-          if (mode === "tcp") net.createServer().listen(1234);
-          if (mode === "udp") dgram.createSocket("udp4").bind(0);
-          if (mode === "out") net.connect(443, "github.com");
-          setTimeout(() => {}, 5000);
-          JS
-          for m in none tcp udp out; do
-            node /tmp/sock.mjs $m & pid=$!
-            sleep 2
-            echo "===LSOF-BEGIN $m $pid"
-            lsof -a -p $pid -n -P -F ftPnT -Tqs
-            echo "===LSOF-END $m"
-            kill $pid
-          done
-
       # Job 016: exactly one ggml (no symbol of the listed set defined twice), whisper.cpp and llama.cpp
       # both linked, and no cpp-httplib, curl or llama-server code. Reads the symbol table with the system
       # nm: ELF on Linux, Mach-O on macOS (job 017).
