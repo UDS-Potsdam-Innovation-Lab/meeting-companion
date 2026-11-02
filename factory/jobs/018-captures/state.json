@@ -7,7 +7,7 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "needs-human",
+  "stage": "merged",
   "round": 2,
   "max_round": 3,
   "reviews": {
@@ -27,8 +27,8 @@
       }
     }
   ],
-  "decision": "ESCALATE",
-  "waiting": "merge approval",
-  "note": "Approver: stores new data (captures in the sealed meeting file); reviews PASS, CI green",
-  "updated": "2026-11-02T10:43:36Z"
+  "decision": "APPROVE (human)",
+  "waiting": null,
+  "note": "Merged after 2 rounds, human approval (stores captures)",
+  "updated": "2026-11-02T11:03:15Z"
 }

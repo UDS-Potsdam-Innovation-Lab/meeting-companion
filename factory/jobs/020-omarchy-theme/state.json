@@ -7,18 +7,18 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "review",
+  "stage": "approve",
   "round": 1,
   "max_round": 3,
   "reviews": {
-    "security": "pending",
-    "ux": "pending",
-    "ui": "pending",
-    "code": "pending"
+    "security": "PASS",
+    "ux": "PASS",
+    "ui": "PASS",
+    "code": "PASS"
   },
   "history": [],
   "decision": null,
   "waiting": null,
-  "note": "Round 1 reviews",
-  "updated": "2026-11-02T10:26:40Z"
+  "note": "Round 1: reviews PASS, CI green; approver",
+  "updated": "2026-11-02T11:03:15Z"
 }
