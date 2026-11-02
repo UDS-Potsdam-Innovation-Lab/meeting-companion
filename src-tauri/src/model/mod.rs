@@ -36,6 +36,18 @@ pub const MODE_FREE: &str = "free";
 /// `source` of a topic a person typed in. Detected topics (a later job) get their own value.
 pub const SOURCE_MANUAL: &str = "manual";
 
+/// Longest capture text, in characters after trimming.
+pub const CAPTURE_TEXT_MAX: usize = 500;
+/// Most captures one meeting keeps.
+pub const MAX_CAPTURES: usize = 2_000;
+/// `kind` of a capture: a decision, a to-do or a question.
+pub const KIND_DECISION: &str = "decision";
+pub const KIND_TODO: &str = "todo";
+pub const KIND_QUESTION: &str = "question";
+pub const CAPTURE_KINDS: [&str; 3] = [KIND_DECISION, KIND_TODO, KIND_QUESTION];
+/// `source` of a capture a person typed. Suggestions from the transcript (job 019) add `suggested`.
+pub const CAPTURE_SOURCE_TYPED: &str = "typed";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Meeting {
@@ -72,6 +84,42 @@ pub struct Meeting {
     /// load unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speakers: Option<Speakers>,
+    /// Decisions, to-dos and questions captured during the meeting. Set only by the core's capture
+    /// commands ([`crate::captures`]); a save from the UI keeps the stored list. Left out of the JSON
+    /// while empty, so files without it load unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub captures: Vec<Capture>,
+}
+
+/// A decision, to-do or question a person captured. The text is typed by a person and untrusted like
+/// any text: trimmed, length-limited, never interpreted. Closed schema: unknown fields are refused.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Capture {
+    /// Made by the core; ASCII letters, digits and `-`.
+    pub id: String,
+    /// `decision`, `todo` or `question`. A string so that another value is a field error.
+    pub kind: String,
+    pub text: String,
+    /// To-dos only: a participant of this meeting.
+    #[serde(default)]
+    pub owner: Option<String>,
+    /// To-dos only: a calendar date, `YYYY-MM-DD`.
+    #[serde(default)]
+    pub due: Option<String>,
+    /// Agenda meetings: the agenda item it belongs to.
+    #[serde(default)]
+    pub item_id: Option<String>,
+    /// Agenda-free meetings: the topic it belongs to. Neither id: "no topic".
+    #[serde(default)]
+    pub topic_id: Option<String>,
+    /// Only `typed` in this version.
+    pub source: String,
+    /// When it was captured (ms since epoch), from the core's clock.
+    pub created_at: u64,
+    /// When it was last edited, if ever.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<u64>,
 }
 
 /// The people behind the voices and lines of a meeting's transcript. Every entry is a person's
@@ -388,7 +436,101 @@ pub fn validate(m: &Meeting) -> Vec<FieldError> {
     if let Some(speakers) = &m.speakers {
         validate_speakers(m, speakers, &mut errs);
     }
+    validate_captures(m, &mut errs);
 
+    errs
+}
+
+/// The captures of a meeting: only once it has run, at most [`MAX_CAPTURES`], unique ids, and each one
+/// valid by [`validate_capture`].
+fn validate_captures(m: &Meeting, errs: &mut Vec<FieldError>) {
+    if m.captures.is_empty() {
+        return;
+    }
+    if m.run.is_none() {
+        errs.push(FieldError::new("captures", "withoutRun"));
+    }
+    if m.captures.len() > MAX_CAPTURES {
+        errs.push(FieldError::new("captures", "tooMany"));
+    }
+    let mut ids = std::collections::HashSet::new();
+    for (i, c) in m.captures.iter().enumerate() {
+        for e in validate_capture(m, c) {
+            errs.push(FieldError::new(
+                format!("captures[{i}].{}", e.field),
+                e.code,
+            ));
+        }
+        if is_valid_id(&c.id) && !ids.insert(c.id.as_str()) {
+            errs.push(FieldError::new(format!("captures[{i}].id"), "duplicate"));
+        }
+    }
+}
+
+/// Checks one capture against its meeting. Field names are the capture's own (`text`, `owner`, …),
+/// so the capture commands can hand them to the UI as they are. Unique ids are checked by the caller.
+pub fn validate_capture(m: &Meeting, c: &Capture) -> Vec<FieldError> {
+    let mut errs = Vec::new();
+    if !is_valid_id(&c.id) {
+        errs.push(FieldError::new("id", "invalid"));
+    }
+    let known_kind = CAPTURE_KINDS.contains(&c.kind.as_str());
+    if !known_kind {
+        errs.push(FieldError::new("kind", "unknown"));
+    }
+    let text = c.text.trim();
+    if text.is_empty() {
+        errs.push(FieldError::new("text", "empty"));
+    } else if char_len(text) > CAPTURE_TEXT_MAX {
+        errs.push(FieldError::new("text", "tooLong"));
+    }
+    let todo = c.kind == KIND_TODO;
+    if let Some(owner) = &c.owner {
+        if known_kind && !todo {
+            errs.push(FieldError::new("owner", "notTodo"));
+        } else if !m.participants.iter().any(|p| &p.id == owner) {
+            errs.push(FieldError::new("owner", "notParticipant"));
+        }
+    }
+    if let Some(due) = &c.due {
+        if !is_valid_date(due) {
+            errs.push(FieldError::new("due", "invalid"));
+        } else if known_kind && !todo {
+            errs.push(FieldError::new("due", "notTodo"));
+        }
+    }
+    let topics = m
+        .run
+        .as_ref()
+        .map(|r| r.topics.as_slice())
+        .unwrap_or_default();
+    if m.is_free() {
+        if c.item_id.is_some() {
+            errs.push(FieldError::new("itemId", "notInFreeMode"));
+        }
+        if let Some(t) = &c.topic_id {
+            if !topics.iter().any(|x| &x.id == t) {
+                errs.push(FieldError::new("topicId", "unknown"));
+            }
+        }
+    } else {
+        if c.topic_id.is_some() {
+            errs.push(FieldError::new("topicId", "notInAgendaMode"));
+        }
+        if let Some(item) = &c.item_id {
+            if !m.items.iter().any(|x| &x.id == item) {
+                errs.push(FieldError::new("itemId", "unknown"));
+            }
+        }
+    }
+    if c.source != CAPTURE_SOURCE_TYPED {
+        errs.push(FieldError::new("source", "unknown"));
+    }
+    if let Some(edited) = c.edited_at {
+        if edited < c.created_at {
+            errs.push(FieldError::new("editedAt", "beforeCreated"));
+        }
+    }
     errs
 }
 
@@ -577,6 +719,7 @@ pub(crate) mod tests {
             run: None,
             recording_consent_at: None,
             speakers: None,
+            captures: vec![],
         }
     }
 
@@ -1080,6 +1223,82 @@ pub(crate) mod tests {
             })
             .collect();
         assert_eq!(codes(&m), vec![("run.topics[0].spans".into(), "tooMany")]);
+    }
+
+    // ---- captures (job 018) -----------------------------------------------------------------------
+
+    fn capture(id: &str, kind: &str) -> Capture {
+        Capture {
+            id: id.into(),
+            kind: kind.into(),
+            text: "Beta startet am 14.".into(),
+            owner: None,
+            due: None,
+            item_id: Some("i-2".into()),
+            topic_id: None,
+            source: CAPTURE_SOURCE_TYPED.into(),
+            created_at: 400_000,
+            edited_at: None,
+        }
+    }
+
+    #[test]
+    fn captures_round_trip_in_camel_case_and_are_left_out_while_empty() {
+        let json = serde_json::to_value(running()).unwrap();
+        assert!(json.get("captures").is_none());
+        let mut m = running();
+        let mut c = capture("c-1", KIND_TODO);
+        c.owner = Some("p-2".into());
+        c.due = Some("2026-11-06".into());
+        c.edited_at = Some(500_000);
+        m.captures = vec![c, capture("c-2", KIND_DECISION)];
+        assert!(validate(&m).is_empty(), "{:?}", validate(&m));
+        let json = serde_json::to_value(&m).unwrap();
+        assert_eq!(json["captures"][0]["itemId"], "i-2");
+        assert_eq!(json["captures"][0]["createdAt"], 400_000);
+        assert_eq!(json["captures"][0]["editedAt"], 500_000);
+        assert_eq!(json["captures"][0]["source"], "typed");
+        assert!(json["captures"][1].get("editedAt").is_none());
+        let back: Meeting = serde_json::from_value(json).unwrap();
+        assert_eq!(back, m);
+    }
+
+    #[test]
+    fn captures_need_a_run_unique_ids_and_valid_fields() {
+        let mut m = sample();
+        m.items[0].id = "i-2".into();
+        m.captures = vec![capture("c-1", KIND_QUESTION)];
+        assert_eq!(codes(&m), vec![("captures".into(), "withoutRun")]);
+
+        let mut m = running();
+        let mut bad = capture("c-1", "note");
+        bad.text = " ".into();
+        bad.due = Some("2026-13-01".into());
+        bad.source = "suggested".into();
+        bad.edited_at = Some(1);
+        m.captures = vec![capture("c-1", KIND_DECISION), bad];
+        assert_eq!(
+            codes(&m),
+            vec![
+                ("captures[1].kind".into(), "unknown"),
+                ("captures[1].text".into(), "empty"),
+                ("captures[1].due".into(), "invalid"),
+                ("captures[1].source".into(), "unknown"),
+                ("captures[1].editedAt".into(), "beforeCreated"),
+                ("captures[1].id".into(), "duplicate"),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_more_than_2000_captures() {
+        let mut m = running();
+        m.captures = (0..MAX_CAPTURES)
+            .map(|i| capture(&format!("c-{i}"), KIND_QUESTION))
+            .collect();
+        assert!(validate(&m).is_empty());
+        m.captures.push(capture("c-x", KIND_QUESTION));
+        assert_eq!(codes(&m), vec![("captures".into(), "tooMany")]);
     }
 
     // ---- speakers (job 004) -----------------------------------------------------------------------
