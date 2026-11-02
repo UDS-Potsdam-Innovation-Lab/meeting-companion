@@ -548,6 +548,51 @@ fn with_no_language_model_no_call_is_made_at_all() {
 }
 
 #[test]
+fn a_new_setting_sends_only_lines_spoken_after_the_change() {
+    let r = rig_on(
+        Arc::new(MemoryMeetingStore::new()),
+        vec![],
+        Duration::ZERO,
+        LanguageModelSetting::None,
+        FAST,
+    );
+    r.record();
+    // Said while suggestions were off.
+    r.say(0, "VORHER-Off-Satz-0");
+    r.say(1, "VORHER-Off-Satz-1");
+    r.say(2, "VORHER-Off-Satz-2");
+    std::thread::sleep(Duration::from_millis(150));
+    // Off → Claude mid-meeting.
+    *r.engine.setting.lock().unwrap() = (LanguageModelSetting::Claude, Locale::De);
+    r.suggester.setting_changed();
+    // One more line does not make the run due: the count started again at the change.
+    r.say(3, "Nachher 3");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(r.requests().is_empty());
+    r.say_many(4, 3);
+    assert!(r.wait_requests(1));
+    let p = &r.requests()[0];
+    assert!(!p.content.contains("VORHER"), "{}", p.content);
+    let seqs: Vec<&str> = inner(p)
+        .trim()
+        .lines()
+        .map(|l| l.split(' ').next().unwrap())
+        .collect();
+    assert_eq!(seqs, ["#3", "#4", "#5", "#6"]);
+
+    // The same holds from one engine to another (here Claude → local).
+    r.settle();
+    r.say(7, "VORHER-Claude-Satz-7");
+    *r.engine.setting.lock().unwrap() = (LanguageModelSetting::Local("m".into()), Locale::De);
+    r.suggester.setting_changed();
+    r.say_many(8, 4);
+    assert!(r.wait_requests(2));
+    let p = &r.requests()[1];
+    assert!(!p.content.contains("VORHER"), "{}", p.content);
+    assert!(inner(p).trim().starts_with("#8 "));
+}
+
+#[test]
 fn nothing_is_asked_while_not_recording() {
     let r = rig(vec![]);
     r.say_many(0, 8);

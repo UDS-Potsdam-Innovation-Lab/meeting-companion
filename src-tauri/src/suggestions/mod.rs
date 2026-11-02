@@ -11,7 +11,9 @@
 //!   in flight; `Busy` (a settings Test is running) skips the run. With `languageModel = "none"` it
 //!   makes no call at all.
 //! - Pause, Stop, End meeting and a change of the `languageModel` setting cancel a running request
-//!   (`run_cancellable` returns within a second); an answer that arrives after that is dropped.
+//!   (`run_cancellable` returns within a second); an answer that arrives after that is dropped. A
+//!   setting change also drops the lines collected so far: a newly chosen engine gets only what was
+//!   said after the change.
 //! - The request goes only through the [`SuggestEngine`] (the `LanguageModel` trait behind the
 //!   setting): fixed instructions ([`prompt::SUGGEST_TASK`]), the transcript lines only in the escaped
 //!   content block. The reply is parsed against a closed format ([`prompt::parse_reply`]).
@@ -339,12 +341,18 @@ impl CaptureSuggester {
         }
     }
 
-    /// The `languageModel` setting changed: a running request is cancelled, the error cleared.
+    /// The `languageModel` setting changed: a running request is cancelled, the error cleared, and the
+    /// lines collected so far are dropped. The first request to a newly chosen engine holds only what
+    /// was said after the change, so nothing spoken under another setting (e.g. "Vorschläge aus")
+    /// reaches it.
     pub fn setting_changed(&self) {
         let state = {
             let mut st = self.shared.lock();
             st.cancel();
             st.session.as_mut().map(|s| {
+                s.lines.clear();
+                s.new = 0;
+                s.last_run = Instant::now();
                 s.error = None;
                 s.state()
             })
