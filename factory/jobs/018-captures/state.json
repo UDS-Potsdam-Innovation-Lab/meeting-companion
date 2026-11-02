@@ -11,14 +11,14 @@
   "round": 1,
   "max_round": 3,
   "reviews": {
-    "security": "pending",
-    "ux": "pending",
+    "security": "PASS",
+    "ux": "PASS",
     "ui": "pending",
-    "code": "pending"
+    "code": "PASS"
   },
   "history": [],
   "decision": null,
   "waiting": null,
   "note": "Round 1 reviews",
-  "updated": "2026-11-02T10:18:10Z"
+  "updated": "2026-11-02T10:19:20Z"
 }
