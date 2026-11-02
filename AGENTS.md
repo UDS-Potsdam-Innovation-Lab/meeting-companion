@@ -73,13 +73,20 @@ STATUS: CONFIGURED
   and the agenda-free fixtures `free` (setup) and `live-free|live-free-empty` (frame 16),
   and the capture fixtures `live-captures|live-captures-empty|live-captures-edit|live-captures-error|live-free-captures`
   (job 018, frames 21; `-error`: the mock core refuses every capture write with `storageFailed`; `&theme=dark` opens any
-  fixture in the dark theme);
+  fixture in the dark theme), and the capture suggestion fixtures `live-suggest|live-suggest-edit|live-suggest-many|live-suggest-off|live-suggest-local|live-suggest-cloud|live-suggest-error`
+  (job 019, frames 21g/h/l/f/s: the language model setting, waiting suggestions, captures and an engine error the mock core holds);
   the live fixtures are meant for a fixed clock, see `LIVE_TIMES` and `FREE_TIMES` in `src/features/agenda/fixtures.ts`).
 - Layout:
   - `src/` — React UI. `src/i18n/de.json` + `en.json` (flat keys, de default), `src/features/<feature>/`,
-    `src/features/captures/` (job 018: the right column of frames 02/16 — `CapturesPanel.tsx` tabs, cards, inline
-    editor, Undo notice and composer; `useCaptures.ts` the core's list and the 8 s Undo by the clock; `model.ts`
-    `/d` `/t` `/q`, grouping and counts; `fakeCore.ts` the core's capture rules for the test fake and the mock backend;
+    `src/features/captures/` (job 018: the right column of frames 02/16 — `CapturesPanel.tsx` the column and its kind
+    tabs, `CaptureList.tsx` cards and the inline editor, `Composer.tsx`, `UndoNotice.tsx`, `fields.tsx` kind/owner/date
+    chips, `labels.ts` keys, targets and error texts; `useCaptures.ts` the core's list and the 8 s Undo by the clock
+    (Undo of a delete sends only the ids, Undo of a confirmed suggestion calls `unconfirm_suggestion`); `model.ts`
+    `/d` `/t` `/q`, grouping and counts; `fakeCore.ts` the core's capture and suggestion rules for the test fake and the
+    mock backend; job 019: `SuggestionCard.tsx` the pinned card per tab, its inline editor and "1 weiterer Vorschlag",
+    `SuggestionStatus.tsx` the status line under the composer and the top-bar chip, `suggestions.ts` pinning, line
+    chips and the status, `useSuggestions.ts` reads `load_suggestions` every second by the clock (no core event: the
+    event list is pinned in `src/config.test.ts`) and announces a new one once;
     below 1200 px, `src/lib/media.ts` `NARROW_LIVE_QUERY`, the list is the centre card's second tab "Captured n" and the
     composer sticks to the bottom), `src/ui/` shared components (`SoundWave.tsx`: the level wave of frame 02 and the settings meter, drawn through refs
     and `requestAnimationFrame`, a static bar under reduced motion), `src/app/` shell, `src/lib/ipc.ts` the only module that calls Tauri
@@ -110,16 +117,29 @@ STATUS: CONFIGURED
     API engine behind the `Transport` trait (`UreqTransport`: ureq 3 + rustls, `https://api.anthropic.com/v1/messages` only,
     no proxy, 10 s connect / 60 s total, no retry)), `src/language_model.rs` (`build_engine` from the `languageModel`
     setting, never a fallback; `LocalLlmProvider`, filled by `engines::llama::LlamaLocalProvider` unless
-    `MEETING_COMPANION_LLM=fake`; `LanguageModelService`: the settings view's cancellable "Test", and
-    `setting_changed`, which releases a local model that is no longer chosen), `src/secrets.rs` (`SecretStore`: `KeychainSecretStore`, account
+    `MEETING_COMPANION_LLM=fake`; `LanguageModelService`: the settings view's cancellable "Test", `run_task` for the
+    capture suggestions, and `setting_changed`, which releases a local model that is no longer chosen), `src/secrets.rs` (`SecretStore`: `KeychainSecretStore`, account
     `anthropic-api-key`, and `MemorySecretStore`; the UI only learns `{ set }`), `src/transcript/` (`Transcriber` pipeline, windows
     of at most 3 s; encrypted append-only `<id>.transcript` store, one record per final segment with an optional `voice`), `src/recording/`
     (`Recorder`: consent gate, transcript worker, diarizer thread, capture states, the chosen microphone and "switch to the system default",
     `mic_test.rs` the 10 s microphone test), `src/captures/` (job 018: quick capture; `load_captures`, `add_capture`,
     `update_capture`, `delete_capture`, `restore_capture` load the stored meeting, check the input with
     `model::validate_capture` and answer only after the meeting file is written; the core makes the id (`c-` + 64 random
-    bits) and the time; closed schema `model::Capture` with `source: "typed"`; a save from the UI keeps the stored
-    captures; no language model, no network, capture text never logged), `src/settings/` (`SettingsStore`: the sealed
+    bits) and the time; closed schema `model::Capture` with `source: "typed" | "suggested"` and, for suggested ones,
+    `segments` (source segment numbers only); `delete_capture` keeps the removed capture in memory (`UndoCopies`, one
+    per meeting, never written or logged) and `restore_capture({ restore: { meetingId, captureId } })` puts back exactly
+    that copy (closed `RestoreRequest`, no capture body); `add_suggested` for a confirmed suggestion; a save from the UI
+    keeps the stored captures; no language model, no network, capture text never logged), `src/suggestions/` (job 019:
+    `CaptureSuggester` on its own thread, fed by `SuggesterSink` (the recorder's events: final segments, voices, capture
+    state); asks after 4 new final segments or 60 s with one (`CADENCE`), one request at a time, through `SuggestEngine`
+    (`AppEngine`: the setting and `LanguageModelService::run_task`, `Busy` while a settings Test runs, no call for
+    `none`); Pause, Stop, End meeting and a new `languageModel` cancel it and drop a late answer; `prompt.rs` the fixed
+    `SUGGEST_TASK`, the content `#<seq> <m:ss since start> <speaker>: <text>` of the newest final segments (≤ 6000
+    chars), and `parse_reply` (closed `SUGGESTIONS` … `END` frame, `kind|numbers|owner|text`, owner only for a to-do
+    and only a participant's exact name, segments only from the request, at most 3); pending and dismissed suggestions
+    in memory only, kind + segments never offered twice per meeting; `confirm` (only on a person's tap) stores through
+    `captures::add_suggested`, `unconfirm` is Undo of a confirm; commands `load_suggestions`, `confirm_suggestion`,
+    `dismiss_suggestion`, `unconfirm_suggestion`), `src/settings/` (`SettingsStore`: the sealed
     `<app_data>/settings` file, closed schema incl. `speakerModel`, `languageModel` (`"none"` | `{ "local": id }` | `"claude"`)
     and `claudeModel` (`sonnet` | `haiku` | `opus`), `SettingsService`), `src/engines/level.rs` (the input
     level measured in `AudioSink::push`, scaled RMS `min(1, rms × 4)`, sent as the `capture-level` event 25×/s while audio
@@ -225,7 +245,9 @@ STATUS: CONFIGURED
   `node scripts/sherpa-onnx.mjs verify` checks archive and libraries; CI runs both and checks that a
   corrupted archive fails.
 - Network: the only outbound connection is the Claude API (HTTPS to api.anthropic.com from `engines/claude.rs`), made
-  only while a person has chosen "Claude API (cloud)"; `src/config.test.ts` pins the one HTTP client, its host and
+  only while a person has chosen "Claude API (cloud)" (the settings Test, and from job 019 the capture suggestions: a
+  window of final transcript text with the speakers' display names or voice labels while a meeting records; the status
+  line under the composer and the top-bar chip "Vorschläge: Anthropic (Cloud)" say so); `src/config.test.ts` pins the one HTTP client, its host and
   its settings. The local language model (llama.cpp, job 016) runs in the app's own process: no `llama-server`, no
   port, no socket, no other process, and no HTTP client (`llama-cpp-2` without `common`, so no cpp-httplib;
   `ggml-check` and `src/config.test.ts` check it). The real-model test is `#[ignore]`:
