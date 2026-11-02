@@ -370,5 +370,53 @@
  },
  "s20s_states": {
   "screen": 22023
+ },
+ "s21_captures": {
+  "screen": 29230
+ },
+ "s21b_saved": {
+  "screen": 29491
+ },
+ "s21c_edit": {
+  "screen": 29778
+ },
+ "s21d_delete": {
+  "screen": 30062
+ },
+ "s21g_suggest": {
+  "screen": 30293
+ },
+ "s21h_suggest_edit": {
+  "screen": 30525
+ },
+ "s21e_empty": {
+  "screen": 30817
+ },
+ "s21f_many": {
+  "screen": 26603
+ },
+ "s21i_1280": {
+  "screen": 30990
+ },
+ "s21n_dark": {
+  "screen": 31184
+ },
+ "s21o_free": {
+  "screen": 26913
+ },
+ "s21m_board": {
+  "screen": 27793
+ },
+ "s21j_768": {
+  "screen": 28060
+ },
+ "s21k_375": {
+  "screen": 31422
+ },
+ "s21l_375_suggest": {
+  "screen": 28248
+ },
+ "s21s_states": {
+  "screen": 28345
  }
 }
