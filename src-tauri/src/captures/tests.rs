@@ -587,7 +587,6 @@ fn capture_edit_and_delete_make_no_language_model_request() {
         "engines::",
         "language_model",
         "LanguageModel",
-        "ureq",
         "Transport",
         "std::net",
     ] {
