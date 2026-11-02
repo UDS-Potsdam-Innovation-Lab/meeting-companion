@@ -7,14 +7,14 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "review",
+  "stage": "needs-human",
   "round": 2,
   "max_round": 3,
   "reviews": {
-    "security": "pending",
-    "ux": "pending",
-    "ui": "pending",
-    "code": "pending"
+    "security": "PASS",
+    "ux": "PASS",
+    "ui": "PASS",
+    "code": "PASS"
   },
   "history": [
     {
@@ -27,8 +27,8 @@
       }
     }
   ],
-  "decision": null,
-  "waiting": null,
-  "note": "Round 2 reviews",
-  "updated": "2026-11-02T10:30:46Z"
+  "decision": "ESCALATE",
+  "waiting": "merge approval",
+  "note": "Approver: stores new data (captures in the sealed meeting file); reviews PASS, CI green",
+  "updated": "2026-11-02T10:43:36Z"
 }
