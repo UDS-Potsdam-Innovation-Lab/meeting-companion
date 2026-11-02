@@ -1,0 +1,6 @@
+Capture suggestions (follow-up of 018): suggestions from the transcript that a person confirms, edits or dismisses, through the LanguageModel trait (local or Claude); with Claude, the transcript text and real speaker names go to Anthropic (human decision 2026-11-02); the captures column says whether suggestions are off, on this device or in the cloud. Human gate. Design: frames from 018. Before suggestions (or the phone view) can reach capture commands: `restore_capture` must restore from the core's own copy of the removed capture, not the UI's (018 security review note).
+
+Depends on: 018-captures (merged), 011-language-model-engine and 016-local-llm-runtime (merged).
+Design: already approved in job 018 — frames "21 Captures" (s21g_suggest, s21h_suggest_edit, s21l_375_suggest, the pinned suggestion in s21f_many, status line and transcript chips in s21s_states, top-bar cloud chip); see factory/jobs/018-captures/design.md.
+Human decisions (2026-11-02): with Claude, real speaker names go with the transcript text; the status line and top-bar chip say the text goes to Anthropic. German copy uses "du". Fixtures' fwu-dark accent: blue is fine (020).
+Spec input from job 018's first spec (suggestion ACs moved here): factory/jobs/018-captures/stack-decision.md and git history of factory/jobs/018-captures/spec.md (first version had AC2–AC5 for suggestions).
