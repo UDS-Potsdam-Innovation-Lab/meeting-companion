@@ -22,6 +22,8 @@ import {
   SPEAKER_TRANSCRIPT,
 } from "../features/agenda/fixtures";
 import { isMeetingValid, type Meeting } from "../features/agenda/model";
+import { fakeCaptureCommand } from "../features/captures/fakeCore";
+import { FREE_CAPTURES, LIVE_CAPTURES } from "../features/captures/fixtures";
 import {
   CAPTURE_OFF,
   DEFAULT_SETTINGS,
@@ -59,6 +61,7 @@ import {
   type TranscriptSegment,
   type VoiceChoice,
   type VoiceEvent,
+  type Capture,
   type LlmModelList,
   type LlmTestReply,
 } from "./ipc";
@@ -87,6 +90,8 @@ const API_KEY_KEY = "mock-backend.apiKey";
 const LLM_TEST_KEY = "mock-backend.llmTest";
 /** The level the fake microphone delivers: `speech` (default), `silence` or `none` (no events). */
 const LEVEL_KEY = "mock-backend.level";
+/** `storageFailed`: every capture command fails as if the meeting file could not be written. */
+const CAPTURE_FAIL_KEY = "mock-backend.captureFail";
 /** `none`: `phone_view_open` finds no local network. */
 export const PHONE_NETWORK_KEY = "mock-backend.phone-network";
 /** The phone view's fixed URL and QR code (the core's rendering of this URL; job 012). */
@@ -131,7 +136,12 @@ type Fixture =
   | "live-free"
   | "live-level-speech"
   | "live-level-silence"
-  | "live-no-signal";
+  | "live-no-signal"
+  | "live-captures"
+  | "live-captures-empty"
+  | "live-captures-edit"
+  | "live-captures-error"
+  | "live-free-captures";
 
 const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   filled: filledMeeting,
@@ -162,6 +172,11 @@ const SEEDS: Partial<Record<Fixture, () => Meeting>> = {
   "live-mic-missing": liveConsentedMeeting,
   "live-switched": liveConsentedMeeting,
   free: freeSetupMeeting,
+  "live-captures": liveConsentedMeeting,
+  "live-captures-empty": liveConsentedMeeting,
+  "live-captures-edit": liveConsentedMeeting,
+  "live-captures-error": liveConsentedMeeting,
+  "live-free-captures": liveFreeMeeting,
   "live-free-empty": liveFreeEmptyMeeting,
   "live-free": liveFreeMeeting,
   "live-level-speech": liveConsentedMeeting,
@@ -296,6 +311,7 @@ function seed(fixture: Fixture, dark: boolean) {
     API_KEY_KEY,
     LLM_TEST_KEY,
     PHONE_NETWORK_KEY,
+    CAPTURE_FAIL_KEY,
   ]) {
     localStorage.removeItem(k);
   }
@@ -303,6 +319,10 @@ function seed(fixture: Fixture, dark: boolean) {
   const meetings: Stored[] = make ? [make()] : [];
   if (fixture === "speakers") meetings[0]!.speakers = structuredClone(SPEAKER_CHOICES);
   if (fixture === "live-speakers") meetings[0]!.speakers = structuredClone(LIVE_SPEAKER_CHOICES);
+  if (fixture === "live-captures" || fixture === "live-captures-edit" || fixture === "live-captures-error")
+    meetings[0]!.captures = structuredClone(LIVE_CAPTURES);
+  if (fixture === "live-free-captures") meetings[0]!.captures = structuredClone(FREE_CAPTURES);
+  if (fixture === "live-captures-error") localStorage.setItem(CAPTURE_FAIL_KEY, "storageFailed");
   localStorage.setItem(KEY, JSON.stringify(meetings));
   localStorage.setItem(TRANSCRIPTS_KEY, "{}");
   if (fixture === "corrupt") localStorage.setItem(CORRUPT_KEY, "1");
@@ -328,6 +348,15 @@ function seed(fixture: Fixture, dark: boolean) {
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     localStorage.setItem("meeting-companion.theme", settings.theme);
+  } else if (dark) {
+    // Any other fixture in the dark theme (job 018: the captures column in dark).
+    const settings: Settings = {
+      ...DEFAULT_SETTINGS,
+      locale: (localStorage.getItem("meeting-companion.locale") as Settings["locale"]) ?? "en",
+      theme: "dark",
+    };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    localStorage.setItem("meeting-companion.theme", "dark");
   }
   if (fixture === "settings-mic-test") localStorage.setItem(MIC_TEST_KEY, "fixed");
   if (fixture === "settings-llm-none-found") localStorage.setItem(LLM_MODELS_KEY, "none");
@@ -350,6 +379,7 @@ function seed(fixture: Fixture, dark: boolean) {
   }
   if (
     fixture === "live-free" ||
+    fixture.includes("captures") ||
     fixture === "live-transcript" ||
     fixture === "live-paused" ||
     fixture === "live-mic-error" ||
@@ -364,6 +394,7 @@ function seed(fixture: Fixture, dark: boolean) {
   // Fixed states for screenshots: the script does not run, so nothing moves.
   if (
     fixture === "live-free" ||
+    fixture.includes("captures") ||
     fixture === "live-transcript" ||
     fixture === "settings-recording" ||
     fixture === "settings-dark" ||
@@ -393,10 +424,11 @@ let pendingPartial: SegmentEvent | null = null;
 /** A microphone switch a fixture shows once the view listens. */
 let pendingSwitch: SwitchedEvent | null = null;
 
-/** A meeting as the core stores it: with the speaker choices and guests the UI does not send. */
+/** A meeting as the core stores it: with the speaker choices, guests and captures the UI does not send. */
 type Stored = Meeting & {
   participants: SpeakerParticipant[];
   speakers?: { voices: VoiceChoice[]; lines: LineChoice[] };
+  captures?: Capture[];
 };
 
 function all(): Stored[] {
@@ -732,6 +764,19 @@ export function installMockBackend() {
   mockIPC(
     (cmd, args) => {
       const a = (args ?? {}) as Record<string, unknown>;
+      if (cmd === "load_captures" || cmd.endsWith("_capture")) {
+        const fail = localStorage.getItem(CAPTURE_FAIL_KEY);
+        if (fail && cmd !== "load_captures") throw { kind: fail };
+        return fakeCaptureCommand(
+          {
+            meeting: (id) => all().find((m) => m.id === id),
+            put: (m) => put(m as Stored),
+            now: () => Date.now(),
+          },
+          cmd,
+          a,
+        );
+      }
       switch (cmd) {
         case "load_latest_meeting": {
           if (localStorage.getItem(LOCKED_KEY)) {
@@ -762,6 +807,7 @@ export function installMockBackend() {
             updatedAt: now,
             recordingConsentAt: previous?.recordingConsentAt ?? null,
             speakers: previous?.speakers,
+            captures: previous?.captures,
           });
           localStorage.setItem(KEY, JSON.stringify(list));
           if (meeting.run?.endedAt && phoneMeeting === meeting.id) closePhone("meetingEnded");
