@@ -62,11 +62,18 @@ STATUS: CONFIGURED
   (they open frame 17; `&theme=dark` opens a settings fixture in the dark theme) and `live-mic-missing|live-switched`, the sound-wave fixtures `live-level-speech|live-level-silence|live-no-signal`
   (the mock core sends a fixed level sequence by the clock; wave screenshots install Playwright's clock and run the last 3 s on it),
   and the speaker fixtures `speakers|speakers-empty|speakers-no-model|live-speakers` (open frame 06 with the footer button),
-  and the agenda-free fixtures `free` (setup) and `live-free|live-free-empty` (frame 16);
+  and the agenda-free fixtures `free` (setup) and `live-free|live-free-empty` (frame 16),
+  and the capture fixtures `live-captures|live-captures-empty|live-captures-edit|live-captures-error|live-free-captures`
+  (job 018, frames 21; `-error`: the mock core refuses every capture write with `storageFailed`; `&theme=dark` opens any
+  fixture in the dark theme);
   the live fixtures are meant for a fixed clock, see `LIVE_TIMES` and `FREE_TIMES` in `src/features/agenda/fixtures.ts`).
 - Layout:
   - `src/` — React UI. `src/i18n/de.json` + `en.json` (flat keys, de default), `src/features/<feature>/`,
-    `src/ui/` shared components (`SoundWave.tsx`: the level wave of frame 02 and the settings meter, drawn through refs
+    `src/features/captures/` (job 018: the right column of frames 02/16 — `CapturesPanel.tsx` tabs, cards, inline
+    editor, Undo notice and composer; `useCaptures.ts` the core's list and the 8 s Undo by the clock; `model.ts`
+    `/d` `/t` `/q`, grouping and counts; `fakeCore.ts` the core's capture rules for the test fake and the mock backend;
+    below 1200 px, `src/lib/media.ts` `NARROW_LIVE_QUERY`, the list is the centre card's second tab "Captured n" and the
+    composer sticks to the bottom), `src/ui/` shared components (`SoundWave.tsx`: the level wave of frame 02 and the settings meter, drawn through refs
     and `requestAnimationFrame`, a static bar under reduced motion), `src/app/` shell, `src/lib/ipc.ts` the only module that calls Tauri
     (`src/lib/mockBackend.ts` is its fake for the e2e build). Unit/component tests sit next to the code
     as `*.test.ts(x)` (Vitest + Testing Library, Tauri mocked with `@tauri-apps/api/mocks`).
@@ -100,7 +107,11 @@ STATUS: CONFIGURED
     `anthropic-api-key`, and `MemorySecretStore`; the UI only learns `{ set }`), `src/transcript/` (`Transcriber` pipeline, windows
     of at most 3 s; encrypted append-only `<id>.transcript` store, one record per final segment with an optional `voice`), `src/recording/`
     (`Recorder`: consent gate, transcript worker, diarizer thread, capture states, the chosen microphone and "switch to the system default",
-    `mic_test.rs` the 10 s microphone test), `src/settings/` (`SettingsStore`: the sealed
+    `mic_test.rs` the 10 s microphone test), `src/captures/` (job 018: quick capture; `load_captures`, `add_capture`,
+    `update_capture`, `delete_capture`, `restore_capture` load the stored meeting, check the input with
+    `model::validate_capture` and answer only after the meeting file is written; the core makes the id (`c-` + 64 random
+    bits) and the time; closed schema `model::Capture` with `source: "typed"`; a save from the UI keeps the stored
+    captures; no language model, no network, capture text never logged), `src/settings/` (`SettingsStore`: the sealed
     `<app_data>/settings` file, closed schema incl. `speakerModel`, `languageModel` (`"none"` | `{ "local": id }` | `"claude"`)
     and `claudeModel` (`sonnet` | `haiku` | `opus`), `SettingsService`), `src/engines/level.rs` (the input
     level measured in `AudioSink::push`, scaled RMS `min(1, rms × 4)`, sent as the `capture-level` event 25×/s while audio
