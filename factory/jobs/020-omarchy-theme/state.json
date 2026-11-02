@@ -7,18 +7,29 @@
   "flavour": "local",
   "targets": null,
   "external": null,
-  "stage": "approve",
-  "round": 1,
+  "stage": "build",
+  "round": 2,
   "max_round": 3,
   "reviews": {
-    "security": "PASS",
-    "ux": "PASS",
-    "ui": "PASS",
-    "code": "PASS"
+    "security": "pending",
+    "ux": "pending",
+    "ui": "pending",
+    "code": "pending"
   },
-  "history": [],
+  "history": [
+    {
+      "round": 1,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "PASS",
+        "code": "PASS"
+      },
+      "ci": "success"
+    }
+  ],
   "decision": null,
   "waiting": null,
-  "note": "Round 1: reviews PASS, CI green; approver",
-  "updated": "2026-11-02T11:03:15Z"
+  "note": "018 merged first: merging main in, mapping the captures tokens",
+  "updated": "2026-11-02T11:03:24Z"
 }
