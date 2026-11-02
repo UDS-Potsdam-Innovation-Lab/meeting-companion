@@ -1,9 +1,28 @@
 import { useId, useState } from "react";
-import { useI18n, type MessageKey } from "../../i18n";
+import { useI18n, type I18n, type MessageKey } from "../../i18n";
+import { CAPTURE_KINDS } from "../../lib/ipc";
+import type { KindCounts } from "../captures/model";
 import type { LiveRow, LiveSnapshot } from "./run";
 
-/** Frame 02 "Agenda list" with the "Parking lot" row. State is shown by an icon and by text. */
-export function LiveAgenda({ snapshot }: { snapshot: LiveSnapshot }) {
+/** "1 decision · 2 to-dos": the captures of an item or topic, kinds with none left out. */
+export function captureSummary(i18n: I18n, counts: KindCounts | undefined): string {
+  if (!counts) return "";
+  return CAPTURE_KINDS.filter((k) => counts[k] > 0)
+    .map((k) => i18n.tp(`captures.count.${k}`, counts[k]))
+    .join(" · ");
+}
+
+/**
+ * Frame 02 "Agenda list" with the "Parking lot" row. State is shown by an icon and by text; each row
+ * also says what was captured for it (job 018).
+ */
+export function LiveAgenda({
+  snapshot,
+  counts,
+}: {
+  snapshot: LiveSnapshot;
+  counts?: ReadonlyMap<string, KindCounts>;
+}) {
   const { t } = useI18n();
   return (
     <section className="card live-agenda" aria-labelledby="live-agenda-heading">
@@ -12,7 +31,7 @@ export function LiveAgenda({ snapshot }: { snapshot: LiveSnapshot }) {
       </h2>
       <ol className="live-agenda__items">
         {snapshot.rows.map((row) => (
-          <Row key={row.item.id} row={row} />
+          <Row key={row.item.id} row={row} counts={counts?.get(row.item.id)} />
         ))}
       </ol>
       <ParkingLot parked={snapshot.parked} />
@@ -20,8 +39,11 @@ export function LiveAgenda({ snapshot }: { snapshot: LiveSnapshot }) {
   );
 }
 
-function Row({ row }: { row: LiveRow }) {
-  const { t } = useI18n();
+function Row({ row, counts }: { row: LiveRow; counts?: KindCounts }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const summary = captureSummary(i18n, counts);
+  const captured = summary ? ` · ${summary}` : "";
   let meta: string;
   if (row.state === "upcoming") meta = t("live.row.minutes", { minutes: row.plannedMinutes });
   else if (row.state === "parked") meta = t("live.row.parkedAfter", { minutes: row.actualMinutes ?? 0 });
@@ -39,6 +61,7 @@ function Row({ row }: { row: LiveRow }) {
         <span className="live-row__title">{row.item.title}</span>
         <span className={`live-row__meta${over ? " live-row__meta--over" : ""}`} data-over={over}>
           {meta}
+          {captured ? <span className="live-row__captured">{captured}</span> : null}
         </span>
       </span>
     </li>

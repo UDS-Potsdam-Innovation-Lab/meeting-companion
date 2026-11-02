@@ -7,6 +7,7 @@
 //! of the local network only while a person opened it during a recording, and closes when they turn it
 //! off, recording stops, the meeting ends or the app exits.
 
+pub mod captures;
 pub mod crypto;
 pub mod engines;
 pub mod language_model;
@@ -26,6 +27,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{Emitter, Manager, RunEvent, State};
 
+use captures::{CaptureChange, CaptureError, CaptureSaved, NewCapture};
 use crypto::KeychainKeyProvider;
 use engines::audio::{AudioSource, FakeAudioSource};
 use engines::claude::UreqTransport;
@@ -230,14 +232,19 @@ pub fn load_latest(store: &dyn MeetingStore) -> LoadResult {
 
 /// Stamps the save time and stores the meeting. Returns the stamp.
 ///
-/// The recording consent and the speakers are not the UI's to set: whatever the UI sends, the
-/// stored values are kept (only [`confirm_consent`] and the speaker commands set them). Guests added
-/// in the speakers view stay participants even if the UI's copy of the meeting does not have them.
+/// The recording consent, the speakers and the captures are not the UI's to set: whatever the UI
+/// sends, the stored values are kept (only [`confirm_consent`], the speaker commands and the capture
+/// commands set them). Guests added in the speakers view stay participants even if the UI's copy of
+/// the meeting does not have them.
 pub fn save(store: &dyn MeetingStore, mut meeting: Meeting, now_ms: u64) -> Result<u64, SaveError> {
     meeting.updated_at = now_ms;
     let stored = store.load(&meeting.id).ok().flatten();
     meeting.recording_consent_at = stored.as_ref().and_then(|m| m.recording_consent_at);
     meeting.speakers = stored.as_ref().and_then(|m| m.speakers.clone());
+    meeting.captures = stored
+        .as_ref()
+        .map(|m| m.captures.clone())
+        .unwrap_or_default();
     for guest in stored
         .iter()
         .flat_map(|m| &m.participants)
@@ -451,6 +458,64 @@ fn apply_name_round(
         &meeting_id,
         now_ms(),
     )
+}
+
+/// Every capture of a meeting (job 018).
+#[tauri::command(async)]
+fn load_captures(
+    state: State<'_, AppState>,
+    meeting_id: String,
+) -> Result<Vec<model::Capture>, CaptureError> {
+    captures::load_captures(state.store.as_ref(), &meeting_id)
+}
+
+/// Quick capture: answers once the meeting file is written.
+#[tauri::command(async)]
+fn add_capture(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    capture: NewCapture,
+) -> Result<CaptureSaved, CaptureError> {
+    let _edit = state.edit();
+    captures::add_capture(state.store.as_ref(), &meeting_id, capture, now_ms())
+}
+
+#[tauri::command(async)]
+fn update_capture(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    capture_id: String,
+    change: CaptureChange,
+) -> Result<CaptureSaved, CaptureError> {
+    let _edit = state.edit();
+    captures::update_capture(
+        state.store.as_ref(),
+        &meeting_id,
+        &capture_id,
+        change,
+        now_ms(),
+    )
+}
+
+#[tauri::command(async)]
+fn delete_capture(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    capture_id: String,
+) -> Result<CaptureSaved, CaptureError> {
+    let _edit = state.edit();
+    captures::delete_capture(state.store.as_ref(), &meeting_id, &capture_id, now_ms())
+}
+
+/// "Undo" of a delete: the capture comes back with its original id, time and item.
+#[tauri::command(async)]
+fn restore_capture(
+    state: State<'_, AppState>,
+    meeting_id: String,
+    capture: model::Capture,
+) -> Result<CaptureSaved, CaptureError> {
+    let _edit = state.edit();
+    captures::restore_capture(state.store.as_ref(), &meeting_id, capture, now_ms())
 }
 
 #[tauri::command(async)]
@@ -830,6 +895,11 @@ pub fn run() {
             choose_line,
             add_guest,
             apply_name_round,
+            load_captures,
+            add_capture,
+            update_capture,
+            delete_capture,
+            restore_capture,
             load_settings,
             update_setting,
             list_input_devices,

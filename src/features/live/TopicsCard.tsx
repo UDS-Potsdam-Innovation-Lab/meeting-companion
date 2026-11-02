@@ -4,6 +4,8 @@ import { invalidProps, errorId } from "../../ui/Field";
 import { PlusIcon } from "../../ui/icons";
 import { LIMITS, validateTitle, type ErrorCode } from "../agenda/model";
 import type { TopicRow } from "./free";
+import type { KindCounts } from "../captures/model";
+import { captureSummary } from "./LiveAgenda";
 
 interface Props {
   topics: TopicRow[];
@@ -13,6 +15,8 @@ interface Props {
   onAdd: (title: string) => void;
   /** A tap on a row: makes it "talking now", or stops it when it already is. */
   onTap: (id: string) => void;
+  /** What was captured per topic id (job 018). */
+  counts?: ReadonlyMap<string, KindCounts>;
 }
 
 /**
@@ -20,8 +24,9 @@ interface Props {
  * text, the whole minutes of each, and "Add topic" pinned at the bottom with an inline field. Every
  * action is one tap with no confirmation. Titles are rendered as text only.
  */
-export function TopicsCard({ topics, canAdd, onAdd, onTap }: Props) {
-  const { t, tp } = useI18n();
+export function TopicsCard({ topics, canAdd, onAdd, onTap, counts }: Props) {
+  const i18n = useI18n();
+  const { t, tp } = i18n;
   const headingId = useId();
   const [adding, setAdding] = useState(false);
   const addRef = useRef<HTMLButtonElement>(null);
@@ -86,6 +91,9 @@ export function TopicsCard({ topics, canAdd, onAdd, onTap }: Props) {
                       <span className="topic-row__now-dot" aria-hidden="true" />
                       {t("free.topics.now")}
                     </span>
+                  ) : null}
+                  {counts?.get(topic.id) ? (
+                    <span className="topic-row__captured">{captureSummary(i18n, counts.get(topic.id))}</span>
                   ) : null}
                 </span>
                 <span className="topic-row__minutes">{t("free.topics.minutes", { minutes })}</span>

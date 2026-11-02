@@ -520,6 +520,119 @@ export function applyNameRound(meetingId: string): Promise<SpeakerState> {
   return speakerCommand("apply_name_round", { meetingId });
 }
 
+// ---- captures (job 018) ----------------------------------------------------------------------------
+// Decisions, to-dos and questions typed during the meeting. The core makes ids and times, checks every
+// input and answers only once the meeting file is written. Capture text is rendered as text only.
+
+export type CaptureType = "decision" | "todo" | "question";
+export const CAPTURE_KINDS: readonly CaptureType[] = ["decision", "todo", "question"];
+
+/** A stored capture, as the core keeps it. */
+export interface Capture {
+  id: string;
+  kind: CaptureType;
+  text: string;
+  /** To-dos only: a participant id. */
+  owner: string | null;
+  /** To-dos only: `YYYY-MM-DD`. */
+  due: string | null;
+  /** Agenda meetings: the item it belongs to. */
+  itemId: string | null;
+  /** Agenda-free meetings: the topic it belongs to. Neither id: "no topic". */
+  topicId: string | null;
+  /** `typed`; suggestions (job 019) will add `suggested`. */
+  source: "typed";
+  createdAt: number;
+  editedAt?: number;
+}
+
+/** What quick capture sends: the core adds id, time and source. */
+export interface NewCapture {
+  kind: CaptureType;
+  text: string;
+  owner: string | null;
+  due: string | null;
+  itemId: string | null;
+  topicId: string | null;
+}
+
+/** An edit: item, topic, id and time stay. */
+export interface CaptureChange {
+  kind: CaptureType;
+  text: string;
+  owner: string | null;
+  due: string | null;
+}
+
+export interface CaptureSaved {
+  /** The capture written (or, for a delete, removed). */
+  capture: Capture;
+  captures: Capture[];
+}
+
+export interface CaptureFieldError {
+  field: string;
+  code: string;
+}
+
+export type CaptureError =
+  | { kind: "invalid"; fields: CaptureFieldError[] }
+  | { kind: "noMeeting" | "notRunning" | "unknownCapture" | "locked" | "storageFailed" | "unknown" };
+
+const CAPTURE_ERROR_KINDS = ["noMeeting", "notRunning", "unknownCapture", "locked", "storageFailed"];
+
+function captureError(e: unknown): CaptureError {
+  const err = e as { kind?: unknown; fields?: unknown } | undefined;
+  if (err?.kind === "invalid" && Array.isArray(err.fields)) {
+    return {
+      kind: "invalid",
+      fields: (err.fields as CaptureFieldError[]).filter(
+        (f) => typeof f?.field === "string" && typeof f?.code === "string",
+      ),
+    };
+  }
+  if (typeof err?.kind === "string" && CAPTURE_ERROR_KINDS.includes(err.kind)) {
+    return { kind: err.kind } as CaptureError;
+  }
+  return { kind: "unknown" };
+}
+
+async function captureCommand<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
+  try {
+    return await invoke<T>(cmd, args);
+  } catch (e) {
+    throw captureError(e);
+  }
+}
+
+/** Every capture of a meeting. Rejects with a {@link CaptureError}. */
+export function loadCaptures(meetingId: string): Promise<Capture[]> {
+  return captureCommand("load_captures", { meetingId });
+}
+
+/** Quick capture. Resolves once the core has written the meeting file. */
+export function addCapture(meetingId: string, capture: NewCapture): Promise<CaptureSaved> {
+  return captureCommand("add_capture", { meetingId, capture });
+}
+
+export function updateCapture(
+  meetingId: string,
+  captureId: string,
+  change: CaptureChange,
+): Promise<CaptureSaved> {
+  return captureCommand("update_capture", { meetingId, captureId, change });
+}
+
+/** Resolves with the removed capture, for "Undo". */
+export function deleteCapture(meetingId: string, captureId: string): Promise<CaptureSaved> {
+  return captureCommand("delete_capture", { meetingId, captureId });
+}
+
+/** "Undo" of a delete: the capture comes back with its id, time and item. */
+export function restoreCapture(meetingId: string, capture: Capture): Promise<CaptureSaved> {
+  return captureCommand("restore_capture", { meetingId, capture });
+}
+
 export async function listSpeakerModels(): Promise<SpeakerModelList> {
   try {
     return await invoke<SpeakerModelList>("list_speaker_models");

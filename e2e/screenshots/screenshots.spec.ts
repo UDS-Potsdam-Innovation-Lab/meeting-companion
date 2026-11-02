@@ -17,7 +17,7 @@ interface View {
    */
   wave?: boolean;
   reducedMotion?: boolean;
-  /** Opens a settings fixture in the dark theme. */
+  /** Opens the fixture in the dark theme. */
   dark?: boolean;
 }
 
@@ -224,7 +224,78 @@ const VIEWS: View[] = [
   },
   { name: "live-free-half-de", fixture: "live-free", time: FREE_TIMES.half, act: waitFor(".nudge") },
   { name: "free-de", fixture: "free" },
+  // Frames 21 captures (job 018): the column with cards, right after a save (just saved + Undo), the
+  // inline editor, after a delete, empty, a refused save, agenda-free, dark, and German. Below 1200 px
+  // the "Captured" tab of the centre card is opened.
+  { name: "live-captures", fixture: "live-captures", time: LIVE_TIMES.running, act: capturesTab("todo") },
+  { name: "live-captures-de", fixture: "live-captures", time: LIVE_TIMES.running, act: capturesTab("todo") },
+  {
+    name: "live-captures-saved",
+    fixture: "live-captures",
+    time: LIVE_TIMES.running,
+    act: async (page) => {
+      await capturesTab("todo")(page);
+      const field = page.locator(".composer textarea");
+      await field.fill("Write to the third pilot school that offline mode comes later");
+      await page.locator(".composer .chip--person").nth(3).click();
+      await page.locator(".composer .chip").filter({ hasText: /Nov 6|6\. Nov/ }).click();
+      await field.press("Enter");
+      await page.getByTestId("undo-notice").waitFor();
+    },
+  },
+  {
+    name: "live-captures-edit",
+    fixture: "live-captures-edit",
+    time: LIVE_TIMES.running,
+    act: async (page) => {
+      await capturesTab("todo")(page);
+      await page.locator("[data-edit]").last().click();
+      await page.locator(".capture-editor").waitFor();
+    },
+  },
+  {
+    name: "live-captures-deleted",
+    fixture: "live-captures-edit",
+    time: LIVE_TIMES.running,
+    act: async (page) => {
+      await capturesTab("todo")(page);
+      await page.locator("[data-edit]").last().click();
+      await page.locator(".capture-editor .button--danger-soft").click();
+      await page.getByTestId("undo-notice").waitFor();
+    },
+  },
+  { name: "live-captures-empty", fixture: "live-captures-empty", time: LIVE_TIMES.running, act: capturesTab() },
+  {
+    name: "live-captures-error",
+    fixture: "live-captures-error",
+    time: LIVE_TIMES.running,
+    act: async (page) => {
+      await capturesTab()(page);
+      await page.locator(".composer textarea").fill("Do the release notes go out in German only?");
+      await page.locator(".composer textarea").press("Enter");
+      await page.locator(".composer .capture-error").waitFor();
+    },
+  },
+  { name: "live-free-captures", fixture: "live-free-captures", time: FREE_TIMES.running, act: capturesTab() },
+  {
+    name: "live-captures-dark",
+    fixture: "live-captures",
+    time: LIVE_TIMES.running,
+    dark: true,
+    act: capturesTab("todo"),
+  },
 ];
+
+/** Waits for the captures column; below 1200 px opens the centre card's "Captured" tab. */
+function capturesTab(kind?: "todo") {
+  return async (page: Page) => {
+    await page.locator(".composer").waitFor();
+    const centre = page.locator("#centre-captures-tab");
+    if (await centre.isVisible()) await centre.click();
+    if (kind) await page.locator('.capture-tabs__tab[data-kind="todo"]').click();
+    await page.locator(".transcript-line--partial").waitFor({ state: "attached" });
+  };
+}
 
 async function open(page: Page, view: View, locale: "de" | "en") {
   if (view.reducedMotion) await page.emulateMedia({ reducedMotion: "reduce" });
@@ -281,6 +352,8 @@ const RESPONSIVE_VIEWS = [
   "live-free",
   "live-free-half",
   "live-free-adding",
+  "live-captures",
+  "live-captures-edit",
 ];
 
 const sized = [

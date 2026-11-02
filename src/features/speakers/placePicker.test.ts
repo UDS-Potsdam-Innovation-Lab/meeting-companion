@@ -36,6 +36,13 @@ describe("UI rework: the Who said this? picker stays inside the window", () => {
     expect(q.top + q.maxHeight).toBeLessThanOrEqual(640 - 8);
   });
 
+  it("job 018: one that fits the window but neither side of a middle line is moved up until it is whole", () => {
+    const p = placePicker(rect(400), 420, phone);
+    expect(p.top).toBe(812 - 8 - 420);
+    expect(p.maxHeight).toBe(420);
+    expect(p.top).toBeGreaterThanOrEqual(8);
+  });
+
   it("never runs past the left or right edge of a narrow window", () => {
     const p = placePicker(rect(100, 200), 300, phone);
     expect(p.width).toBe(300);

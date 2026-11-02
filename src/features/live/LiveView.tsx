@@ -18,6 +18,18 @@ import { AT_BOTTOM, TranscriptPanel, type FeedScroll } from "../transcript/Trans
 import { useRecording } from "../transcript/useRecording";
 import { SpeakersView } from "../speakers/SpeakersView";
 import { useSpeakers } from "../speakers/useSpeakers";
+import type { Capture, CaptureType } from "../../lib/ipc";
+import { NARROW_LIVE_QUERY, useMediaQuery } from "../../lib/media";
+import {
+  CaptureList,
+  CapturesColumn,
+  CaptureTabs,
+  Composer,
+  savedAnnouncement,
+  UndoNotice,
+} from "../captures/CapturesPanel";
+import { countByKind, countByTarget, currentTarget } from "../captures/model";
+import { useCaptures } from "../captures/useCaptures";
 
 export const LIVE_VIEW = "live";
 
@@ -33,7 +45,8 @@ interface Props {
 /**
  * Frame 02 "Live meeting": top bar with the recording indicator, the left column (timer, agenda,
  * parking lot, overall line), the centre column (transcript), the time nudge over it and "End meeting"
- * at the bottom right. The right column (captures) comes with a later job.
+ * at the bottom right, and the right column with the captures (job 018: tabs, cards, quick capture). Below
+ * 1200 px the captures are a second tab of the centre card, with the composer stuck to the bottom.
  *
  * An agenda-free meeting (frame 16) has the same top bar (plus "Free mode"), centre column and
  * recording; its left column is the whole-meeting timer and "Topics so far", and its nudge comes at
@@ -55,6 +68,45 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
   const onConsent = useCallback((at: number) => update((m) => ({ ...m, recordingConsentAt: at })), [update]);
   const recording = useRecording(meeting.id, onConsent);
   const speakers = useSpeakers(meeting.id, recording.lines);
+
+  // Captures (job 018): the open kind tab is also the composer's kind. A capture is announced once,
+  // through the polite live region below, after the core wrote it.
+  const [captureKind, setCaptureType] = useState<CaptureType>("decision");
+  const [captureSaid, setCaptureSaid] = useState({ text: "", n: 0 });
+  const onCaptureSaved = useCallback(
+    (c: Capture) => setCaptureSaid((s) => ({ text: savedAnnouncement(i18n, meeting, c), n: s.n + 1 })),
+    [i18n, meeting],
+  );
+  const captures = useCaptures(meeting.id, onCaptureSaved);
+  const captureTarget = currentTarget(meeting);
+  const captureCounts = countByTarget(captures.captures);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const focusComposer = useCallback(() => composerRef.current?.focus(), []);
+  const narrow = useMediaQuery(NARROW_LIVE_QUERY);
+  const [centreCaptures, setCentreCaptures] = useState(false);
+  // Opening "Captured" on a narrow window brings the card up, so the list is in view at once (21k).
+  const centreShown = useRef(false);
+  useEffect(() => {
+    if (!narrow || !centreCaptures) {
+      centreShown.current = false;
+      return;
+    }
+    if (centreShown.current) return;
+    centreShown.current = true;
+    viewRef.current?.querySelector(".transcript-card")?.scrollIntoView?.({ block: "start" });
+  }, [narrow, centreCaptures]);
+  // One column: the nudge sticks above the composer, which sticks to the bottom; CSS needs its height.
+  const composerBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = composerBox.current;
+    const live = box?.closest<HTMLElement>(".live");
+    if (!box || !live || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() =>
+      live.style.setProperty("--composer-height", `${box.offsetHeight}px`),
+    );
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [narrow]);
 
   // Frame 06 opens in place of the live view, in the same window; recording goes on. Back returns to
   // the transcript where the reader left it, with focus on the button that opened the speakers.
@@ -122,7 +174,11 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
     if (showNudge && current) text = `${nudgeTitle(i18n, current)} ${t("nudge.body")}`;
     else if (showHalf && freeSnap) text = halfTimeText(i18n, freeSnap).announcement;
     setAnnounced({ key: visibleKey, text });
+    // The newer message wins: a nudge replaces a capture's announcement.
+    if (text) setCaptureSaid((s) => ({ text: "", n: s.n }));
   }
+  // Two saves with the same words still change the region (a no-break space every other time).
+  const liveText = captureSaid.text ? captureSaid.text + (captureSaid.n % 2 ? "" : "\u00a0") : announced.text;
 
   // Focus: when the last item ends, move to "Agenda done"; when the nudge closes while it had focus,
   // move to "Next ›" (or "Agenda done") instead of losing it.
@@ -221,7 +277,13 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
           </>
         }
       />
-      <main className="live" id="main" data-view={LIVE_VIEW} data-mode={free ? "free" : "agenda"}>
+      <main
+        className="live"
+        id="main"
+        data-view={LIVE_VIEW}
+        data-mode={free ? "free" : "agenda"}
+        data-centre={narrow && centreCaptures ? "captures" : "transcript"}
+      >
         <h1 className="visually-hidden">{t("live.heading")}</h1>
         <div className="live__left" ref={leftRef}>
           {saveFailed ? (
@@ -234,6 +296,7 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
               <FreeTimerCard snapshot={freeSnap} />
               <TopicsCard
                 topics={freeSnap.topics}
+                counts={captureCounts}
                 canAdd={canAddTopic(meeting)}
                 onAdd={onAddTopic}
                 onTap={onTapTopic}
@@ -249,7 +312,7 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
                 onPark={() => onAdvance(true)}
                 onNext={() => onAdvance(false)}
               />
-              <LiveAgenda snapshot={snapshot} />
+              <LiveAgenda snapshot={snapshot} counts={captureCounts} />
               <OverallLine snapshot={snapshot} />
             </>
           )}
@@ -263,8 +326,57 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
             initialScroll={feedScroll}
             onOpenSettings={onOpenSettings}
             hidden={hidden}
+            tabs={
+              narrow
+                ? {
+                    showCaptures: centreCaptures,
+                    onShow: setCentreCaptures,
+                    count: captures.captures.length,
+                    panel: (
+                      <div className="captures-column captures-column--narrow" data-testid="captures-column">
+                        <CaptureTabs
+                          counts={countByKind(captures.captures)}
+                          kind={captureKind}
+                          onKind={setCaptureType}
+                        />
+                        <CaptureList
+                          meeting={meeting}
+                          captures={captures}
+                          kind={captureKind}
+                          target={captureTarget}
+                          onDeleted={focusComposer}
+                        />
+                      </div>
+                    ),
+                  }
+                : undefined
+            }
           />
         </div>
+        {narrow ? (
+          <div className="live__composer" ref={composerBox}>
+            <UndoNotice meeting={meeting} captures={captures} onGone={focusComposer} />
+            <Composer
+              ref={composerRef}
+              meeting={meeting}
+              captures={captures}
+              kind={captureKind}
+              onKind={setCaptureType}
+              target={captureTarget}
+            />
+          </div>
+        ) : (
+          <div className="live__right">
+            <CapturesColumn
+              meeting={meeting}
+              captures={captures}
+              kind={captureKind}
+              onKind={setCaptureType}
+              target={captureTarget}
+              composerRef={composerRef}
+            />
+          </div>
+        )}
         <div className="live__stage">
           {showHalf && freeSnap ? (
             <HalfTimeNudge ref={nudgeRef} snapshot={freeSnap} onDismiss={onDismissHalf} />
@@ -284,7 +396,7 @@ export function LiveView({ meeting, state, onOpenSettings, hidden = false }: Pro
           <EndMeeting onEnd={onEnd} />
         </div>
         <div className="visually-hidden" aria-live="polite" data-testid="nudge-announcement">
-          {announced.text}
+          {liveText}
         </div>
       </main>
     </div>

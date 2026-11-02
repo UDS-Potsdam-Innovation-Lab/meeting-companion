@@ -256,7 +256,8 @@ describe("AC7 (job 004) no literal strings in the speakers view and the line pic
     expect(literalOffenders(container, meeting, data)).toEqual([]);
     await user.keyboard("{Escape}");
     await user.keyboard("{Escape}");
-    await user.click(screen.getByRole("button", { name: /⟦speakers.footer.listening/ }));
+    // "No signal" follows after 500 ms of real time without a level event; either footer word opens it.
+    await user.click(screen.getByRole("button", { name: /⟦speakers.footer.(listening|noSignal)/ }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("⟦speakers.title.other⟧");
     await user.selectOptions(screen.getAllByRole("combobox")[4]!, "⟦speakers.addGuest⟧");
     expect(literalOffenders(container, meeting, data)).toEqual([]);
