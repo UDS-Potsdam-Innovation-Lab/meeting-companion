@@ -3,7 +3,7 @@
 //! Tests that open ports hold [`NET`], so the port scan sees only its own test's sockets.
 
 use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -60,6 +60,8 @@ struct Rig {
     view: Option<PhoneViewServer>,
     events: Arc<Events>,
     clock: Arc<ManualClock>,
+    // Kept alive for the view; read directly only by the Linux-only test below.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     rt: tokio::runtime::Runtime,
     _net: MutexGuard<'static, ()>,
 }
@@ -1148,7 +1150,10 @@ fn ac4_other_addresses_are_not_affected() {
     let other = r.rt.block_on(async {
         let socket = tokio::net::TcpSocket::new_v4().unwrap();
         socket
-            .bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)), 0))
+            .bind(SocketAddr::new(
+                std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)),
+                0,
+            ))
             .unwrap();
         socket
             .connect(SocketAddr::V4(addr))
