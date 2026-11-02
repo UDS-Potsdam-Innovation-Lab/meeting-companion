@@ -1,4 +1,7 @@
 import type { Page } from "@playwright/test";
+import type { OmarchyFixture } from "../src/features/theme/fixtures";
+
+export type { OmarchyFixture };
 
 export type Fixture =
   | "empty"
@@ -50,12 +53,15 @@ export async function openApp(
   fixture: Fixture,
   locale: "de" | "en" = "en",
   theme: "light" | "dark" = "light",
+  /** Job 020: the fake core finds this Omarchy theme; the settings fixtures then open in "System". */
+  omarchy?: OmarchyFixture,
 ) {
   await page.addInitScript((l) => {
     if (!localStorage.getItem("meeting-companion.locale"))
       localStorage.setItem("meeting-companion.locale", l);
   }, locale);
-  await page.goto(`/?fixture=${fixture}${theme === "dark" ? "&theme=dark" : ""}`);
+  const themeParam = theme === "dark" ? "&theme=dark" : omarchy ? "&theme=system" : "";
+  await page.goto(`/?fixture=${fixture}${themeParam}${omarchy ? `&omarchy=${omarchy}` : ""}`);
   const view =
     fixture.startsWith("live") || fixture.startsWith("speakers") || LIVE_UNDER.includes(fixture)
       ? 'main[data-view="live"]'

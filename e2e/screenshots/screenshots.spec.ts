@@ -1,6 +1,6 @@
 import { test, type Page } from "@playwright/test";
 import { FREE_TIMES, LIVE_TIMES } from "../../src/features/agenda/fixtures";
-import { openApp, openPhone, type Fixture, type PhoneFixture } from "../helpers";
+import { openApp, openPhone, type Fixture, type OmarchyFixture, type PhoneFixture } from "../helpers";
 
 // One PNG per state and width: screenshots/<view>-<width>.png.
 const WIDTHS = [375, 1280, 1920];
@@ -19,6 +19,8 @@ interface View {
   reducedMotion?: boolean;
   /** Opens a settings fixture in the dark theme. */
   dark?: boolean;
+  /** Job 020: the fake core reports this Omarchy theme ("System" follows it). */
+  omarchy?: OmarchyFixture;
 }
 
 /** Waits until the mock core's state is on screen. */
@@ -224,6 +226,28 @@ const VIEWS: View[] = [
   },
   { name: "live-free-half-de", fixture: "live-free", time: FREE_TIMES.half, act: waitFor(".nudge") },
   { name: "free-de", fixture: "free" },
+  // Job 020: the app under an Omarchy theme, one dark (tokyo-night) and one light (catppuccin-latte).
+  ...(["tokyo-night", "catppuccin-latte"] as const).flatMap((omarchy): View[] => [
+    { name: `omarchy-${omarchy}-agenda`, fixture: "filled", omarchy },
+    { name: `omarchy-${omarchy}-live`, fixture: "live", time: LIVE_TIMES.nudge, omarchy },
+    { name: `omarchy-${omarchy}-live-over`, fixture: "live", time: LIVE_TIMES.over, omarchy },
+    {
+      name: `omarchy-${omarchy}-live-transcript`,
+      fixture: "live-transcript",
+      time: LIVE_TIMES.running,
+      omarchy,
+      act: waitFor(".transcript-line--partial"),
+    },
+    {
+      name: `omarchy-${omarchy}-settings-general`,
+      fixture: "settings",
+      omarchy,
+      act: async (page) => {
+        await page.getByRole("tab", { name: /General/ }).click();
+        await page.getByText(/^Follows Omarchy/).waitFor();
+      },
+    },
+  ]),
 ];
 
 async function open(page: Page, view: View, locale: "de" | "en") {
@@ -237,7 +261,7 @@ async function open(page: Page, view: View, locale: "de" | "en") {
     return;
   }
   if (view.time !== undefined) await page.clock.setFixedTime(view.time);
-  await openApp(page, view.fixture, locale, view.dark ? "dark" : "light");
+  await openApp(page, view.fixture, locale, view.dark ? "dark" : "light", view.omarchy);
   await view.act?.(page);
 }
 
@@ -287,6 +311,7 @@ const sized = [
   ...RESPONSIVE_SIZES.flatMap((size) => RESPONSIVE_VIEWS.map((name) => ({ size, name }))),
   ...SHORT_SIZES.map((size) => ({ size, name: "live-nudge" })),
   ...SHORT_SIZES.map((size) => ({ size, name: "live-level-speech" })),
+  ...SHORT_SIZES.map((size) => ({ size, name: "omarchy-tokyo-night-live" })),
 ];
 
 for (const { size, name } of sized) {

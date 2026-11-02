@@ -22,12 +22,15 @@ import {
   SPEAKER_TRANSCRIPT,
 } from "../features/agenda/fixtures";
 import { isMeetingValid, type Meeting } from "../features/agenda/model";
+import { OMARCHY_FIXTURES, type OmarchyFixture } from "../features/theme/fixtures";
+import type { OmarchyTheme } from "../features/theme/omarchy";
 import {
   CAPTURE_OFF,
   DEFAULT_SETTINGS,
   EVENT_CAPTURE,
   EVENT_LEVEL,
   EVENT_MIC_TEST,
+  EVENT_OMARCHY_THEME,
   EVENT_PHONE_VIEW,
   EVENT_SEGMENT,
   EVENT_SETTINGS,
@@ -89,6 +92,8 @@ const LLM_TEST_KEY = "mock-backend.llmTest";
 const LEVEL_KEY = "mock-backend.level";
 /** `none`: `phone_view_open` finds no local network. */
 export const PHONE_NETWORK_KEY = "mock-backend.phone-network";
+/** The Omarchy theme fixture the fake core "reads" (job 020); survives a reload like the real files. */
+const OMARCHY_KEY = "mock-backend.omarchy";
 /** The phone view's fixed URL and QR code (the core's rendering of this URL; job 012). */
 export const MOCK_PHONE_VIEW: PhoneViewOpened = {
   url: "http://192.168.178.20:49152/#t=FAKE-TOKEN-for-tests-only",
@@ -282,7 +287,26 @@ let capture: CaptureState = CAPTURE_OFF;
 let timer: ReturnType<typeof setInterval> | null = null;
 let step = 0;
 
-function seed(fixture: Fixture, dark: boolean) {
+function omarchyTheme(): OmarchyTheme | null {
+  const name = localStorage.getItem(OMARCHY_KEY);
+  return name && name in OMARCHY_FIXTURES ? structuredClone(OMARCHY_FIXTURES[name as OmarchyFixture]) : null;
+}
+
+/** Switches the fake core's Omarchy theme at run time (`null`: gone), as `omarchy theme set` would. */
+export function setMockOmarchy(name: OmarchyFixture | null) {
+  if (name) localStorage.setItem(OMARCHY_KEY, name);
+  else localStorage.removeItem(OMARCHY_KEY);
+  void emit(EVENT_OMARCHY_THEME, omarchyTheme());
+}
+
+declare global {
+  interface Window {
+    /** e2e only: see {@link setMockOmarchy}. */
+    __mockOmarchy?: typeof setMockOmarchy;
+  }
+}
+
+function seed(fixture: Fixture, dark: boolean, system: boolean) {
   for (const k of [
     CORRUPT_KEY,
     LOCKED_KEY,
@@ -316,7 +340,7 @@ function seed(fixture: Fixture, dark: boolean) {
       ...DEFAULT_SETTINGS,
       locale: (localStorage.getItem("meeting-companion.locale") as Settings["locale"]) ?? "en",
       inputDevice: missing ? "Jabra Speak 710" : "Jabra Speak 510",
-      theme: fixture === "settings-dark" || dark ? "dark" : "light",
+      theme: fixture === "settings-dark" || dark ? "dark" : system ? "system" : "light",
       languageModel:
         fixture === "settings-llm-local" || fixture === "settings-llm-local-failed"
           ? { local: LLM_MODELS.models[0]!.id }
@@ -721,13 +745,22 @@ function fail(meetingId: string, reason: RecordReason): never {
 export function installMockBackend() {
   const url = new URL(window.location.href);
   const fixture = url.searchParams.get("fixture") as Fixture | null;
+  // `&omarchy=<fixture>`: the fake core finds that Omarchy theme (`none`: no Omarchy).
+  const omarchy = url.searchParams.get("omarchy");
   if (fixture) {
-    // `&theme=dark` opens a settings fixture in the dark theme.
-    seed(fixture, url.searchParams.get("theme") === "dark");
+    // `&theme=dark` opens a settings fixture in the dark theme, `&theme=system` in "System".
+    const theme = url.searchParams.get("theme");
+    seed(fixture, theme === "dark", theme === "system");
     url.searchParams.delete("fixture");
     url.searchParams.delete("theme");
-    window.history.replaceState(null, "", url);
   }
+  if (omarchy !== null) {
+    if (omarchy in OMARCHY_FIXTURES) localStorage.setItem(OMARCHY_KEY, omarchy);
+    else localStorage.removeItem(OMARCHY_KEY);
+    url.searchParams.delete("omarchy");
+  }
+  if (fixture || omarchy !== null) window.history.replaceState(null, "", url);
+  window.__mockOmarchy = setMockOmarchy;
 
   mockIPC(
     (cmd, args) => {
@@ -969,6 +1002,8 @@ export function installMockBackend() {
           return null;
         case "phone_view_open":
           return openPhone(a.meetingId as string);
+        case "omarchy_theme":
+          return omarchyTheme();
         case "phone_view_close":
           closePhone("requested");
           return null;
