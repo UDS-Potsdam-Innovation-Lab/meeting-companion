@@ -1,0 +1,24 @@
+{
+  "name": "tokyo-night",
+  "mode": "dark",
+  "palette": {
+    "accent": "#7aa2f7",
+    "background": "#1a1b26",
+    "blue": "#7aa2f7",
+    "bright_foreground": "#c0caf5",
+    "cyan": "#449dab",
+    "dark_background": "#13141c",
+    "dark_foreground": "#565f89",
+    "darker_background": "#0e0e14",
+    "foreground": "#a9b1d6",
+    "green": "#9ece6a",
+    "light_foreground": "#b4bee6",
+    "lighter_background": "#24283b",
+    "magenta": "#ad8ee6",
+    "muted": "#414868",
+    "orange": "#eb927b",
+    "red": "#f7768e",
+    "selection": "#292e42",
+    "yellow": "#e0af68"
+  }
+}

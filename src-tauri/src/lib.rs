@@ -18,6 +18,7 @@ pub mod secrets;
 pub mod settings;
 pub mod speakers;
 pub mod store;
+pub mod theme;
 pub mod transcript;
 
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -91,6 +92,8 @@ pub const EVENT_LEVEL: &str = "capture-level";
 pub const EVENT_SWITCHED: &str = "microphone-switched";
 /// Event when the phone web view opened or closed, and why ([`PhoneViewState`]).
 pub const EVENT_PHONE_VIEW: &str = "phone-view-state";
+/// The active Omarchy theme changed (Linux only; job 020): its name, mode and palette, or `null`.
+pub const EVENT_OMARCHY_THEME: &str = "omarchy-theme";
 const SMOKE_TIMEOUT: Duration = Duration::from_secs(90);
 const SMOKE_VIEW: &str = "agenda-setup";
 
@@ -105,6 +108,8 @@ pub struct AppState {
     /// Where meetings and transcripts are stored, shown read-only in the settings.
     storage_folder: String,
     smoke: bool,
+    /// The desktop theme "System" follows (Omarchy on Linux; `None` elsewhere).
+    theme: theme::ThemeService,
     /// Held by every command that reads, changes and writes the meeting file, so a save from the
     /// UI and a speaker choice cannot overwrite each other.
     edits: Mutex<()>,
@@ -488,6 +493,12 @@ fn update_setting(
     Ok(update)
 }
 
+/// The active Omarchy theme, or `null` (no Omarchy, or not Linux). Switches arrive as `omarchy-theme`.
+#[tauri::command]
+fn omarchy_theme(state: State<'_, AppState>) -> Option<theme::OmarchyTheme> {
+    state.theme.current()
+}
+
 #[tauri::command(async)]
 fn list_input_devices(state: State<'_, AppState>) -> Vec<String> {
     state.recorder.input_devices()
@@ -792,6 +803,11 @@ pub fn run() {
             )
             .with_devices(devices)
             .with_diarizer(diarize);
+            // Linux: follows the active Omarchy theme (read-only, polled once a second).
+            let handle = app.handle().clone();
+            let omarchy = theme::ThemeService::start(move |t| {
+                let _ = handle.emit(EVENT_OMARCHY_THEME, t);
+            });
             app.manage(AppState {
                 store,
                 recorder,
@@ -800,6 +816,7 @@ pub fn run() {
                 llm,
                 storage_folder,
                 smoke,
+                theme: omarchy,
                 edits: Mutex::new(()),
             });
             if smoke {
@@ -842,7 +859,8 @@ pub fn run() {
             run_llm_test,
             cancel_llm_test,
             phone_view_open,
-            phone_view_close
+            phone_view_close,
+            omarchy_theme
         ])
         .build(tauri::generate_context!())
         .expect("error while building Meeting Companion")

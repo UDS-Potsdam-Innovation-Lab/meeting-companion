@@ -53,6 +53,10 @@ qrcodegen = "1.8"
 # Constant-time comparison of the phone token (RustCrypto; already used by chacha20poly1305).
 subtle = "2.6"
 
+# Opens the Omarchy theme files with O_NONBLOCK (job 020), so a FIFO in their place cannot block.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # Decodes the phone QR code back in tests (dev only).
 rqrr = { version = "0.11", default-features = false }

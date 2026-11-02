@@ -276,6 +276,7 @@ describe("AC7 (job 007) the level event adds nothing beyond one listed core even
       "capture-state",
       "mic-test",
       "microphone-switched",
+      "omarchy-theme",
       "phone-view-state",
       "settings-changed",
       "transcript-segment",
@@ -609,5 +610,34 @@ describe("job 016: a cached sys crate output not built against the shared ggml i
     const script = read("scripts/ggml.mjs");
     expect(script).toMatch(/function verify\(\) \{[\s\S]*?if \(!current\(crate\)\)[\s\S]*?outputs\(\);/);
     expect(script).toMatch(/function build\(\) \{[\s\S]*?cleanStale\(\);[\s\S]*?cleanStale\(\);/);
+  });
+});
+
+describe("Job 020 the Omarchy theme source is read-only: no process, no network, no watcher crate", () => {
+  const dir = join(root, "src-tauri/src/theme");
+  const sources = readdirSync(dir).map((f) => ({ file: f, src: readFileSync(join(dir, f), "utf8") }));
+  const cargo = read("src-tauri/Cargo.toml");
+
+  it("starts no process and writes no file", () => {
+    expect(sources.map((s) => s.file).sort()).toEqual(["mod.rs", "omarchy.rs", "watch.rs"]);
+    for (const { file, src } of sources) {
+      // Without the inline test module, which writes its own temp folders.
+      const production = src.split("#[cfg(test)]\nmod tests")[0]!;
+      expect(production, file).not.toMatch(
+        /std::process|Command::new|\.write\(|fs::write|create_dir|remove_|fs::rename|set_permissions/,
+      );
+      expect(production, file).not.toMatch(/TcpStream|TcpListener|UdpSocket|https?:\/\//);
+    }
+  });
+
+  it("adds no file-watch crate; libc only to open the files without blocking", () => {
+    expect(cargo).not.toMatch(/^(notify|inotify|watchexec|hotwatch)\b/m);
+    expect(cargo).toMatch(/\[target\.'cfg\(target_os = "linux"\)'\.dependencies\]\nlibc = "0\.2"/);
+  });
+
+  it("the file source exists only on Linux", () => {
+    const mod = sources.find((s) => s.file === "mod.rs")!.src;
+    expect(mod).toMatch(/#\[cfg\(target_os = "linux"\)\]\npub mod omarchy;/);
+    expect(mod).toMatch(/#\[cfg\(target_os = "linux"\)\]\npub mod watch;/);
   });
 });

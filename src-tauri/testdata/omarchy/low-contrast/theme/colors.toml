@@ -1,0 +1,24 @@
+# Adversarial fixture (job 020): text, accent and status colours all close to the background.
+mode = "dark"
+
+accent = "#5a5f6a"
+selection = "#55595f"
+muted = "#575b62"
+
+background = "#4a4d55"
+dark_background = "#44474e"
+darker_background = "#3f4148"
+lighter_background = "#50535b"
+
+foreground = "#6a6e78"
+dark_foreground = "#5c6069"
+light_foreground = "#70747e"
+bright_foreground = "#787c86"
+
+red = "#6b4b4b"
+yellow = "#6b634b"
+orange = "#6b584b"
+green = "#4b6b52"
+cyan = "#4b676b"
+blue = "#4b556b"
+magenta = "#634b6b"

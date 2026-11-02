@@ -1,0 +1,18 @@
+{
+  "name": "junk-theme",
+  "mode": "dark",
+  "palette": {
+    "background": "#1a1b26",
+    "foreground": "#c0caf5",
+    "accent": "red; background:url(http://x)",
+    "red": "var(--x)",
+    "green": "expression(alert(1))",
+    "yellow": "#aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "cyan": "#ääääää",
+    "blue": "#12345",
+    "muted": "rgb(1,2,3)",
+    "selection": "#ff0000;}",
+    "orange": "#ff8800",
+    "magenta": "</style><script>"
+  }
+}

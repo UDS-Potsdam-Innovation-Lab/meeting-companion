@@ -1,0 +1,24 @@
+{
+  "name": "fwu-dark",
+  "mode": "dark",
+  "palette": {
+    "accent": "#e96429",
+    "background": "#1d1a18",
+    "blue": "#6a9cf0",
+    "bright_foreground": "#ffffff",
+    "cyan": "#4fc1cf",
+    "dark_background": "#161412",
+    "dark_foreground": "#b3ab9b",
+    "darker_background": "#100e0d",
+    "foreground": "#fff3e9",
+    "green": "#5fbf7f",
+    "light_foreground": "#fff9f4",
+    "lighter_background": "#2a2522",
+    "magenta": "#c48ae0",
+    "muted": "#8a8274",
+    "orange": "#e96429",
+    "red": "#f55050",
+    "selection": "#5a2a14",
+    "yellow": "#f2b84b"
+  }
+}

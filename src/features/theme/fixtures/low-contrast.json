@@ -1,0 +1,24 @@
+{
+  "name": "low-contrast",
+  "mode": "dark",
+  "palette": {
+    "accent": "#5a5f6a",
+    "background": "#4a4d55",
+    "blue": "#4b556b",
+    "bright_foreground": "#787c86",
+    "cyan": "#4b676b",
+    "dark_background": "#44474e",
+    "dark_foreground": "#5c6069",
+    "darker_background": "#3f4148",
+    "foreground": "#6a6e78",
+    "green": "#4b6b52",
+    "light_foreground": "#70747e",
+    "lighter_background": "#50535b",
+    "magenta": "#634b6b",
+    "muted": "#575b62",
+    "orange": "#6b584b",
+    "red": "#6b4b4b",
+    "selection": "#55595f",
+    "yellow": "#6b634b"
+  }
+}

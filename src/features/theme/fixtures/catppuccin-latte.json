@@ -1,0 +1,24 @@
+{
+  "name": "catppuccin-latte",
+  "mode": "light",
+  "palette": {
+    "accent": "#1e66f5",
+    "background": "#eff1f5",
+    "blue": "#1e66f5",
+    "bright_foreground": "#4c4f69",
+    "cyan": "#179299",
+    "dark_background": "#e3e4e8",
+    "dark_foreground": "#9ca0b0",
+    "darker_background": "#d7d8dc",
+    "foreground": "#4c4f69",
+    "green": "#40a02b",
+    "light_foreground": "#5c5f77",
+    "lighter_background": "#dce0e8",
+    "magenta": "#ea76cb",
+    "muted": "#acb0be",
+    "orange": "#d84e2b",
+    "red": "#d20f39",
+    "selection": "#ccd0da",
+    "yellow": "#df8e1d"
+  }
+}
