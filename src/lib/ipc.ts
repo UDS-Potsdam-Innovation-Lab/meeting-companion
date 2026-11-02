@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Meeting } from "../features/agenda/model";
+import type { OmarchyTheme } from "../features/theme/omarchy";
 
 /** `keyUnavailable`: the data key is not in the OS keychain; nothing can be read or saved. */
 export type LoadError = "corrupt" | "unreadable" | "keyUnavailable";
@@ -321,6 +322,25 @@ export async function stopMicTest(): Promise<void> {
   } catch {
     // Nothing to stop.
   }
+}
+
+// ---- desktop theme (job 020) ----------------------------------------------------------------------
+// Linux: the active Omarchy theme, read and validated by the core (colours, mode and a slug only).
+
+export const EVENT_OMARCHY_THEME = "omarchy-theme";
+
+/** `{ theme }`: the core answered (`null`: no Omarchy theme). `null`: no answer (the caller keeps what it has). */
+export async function loadOmarchyTheme(): Promise<{ theme: OmarchyTheme | null } | null> {
+  try {
+    return { theme: (await invoke<OmarchyTheme | null>("omarchy_theme")) ?? null };
+  } catch {
+    return null;
+  }
+}
+
+/** Calls `handler` once per theme switch (`null`: the theme is gone). Returns the function that stops listening. */
+export function onOmarchyTheme(handler: (theme: OmarchyTheme | null) => void): () => void {
+  return subscribe<OmarchyTheme | null>(EVENT_OMARCHY_THEME, handler);
 }
 
 export function onSettingsChanged(handler: (s: Settings) => void): () => void {

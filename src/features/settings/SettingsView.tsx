@@ -610,7 +610,14 @@ function ThemePreview({ mode }: { mode: ThemeSetting }) {
 
 function GeneralSection() {
   const { t } = useI18n();
-  const { settings, update, systemDark } = useSettings();
+  const { settings, update, systemDark, omarchy } = useSettings();
+  const systemHint = omarchy
+    ? omarchy.name
+      ? t("settings.theme.system.omarchy", { name: omarchy.name })
+      : t("settings.theme.system.omarchyUnnamed")
+    : t("settings.theme.system.hint", {
+        now: systemDark ? t("settings.theme.nowDark") : t("settings.theme.nowLight"),
+      });
   return (
     <>
       <Card title={t("settings.app.title")} hint={t("settings.app.hint")}>
@@ -636,12 +643,7 @@ function GeneralSection() {
           options={THEMES.map((m) => ({
             value: m,
             label: t(`settings.theme.${m}` as MessageKey),
-            hint:
-              m === "system"
-                ? t("settings.theme.system.hint", {
-                    now: systemDark ? t("settings.theme.nowDark") : t("settings.theme.nowLight"),
-                  })
-                : t(`settings.theme.${m}.hint` as MessageKey),
+            hint: m === "system" ? systemHint : t(`settings.theme.${m}.hint` as MessageKey),
             preview: <ThemePreview mode={m} />,
           }))}
         />

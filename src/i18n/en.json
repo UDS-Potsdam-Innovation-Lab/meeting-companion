@@ -301,6 +301,8 @@
   "settings.theme.dark.hint": "For dim rooms and evenings",
   "settings.theme.system": "System",
   "settings.theme.system.hint": "Follows the system · now {now}",
+  "settings.theme.system.omarchy": "Follows Omarchy · now {name}",
+  "settings.theme.system.omarchyUnnamed": "Follows Omarchy",
   "settings.theme.nowLight": "light",
   "settings.theme.nowDark": "dark",
   "recording.onDevice.auto": "On-device · DE/EN",

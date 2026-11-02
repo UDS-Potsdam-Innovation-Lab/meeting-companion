@@ -6,6 +6,7 @@ import { App } from "../app/App";
 import { I18nProvider } from "../i18n";
 import { ClockProvider, FakeClock, systemClock, type Clock } from "../lib/clock";
 import type { Meeting } from "../features/agenda/model";
+import type { OmarchyTheme } from "../features/theme/omarchy";
 import {
   CAPTURE_OFF,
   DEFAULT_SETTINGS,
@@ -52,6 +53,8 @@ export interface FakeRecording {
   keychainUnavailable?: boolean;
   /** Answers `run_llm_test` (default: a reply at once); may reject with `{ kind }` or settle late. */
   llmTest?: () => Promise<LlmTestReply>;
+  /** What `omarchy_theme` answers (default `null`: no Omarchy); switches are sent with `emit`. */
+  omarchy?: OmarchyTheme | null;
 }
 
 export const FAKE_LLM_MODELS: LlmModelList = {
@@ -214,6 +217,8 @@ export function fakeCore(
           send(EVENT_SETTINGS, core.settings);
           return { settings: core.settings, saved: true };
         }
+        case "omarchy_theme":
+          return structuredClone(rec.omarchy ?? null);
         case "list_llm_models":
           return rec.llmModels ?? FAKE_LLM_MODELS;
         case "get_api_key_status":

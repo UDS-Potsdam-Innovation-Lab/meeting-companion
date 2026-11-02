@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -11,13 +12,23 @@ import {
 import { LOCALE_STORAGE_KEY, useI18n } from "../../i18n";
 import {
   DEFAULT_SETTINGS,
+  loadOmarchyTheme,
   loadSettings,
+  onOmarchyTheme,
   onSettingsChanged,
   updateSetting,
   type SettingChange,
   type Settings,
   type SettingsStatus,
 } from "../../lib/ipc";
+import {
+  cacheOmarchy,
+  readOmarchyCache,
+  setOmarchyTokens,
+  toApplied,
+  type AppliedOmarchy,
+} from "../theme/apply";
+import type { OmarchyTheme } from "../theme/omarchy";
 import { applyTheme, cacheTheme, readCachedTheme } from "./theme";
 
 /** Where job 003 remembered the speech model. Moved into the settings store once, then removed. */
@@ -30,6 +41,11 @@ export interface SettingsState {
   storageFolder: string;
   /** The system theme right now (for "System · now dark"). */
   systemDark: boolean;
+  /**
+   * The Omarchy theme "System" follows (job 020): `name` for the hint, empty if unknown. `null`: no
+   * Omarchy theme, "System" follows `prefers-color-scheme`.
+   */
+  omarchy: { name: string } | null;
   /** The last change could not be stored on this device; it holds for this session. */
   notSaved: boolean;
   /** Sends a change to the core; every view applies it from the `settings-changed` event. */
@@ -61,6 +77,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [storageFolder, setStorageFolder] = useState("");
   const [notSaved, setNotSaved] = useState(false);
   const [systemDark, setSystemDark] = useState(false);
+  // Until the core answers, the cached map (already applied by theme-boot.js) holds.
+  const [omarchy, setOmarchy] = useState<AppliedOmarchy | null>(readOmarchyCache);
   const localeRef = useRef(setLocale);
   useEffect(() => {
     localeRef.current = setLocale;
@@ -93,14 +111,48 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // The Omarchy theme: what the core holds now, then every switch. Each report replaces the cache.
+  useEffect(() => {
+    let cancelled = false;
+    let switched = false;
+    const report = (theme: OmarchyTheme | null) => {
+      const next = toApplied(theme);
+      cacheOmarchy(next);
+      setOmarchy(next);
+    };
+    const stop = onOmarchyTheme((theme) => {
+      if (cancelled) return;
+      switched = true;
+      report(theme);
+    });
+    void loadOmarchyTheme().then((answer) => {
+      // An event that came first is newer than this answer.
+      if (!cancelled && !switched && answer) report(answer.theme);
+    });
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, []);
+
   // Locale and theme follow the settings, wherever they were changed.
   useEffect(() => {
     localeRef.current(settings.locale);
   }, [settings.locale]);
   useEffect(() => {
     cacheTheme(settings.theme);
-    return applyTheme(settings.theme, setSystemDark);
   }, [settings.theme]);
+  // Before the paint, so tokens and `data-theme` change in the same frame.
+  const following = settings.theme === "system" ? omarchy : null;
+  useLayoutEffect(() => {
+    if (following) {
+      setOmarchyTokens(following.tokens);
+      document.documentElement.dataset.theme = following.mode;
+      return;
+    }
+    setOmarchyTokens(null);
+    return applyTheme(settings.theme, setSystemDark);
+  }, [settings.theme, following]);
 
   const update = useCallback(async (change: SettingChange) => {
     // Shown at once; the core's answer (and its event) confirms or corrects it.
@@ -116,9 +168,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const omarchyName = omarchy?.name ?? null;
+  const omarchyHint = useMemo(() => (omarchyName === null ? null : { name: omarchyName }), [omarchyName]);
   const value = useMemo<SettingsState>(
-    () => ({ settings, status, storageFolder, systemDark, notSaved, update }),
-    [settings, status, storageFolder, systemDark, notSaved, update],
+    () => ({ settings, status, storageFolder, systemDark, omarchy: omarchyHint, notSaved, update }),
+    [settings, status, storageFolder, systemDark, omarchyHint, notSaved, update],
   );
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 }
